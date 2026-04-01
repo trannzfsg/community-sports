@@ -1,45 +1,52 @@
 # Community Sports
 
 ## Overview
-This project aims to create a software solution for managing community sports sessions, players, organisers, payments, and communications. The current MVP is oriented around badminton, but the project structure should stay flexible enough to support broader community sports workflows over time.
+Community Sports is a Firebase-backed web app for managing recurring community sports series, dated session events, player registrations, and organiser payment confirmation.
 
-## MVP Summary
-### Core Features
-1. Player and Organiser Roles:
-   - Organisers handle session management, payments, and player notifications.
-   - Players can view session details, check availability, and make payments.
+The current MVP is badminton-first, but the data model supports broader sports workflows.
 
-2. Payment Handling:
-   - Differentiated pricing for session types (for example, long-term members vs casual players).
-   - Payment methods including PayID.
+## Current Architecture
 
-3. Sessions:
-   - Multiple sessions weekly at varying times and locations.
-   - Session status checks (full / available spots).
-   - Bookings to guarantee spots.
+### Core Collections
+- `users` — real user accounts and roles
+- `players` — searchable player directory used for event registration
+- `sessions` — recurring session series definitions
+- `sessionEvents` — dated occurrences of a session series
+- `registrations` — registrations tied to a specific event
+- `payments` — mirrored payment bookkeeping records
 
-4. Notifications System:
-   - Payment reminders for players.
-   - Alerts for organisers on non-payments.
+### Roles
+- **player** — can view all active series/events and register self
+- **organiser** — owns and manages only their own series/events
+- **admin** — can manage any organiser-owned series/events
 
-5. User Management:
-   - Organisers, players, and admins account logins.
-   - Messaging integrations such as WhatsApp, alongside a web app for broader accessibility.
+## Deployment
 
-6. Logging:
-   - Logs for errors/issues to avoid repeating mistakes.
-   - Memory-based logs for session summaries.
+### Frontend
+- Next.js static export
+- deployed to Firebase Hosting from local CLI
+- live domain: `sports.tranzha.com`
 
-## Tech Stack
-- Authentication: Firebase Authentication
-- Database: Firebase Firestore
-- Hosting: Firebase Hosting
-- Frontend: Next.js
-- Backend: Firebase Functions (TypeScript)
+### Backend
+- Firebase Functions scaffold exists, but deployment is blocked until project is upgraded to Blaze
 
-## Firebase Environment Setup
+## Local Development
+
+### Frontend
+```bash
+cd web-app
+npm install
+npm run dev
+```
+
+### Firebase Deploy (local only)
+```bash
+firebase deploy --only hosting
+firebase deploy --only firestore:rules,firestore:indexes
+```
+
+## Environment Setup
 ### Frontend (`web-app/.env.local`)
-Fill in:
 ```env
 NEXT_PUBLIC_FIREBASE_API_KEY=
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
@@ -51,7 +58,6 @@ NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=
 ```
 
 ### Backend (`functions/.env`)
-Fill in:
 ```env
 FIREBASE_PROJECT_ID=
 FIREBASE_STORAGE_BUCKET=
@@ -59,17 +65,13 @@ FIREBASE_DATABASE_URL=
 FIREBASE_WEB_API_KEY=
 ```
 
-You can get these from Firebase Console > Project settings > General > Your apps.
+## Important Behavior
+- Session series must always have an organiser owner
+- Only players should be registered to events
+- Inactivating a series preserves history instead of deleting it
+- Organiser-private manual players remain visible only to the organiser who created them
 
-## Directory Structure
-```text
-/community_sports
-|-- /.git
-|-- /.firebaserc
-|-- /functions
-|-- /public
-|-- /web-app
-|-- firebase.json
-|-- firestore.rules
-|-- README.md
-```
+## Supporting Docs
+- `ARCHITECTURE.md`
+- `TESTING.md`
+- `TODO.md`

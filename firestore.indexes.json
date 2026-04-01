@@ -7,30 +7,6 @@
         { "fieldPath": "organiserId", "mode": "ASCENDING" },
         { "fieldPath": "dayOfWeek", "mode": "ASCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "payments",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "sessionEventId", "mode": "ASCENDING" },
-        { "fieldPath": "status", "mode": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "payments",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "organiserId", "mode": "ASCENDING" },
-        { "fieldPath": "status", "mode": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "payments",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "userId", "mode": "ASCENDING" },
-        { "fieldPath": "status", "mode": "ASCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []
