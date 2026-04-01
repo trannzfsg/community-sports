@@ -17,7 +17,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import { onAuthStateChanged, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
 import { deletePaymentRecord, upsertPaymentRecord } from "@/lib/payments";
@@ -153,9 +153,6 @@ export default function DashboardPage() {
       for (const organiserId of organiserIds) {
         const entries = await getVisiblePlayersForOrganiser(db, organiserId);
         for (const entry of entries) {
-          if (entry.userId && (entry.userId === organiserId || entry.userId === currentUser.uid && profileData.role !== "player")) {
-            continue;
-          }
           visiblePlayers.set(entry.id, entry);
         }
       }
@@ -250,7 +247,7 @@ export default function DashboardPage() {
   }
 
   async function handleDeleteSeries(series: SessionSeries) {
-    const message = `WARNING: Inactivating this series will hide it from normal use and preserve history/events/registrations for future manual reactivation in the database. Continue?`;
+    const message = `WARNING: Inactivating this series will hide it from normal use and preserve its history, events, registrations, and payment records. Continue?`;
     if (!confirm(message)) {
       return;
     }
@@ -469,7 +466,7 @@ export default function DashboardPage() {
             </div>
             <div className="flex flex-wrap gap-3">
               {canManageSessions ? <Link href="/sessions/new" className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700">Create session series</Link> : null}
-              <button type="button" onClick={async () => { await signOut(auth); router.push("/"); }} className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Sign out</button>
+              <Link href="/logout" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Sign out</Link>
             </div>
           </div>
         </div>
@@ -484,11 +481,7 @@ export default function DashboardPage() {
               const showStartsFrom = profile?.role !== "player";
               const visiblePlayersForSeries = playerDirectory.filter(
                 (player) => player.ownerOrganiserId === null || player.ownerOrganiserId === series.organiserId,
-              ).filter((player) => {
-                if (!player.userId) return true;
-                const role = series.organiserId === player.userId ? "organiser" : null;
-                return role !== "organiser" && role !== "admin";
-              });
+              ).filter((player) => !player.email.includes("+badmintonmonday") && !player.email.includes("tranzha83@gmail.com"));
               const eventIsFull = !!nextEvent && nextEvent.bookedCount >= nextEvent.capacity;
               const playerIsGoing = !!currentRegistration;
               const playerCanJoin = !!nextEvent && !eventIsFull && !playerIsGoing;

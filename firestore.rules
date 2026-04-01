@@ -58,6 +58,12 @@ service cloud.firestore {
       return isSignedIn() && resource.data.organiserId == request.auth.uid;
     }
 
+    function eventBelongsToCurrentOrganiserBySeries() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/sessions/$(resource.data.sessionSeriesId))
+        && get(/databases/$(database)/documents/sessions/$(resource.data.sessionSeriesId)).data.organiserId == request.auth.uid;
+    }
+
     function newEventOwnedByCurrentOrganiser() {
       return isSignedIn() && request.resource.data.organiserId == request.auth.uid;
     }
@@ -124,7 +130,7 @@ service cloud.firestore {
     match /sessionEvents/{eventId} {
       allow read: if isAdmin()
         || isPlayer()
-        || (isOrganiser() && eventOwnedByCurrentOrganiser());
+        || (isOrganiser() && (eventOwnedByCurrentOrganiser() || eventBelongsToCurrentOrganiserBySeries()));
       allow create, update, delete: if isAdmin()
         || (isOrganiser() && newEventOwnedByCurrentOrganiser());
     }
@@ -149,12 +155,12 @@ service cloud.firestore {
     match /payments/{paymentId} {
       allow read: if isAdmin()
         || (isOrganiser() && resource.data.organiserId == request.auth.uid)
-        || (isSignedIn() && resource.data.userId == request.auth.uid);
+        || (isSignedIn() && request.resource.data.userId == request.auth.uid);
       allow create: if isAdmin()
         || (isSignedIn() && request.resource.data.userId == request.auth.uid);
       allow update, delete: if isAdmin()
         || (isOrganiser() && resource.data.organiserId == request.auth.uid)
-        || (isSignedIn() && resource.data.userId == request.auth.uid);
+        || (isSignedIn() && request.resource.data.userId == request.auth.uid);
     }
 
     match /{document=**} {

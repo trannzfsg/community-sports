@@ -30,9 +30,10 @@ export async function ensureSelfRegisteredPlayers(db: Firestore) {
       const data = userDoc.data() as {
         displayName?: string;
         email?: string;
+        role?: string;
       };
 
-      if (!data.email) {
+      if (!data.email || data.role !== "player") {
         return;
       }
 
