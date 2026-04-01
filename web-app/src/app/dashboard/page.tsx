@@ -21,6 +21,7 @@ import { auth, db } from "@/lib/firebase";
 import { upsertPaymentRecord } from "@/lib/payments";
 import {
   createManualPlayer,
+  ensureSelfRegisteredPlayers,
   getVisiblePlayersForOrganiser,
   type PlayerDirectoryEntry,
 } from "@/lib/players";
@@ -126,6 +127,7 @@ export default function DashboardPage() {
       );
 
       if (profileData.role === "organiser") {
+        await ensureSelfRegisteredPlayers(db);
         setPlayerDirectory(await getVisiblePlayersForOrganiser(db, currentUser.uid));
       }
 
