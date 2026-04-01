@@ -8,7 +8,8 @@ import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
 import {
   DAY_OF_WEEK_OPTIONS,
-  getNextGameOn,
+  getEffectiveNextGameOn,
+  getSuggestedNextGameOn,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
 
@@ -54,7 +55,10 @@ export default function EditSessionPage() {
   const [capacity, setCapacity] = useState("12");
   const [status, setStatus] = useState("active");
 
-  const computedNextGameOn = useMemo(() => getNextGameOn(dayOfWeek), [dayOfWeek]);
+  const computedNextGameOn = useMemo(
+    () => getSuggestedNextGameOn(dayOfWeek, startAt),
+    [dayOfWeek, startAt],
+  );
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -90,9 +94,15 @@ export default function EditSessionPage() {
       setTypeOfSport(session.typeOfSport);
       setLocation(session.location);
       setDayOfWeek(session.dayOfWeek);
-      setNextGameOn(session.nextGameOn ?? computedNextGameOn);
       setStartAt(session.startAt);
       setEndAt(session.endAt);
+      setNextGameOn(
+        getEffectiveNextGameOn(
+          session.dayOfWeek,
+          session.startAt,
+          session.nextGameOn,
+        ),
+      );
       setFirstSessionOn(session.firstSessionOn);
       setDefaultPriceCasual(String(session.defaultPriceCasual));
       setCapacity(String(session.capacity));
@@ -101,7 +111,7 @@ export default function EditSessionPage() {
     });
 
     return () => unsubscribe();
-  }, [computedNextGameOn, params.sessionId, router]);
+  }, [params.sessionId, router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

@@ -15,6 +15,7 @@ import {
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
+import { getEffectiveNextGameOn } from "@/lib/session-options";
 
 type SessionItem = {
   id: string;
@@ -176,7 +177,13 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <dt className="text-zinc-500">Next game on</dt>
-                    <dd>{session.nextGameOn ?? "-"}</dd>
+                    <dd>
+                      {getEffectiveNextGameOn(
+                        session.dayOfWeek as "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun",
+                        session.startAt,
+                        session.nextGameOn,
+                      )}
+                    </dd>
                   </div>
                   <div>
                     <dt className="text-zinc-500">Time</dt>

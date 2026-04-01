@@ -8,7 +8,7 @@ import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
 import {
   DAY_OF_WEEK_OPTIONS,
-  getNextGameOn,
+  getSuggestedNextGameOn,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
 
@@ -35,7 +35,10 @@ export default function NewSessionPage() {
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
   const [status, setStatus] = useState("active");
-  const computedNextGameOn = useMemo(() => getNextGameOn(dayOfWeek), [dayOfWeek]);
+  const computedNextGameOn = useMemo(
+    () => getSuggestedNextGameOn(dayOfWeek, startAt),
+    [dayOfWeek, startAt],
+  );
   const [nextGameOn, setNextGameOn] = useState(computedNextGameOn);
 
   useEffect(() => {
@@ -191,6 +194,13 @@ export default function NewSessionPage() {
               className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
               required
             />
+            <button
+              type="button"
+              onClick={() => setNextGameOn(computedNextGameOn)}
+              className="mt-2 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline"
+            >
+              Reset to suggested date ({computedNextGameOn})
+            </button>
           </label>
 
           <label className="block">
