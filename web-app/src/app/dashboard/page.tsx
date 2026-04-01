@@ -508,7 +508,7 @@ export default function DashboardPage() {
 
               const eventStateText = profile?.role === "player"
                 ? playerIsJoining
-                  ? "joining"
+                  ? "going"
                   : playerCanJoin
                     ? "available"
                     : "not available"
