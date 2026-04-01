@@ -1,0 +1,64 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUserRole() {
+      return isSignedIn() ? currentUserDoc().data.role : null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && currentUserRole() == 'admin';
+    }
+
+    function isOrganiser() {
+      return isSignedIn() && currentUserRole() == 'organiser';
+    }
+
+    function isPlayer() {
+      return isSignedIn() && currentUserRole() == 'player';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function sessionOwnedByCurrentOrganiser() {
+      return isSignedIn() && resource.data.organiserId == request.auth.uid;
+    }
+
+    function newSessionOwnedByCurrentOrganiser() {
+      return isSignedIn() && request.resource.data.organiserId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() || (isOrganiser() && newSessionOwnedByCurrentOrganiser());
+      allow update, delete: if isAdmin() || (isOrganiser() && sessionOwnedByCurrentOrganiser());
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAdmin() || (isOrganiser() && resource.data.organiserId == request.auth.uid) || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() || (isSignedIn() && request.resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin() || (isOrganiser() && resource.data.organiserId == request.auth.uid);
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
