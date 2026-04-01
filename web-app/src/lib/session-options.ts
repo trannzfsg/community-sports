@@ -43,6 +43,12 @@ function parseLocalDate(dateText: string) {
   return new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
 }
 
+function addDays(dateText: string, days: number) {
+  const date = parseLocalDate(dateText);
+  date.setDate(date.getDate() + days);
+  return formatDateLocal(date);
+}
+
 function getSessionStartDateTime(dateText: string, startAt: string) {
   const sessionDate = parseLocalDate(dateText);
   const { hours, minutes } = parseTimeParts(startAt);
@@ -78,8 +84,10 @@ export function getEffectiveNextGameOn(
   nextGameOn?: string,
   from = new Date(),
 ) {
+  const suggested = getSuggestedNextGameOn(dayOfWeek, startAt, from);
+
   if (!nextGameOn) {
-    return getSuggestedNextGameOn(dayOfWeek, startAt, from);
+    return suggested;
   }
 
   const candidateStart = getSessionStartDateTime(nextGameOn, startAt);
@@ -88,7 +96,11 @@ export function getEffectiveNextGameOn(
     return nextGameOn;
   }
 
-  const rolled = parseLocalDate(nextGameOn);
-  rolled.setDate(rolled.getDate() + 7);
-  return formatDateLocal(rolled);
+  const nextSuggested = addDays(suggested, 7);
+
+  if (nextSuggested < nextGameOn) {
+    return nextGameOn;
+  }
+
+  return nextSuggested;
 }
