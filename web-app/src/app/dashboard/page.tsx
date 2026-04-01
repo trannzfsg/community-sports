@@ -6,19 +6,21 @@ import { useRouter } from "next/navigation";
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
   orderBy,
   query,
   serverTimestamp,
+  Timestamp,
   updateDoc,
   where,
 } from "firebase/firestore";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
-import { upsertPaymentRecord } from "@/lib/payments";
+import { deletePaymentRecord, upsertPaymentRecord } from "@/lib/payments";
 import {
   createManualPlayer,
   ensureSelfRegisteredPlayers,
@@ -40,6 +42,25 @@ type UserProfile = {
   email?: string;
   role: AppRole;
 };
+
+function sortRegistrations(
+  registrations: RegistrationItem[],
+  currentUserId?: string,
+) {
+  const copy = [...registrations];
+  copy.sort((a, b) => {
+    const aIsSelf = currentUserId && a.userId === currentUserId ? 1 : 0;
+    const bIsSelf = currentUserId && b.userId === currentUserId ? 1 : 0;
+    if (aIsSelf !== bIsSelf) {
+      return bIsSelf - aIsSelf;
+    }
+
+    const aCreated = a.createdAt instanceof Timestamp ? a.createdAt.toMillis() : 0;
+    const bCreated = b.createdAt instanceof Timestamp ? b.createdAt.toMillis() : 0;
+    return aCreated - bCreated;
+  });
+  return copy;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -114,12 +135,13 @@ export default function DashboardPage() {
                   where("sessionEventId", "==", event.id),
                 ),
               );
-              registrationMap[event.id] = registrationsSnapshot.docs
-                .map((registrationDoc) => ({
+              registrationMap[event.id] = sortRegistrations(
+                registrationsSnapshot.docs.map((registrationDoc) => ({
                   id: registrationDoc.id,
                   ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-                }))
-                .sort((a, b) => (a.playerName || "").localeCompare(b.playerName || ""));
+                })),
+                currentUser?.uid,
+              );
             }),
           );
         }),
@@ -171,12 +193,13 @@ export default function DashboardPage() {
         const registrationsSnapshot = await getDocs(
           query(collection(db, "registrations"), where("sessionEventId", "==", event.id)),
         );
-        registrationMap[event.id] = registrationsSnapshot.docs
-          .map((registrationDoc) => ({
+        registrationMap[event.id] = sortRegistrations(
+          registrationsSnapshot.docs.map((registrationDoc) => ({
             id: registrationDoc.id,
             ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-          }))
-          .sort((a, b) => (a.playerName || "").localeCompare(b.playerName || ""));
+          })),
+          user?.uid,
+        );
       }),
     );
 
@@ -261,6 +284,24 @@ export default function DashboardPage() {
         organiserPaid: false,
       });
 
+      await refreshSeriesData(series.id);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleRemoveRegistration(
+    registration: RegistrationItem,
+    series: SessionSeries,
+    eventItem: SessionEvent,
+  ) {
+    setBusyKey(registration.id);
+    try {
+      await deleteDoc(doc(db, "registrations", registration.id));
+      await deletePaymentRecord(db, registration.id);
+      await updateDoc(doc(db, "sessionEvents", eventItem.id), {
+        bookedCount: Math.max((eventItem.bookedCount || 1) - 1, 0),
+      });
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -422,6 +463,7 @@ export default function DashboardPage() {
               const visiblePlayersForSeries = playerDirectory.filter(
                 (player) => player.ownerOrganiserId === null || player.ownerOrganiserId === series.organiserId,
               );
+              const nextEventIsOpen = !!nextEvent && nextEvent.status !== "paused" && nextEvent.status !== "full";
 
               return (
                 <article key={series.id} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
@@ -452,7 +494,7 @@ export default function DashboardPage() {
                         <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
                         <p className="mt-1 text-sm text-zinc-700">{nextEvent ? `${nextEvent.eventDate} • ${nextEvent.bookedCount}/${nextEvent.capacity} registered` : "No event created yet"}</p>
                       </div>
-                      {canManageSessions ? <button type="button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                      {canManageSessions && !nextEventIsOpen ? <button type="button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
                     </div>
 
                     {nextEvent ? (
@@ -460,7 +502,11 @@ export default function DashboardPage() {
                         <div className="mt-4 flex items-center justify-between gap-3">
                           <h4 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Registrations for {nextEvent.eventDate}</h4>
                           {!canManageSessions ? (
-                            currentRegistration ? <span className="text-sm font-medium text-green-700">Registered</span> : <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || nextEvent.bookedCount >= nextEvent.capacity} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">Register</button>
+                            currentRegistration ? (
+                              <button type="button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Leave event</button>
+                            ) : (
+                              <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || nextEvent.bookedCount >= nextEvent.capacity} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">Register</button>
+                            )
                           ) : null}
                         </div>
 
@@ -480,10 +526,10 @@ export default function DashboardPage() {
                               const effectivePaid = registration.organiserPaid || registration.playerPaid;
                               const isOwnRegistration = registration.userId === user?.uid;
                               return (
-                                <div key={registration.id} className="rounded-xl bg-white p-3 ring-1 ring-zinc-200">
+                                <div key={registration.id} className={`rounded-xl bg-white p-3 ring-1 ${isOwnRegistration ? "ring-blue-300 bg-blue-50/30" : "ring-zinc-200"}`}>
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
-                                      <div className="font-medium text-zinc-900">{registration.playerName}</div>
+                                      <div className="font-medium text-zinc-900">{registration.playerName}{isOwnRegistration ? " (you)" : ""}</div>
                                       <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
                                     </div>
                                     <div className="flex flex-wrap gap-2 text-xs">
@@ -495,6 +541,7 @@ export default function DashboardPage() {
                                   <div className="mt-3 flex flex-wrap gap-2">
                                     {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Toggle player paid</button> : null}
                                     {canManageSessions ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Toggle organiser confirm</button> : null}
+                                    {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button> : null}
                                   </div>
                                 </div>
                               );

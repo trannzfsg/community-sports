@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   query,
@@ -39,6 +40,10 @@ export async function upsertPaymentRecord(
     updatedAt: serverTimestamp(),
   }, { merge: true });
   return paymentId;
+}
+
+export async function deletePaymentRecord(db: Firestore, registrationId: string) {
+  await deleteDoc(doc(db, "payments", buildPaymentId(registrationId)));
 }
 
 export async function getPaymentsForEvent(db: Firestore, sessionEventId: string) {
