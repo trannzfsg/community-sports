@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import DatePicker from "@/components/date-picker";
@@ -36,9 +36,10 @@ type SessionItem = {
   status: string;
 };
 
-export default function EditSessionPage() {
-  const params = useParams<{ sessionId: string }>();
+function EditSessionPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("id") ?? "";
   const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -63,14 +64,14 @@ export default function EditSessionPage() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        router.push("/login");
+      if (!user || !sessionId) {
+        router.push("/dashboard");
         return;
       }
 
       const [profileSnapshot, sessionSnapshot] = await Promise.all([
         getDoc(doc(db, "users", user.uid)),
-        getDoc(doc(db, "sessions", params.sessionId)),
+        getDoc(doc(db, "sessions", sessionId)),
       ]);
 
       const profile = profileSnapshot.data() as UserProfile | undefined;
@@ -112,7 +113,7 @@ export default function EditSessionPage() {
     });
 
     return () => unsubscribe();
-  }, [params.sessionId, router]);
+  }, [router, sessionId]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -120,7 +121,7 @@ export default function EditSessionPage() {
     setError("");
 
     try {
-      await updateDoc(doc(db, "sessions", params.sessionId), {
+      await updateDoc(doc(db, "sessions", sessionId), {
         title: title.trim(),
         typeOfSport,
         location: location.trim(),
@@ -251,5 +252,21 @@ export default function EditSessionPage() {
         </form>
       </div>
     </main>
+  );
+}
+
+export default function EditSessionPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
+          <div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+            Loading session...
+          </div>
+        </main>
+      }
+    >
+      <EditSessionPageInner />
+    </Suspense>
   );
 }

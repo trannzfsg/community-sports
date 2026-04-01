@@ -2,6 +2,9 @@
 dist/
 node_modules/
 
+# Firebase framework build output
+.firebase/
+
 # IDE settings
 *.vscode/
 .idea/

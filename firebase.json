@@ -1,12 +1,12 @@
 {
   "firestore": {
     "database": "(default)",
-    "location": "asia-southeast2",
+    "location": "asia-southeast1",
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
   "hosting": {
-    "public": "public",
+    "public": "web-app/out",
     "ignore": [
       "firebase.json",
       "**/.*",
@@ -18,6 +18,9 @@
         "destination": "/index.html"
       }
     ]
+  },
+  "functions": {
+    "source": "functions"
   },
   "auth": {
     "providers": {
