@@ -25,10 +25,12 @@ import {
   createManualPlayer,
   ensureSelfRegisteredPlayers,
   getVisiblePlayersForOrganiser,
+  updateManualPlayerSkillLevel,
   type PlayerDirectoryEntry,
 } from "@/lib/players";
 import type { AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
+import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import {
   buildRegistrationId,
   createSessionEventForSeries,
@@ -403,6 +405,16 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleManualPlayerSkillChange(playerId: string, skillLevel: SkillLevel | "") {
+    setBusyKey(playerId);
+    try {
+      await updateManualPlayerSkillLevel(db, playerId, skillLevel || null);
+      setPlayerDirectory((current) => current.map((player) => player.id === playerId ? { ...player, skillLevel: skillLevel || null } : player));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
@@ -436,6 +448,7 @@ export default function DashboardPage() {
               <p className="mt-3 text-zinc-600">Role: <strong>{profile?.role ?? "player"}</strong></p>
             </div>
             <div className="flex flex-wrap gap-3">
+              <Link href="/profile" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Profile</Link>
               {canManageSessions ? <Link href="/sessions/new" className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700">Create session series</Link> : null}
               <Link href="/logout" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Sign out</Link>
             </div>
@@ -547,12 +560,14 @@ export default function DashboardPage() {
                           {registrations.length ? (
                             registrations.map((registration) => {
                               const isOwnRegistration = registration.userId === user?.uid;
+                              const playerRecord = visiblePlayersForSeries.find((player) => (player.userId || player.id) === registration.userId);
                               return (
                                 <div key={registration.id} className={`rounded-xl bg-white p-3 ring-1 ${isOwnRegistration ? "ring-blue-300 bg-blue-50/30" : "ring-zinc-200"}`}>
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
                                       <div className="font-medium text-zinc-900">{registration.playerName}{isOwnRegistration ? " (you)" : ""}</div>
                                       <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
+                                      {canManageSessions ? <div className="mt-1 text-xs text-zinc-500">Skill level: {playerRecord?.skillLevel || "Not set"}</div> : null}
                                     </div>
                                     <div className="flex flex-wrap gap-2 text-xs">
                                       <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.playerPaid ? `Paid` : `Not paid`}</span>
@@ -563,6 +578,12 @@ export default function DashboardPage() {
                                     {isOwnRegistration ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.playerPaid ? `Not paid` : `Paid`}</button> : null}
                                     {canManageSessions ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? `Not confirmed` : `Confirmed`}</button> : null}
                                     {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button> : null}
+                                    {canManageSessions && playerRecord?.ownerOrganiserId === series.organiserId ? (
+                                      <select value={playerRecord?.skillLevel || ""} onChange={(e) => handleManualPlayerSkillChange(playerRecord.id, e.target.value as SkillLevel | "")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium bg-white">
+                                        <option value="">Skill level</option>
+                                        {SKILL_LEVEL_OPTIONS.map((level) => <option key={level} value={level}>{level}</option>)}
+                                      </select>
+                                    ) : null}
                                   </div>
                                 </div>
                               );

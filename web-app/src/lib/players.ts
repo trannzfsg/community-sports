@@ -1,10 +1,10 @@
 import {
   collection,
+  doc,
   getDocs,
   query,
   serverTimestamp,
   setDoc,
-  doc,
   where,
   type Firestore,
 } from "firebase/firestore";
@@ -99,4 +99,19 @@ export async function createManualPlayer(
     { merge: true },
   );
   return id;
+}
+
+export async function updateManualPlayerSkillLevel(
+  db: Firestore,
+  playerId: string,
+  skillLevel: SkillLevel | null,
+) {
+  await setDoc(
+    doc(db, "players", playerId),
+    {
+      skillLevel,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
 }
