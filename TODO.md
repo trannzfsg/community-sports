@@ -1,7 +1,10 @@
 # Consolidated To-Do List
 
 #### Next Items
-- [ ] Self-registered players can view all session series and events. The ones that's full and they're not registered to, should be greyed out in colour and state not available. The ones that they're in should be highlighted in colour and state joining. The ones that they're not registered yet, and not full yet, should be highlighted in colour and state available to join.
+- [x] Self-registered players can view all session series and events. The ones that's full and they're not registered to, should be greyed out in colour and state not available. The ones that they're in should be highlighted in colour and state going. The ones that they're not registered yet, and not full yet, should be highlighted in colour and state available to join.
+- [x] Add human test scenarios in `HUMAN_TEST_SCENARIOS.md`.
+- [x] Build a lightweight automated test suite for registration/waiting-list logic.
+- [x] Run lint, build, and automated tests successfully.
 
 #### Firebase Setup
 - [x] Create/init Firebase project in the project folder.
@@ -15,14 +18,14 @@
   - [x] Ensure SSL configuration is enabled.
 
 #### Backend Development
-- [ ] Deploy the backend to Firebase Functions.
+- [ ] Deploy the backend to Firebase Functions. (Deferred by product decision: app works fine without backend deployment for now; only revisit if truly needed.)
 
 #### Final Checks and Review
 - [ ] Test the full app workflow:
   - [ ] Player registration, login, and session booking.
   - [ ] Organiser session management and payment tracking.
-- [ ] Optimize Firestore queries to fit free-tier limits.
-- [ ] Finalize and document the project structure for potential future scalability.
+- [x] Optimize Firestore queries to fit free-tier limits.
+- [x] Finalize and document the project structure for potential future scalability.
 
 ### Completed
 - [x] Discord integration completed

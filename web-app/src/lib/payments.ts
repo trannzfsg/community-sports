@@ -9,6 +9,7 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
+import type { RegistrationItem, SessionEvent, SessionSeries } from "@/lib/session-series";
 
 export type PaymentRecord = {
   id: string;
@@ -40,6 +41,29 @@ export async function upsertPaymentRecord(
     updatedAt: serverTimestamp(),
   }, { merge: true });
   return paymentId;
+}
+
+export async function syncPaymentRecordForRegistration(
+  db: Firestore,
+  series: SessionSeries,
+  eventItem: SessionEvent,
+  registration: RegistrationItem,
+) {
+  const effectivePaid = !!(registration.playerPaid || registration.organiserPaid);
+  return upsertPaymentRecord(db, {
+    sessionSeriesId: registration.sessionSeriesId,
+    sessionEventId: registration.sessionEventId,
+    registrationId: registration.id,
+    organiserId: eventItem.organiserId || series.organiserId,
+    userId: registration.userId,
+    playerName: registration.playerName,
+    playerEmail: registration.playerEmail,
+    amount: eventItem.defaultPriceCasual ?? series.defaultPriceCasual,
+    playerPaid: !!registration.playerPaid,
+    organiserPaid: !!registration.organiserPaid,
+    effectivePaid,
+    status: effectivePaid ? "paid" : "pending",
+  });
 }
 
 export async function deletePaymentRecord(db: Firestore, registrationId: string) {

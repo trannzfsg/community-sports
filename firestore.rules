@@ -16,20 +16,6 @@ service cloud.firestore {
         : null;
     }
 
-    function signedInEmail() {
-      return isSignedIn() && request.auth.token.email != null
-        ? request.auth.token.email
-        : "";
-    }
-
-    function derivedRoleFromEmail() {
-      return signedInEmail() == "tranzha83@gmail.com"
-        ? "admin"
-        : signedInEmail() == "tranzha83+badmintonmonday@gmail.com"
-          ? "organiser"
-          : "player";
-    }
-
     function isAdmin() {
       return isSignedIn() && currentUserRole() == 'admin';
     }
@@ -96,7 +82,7 @@ service cloud.firestore {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId)
         && request.resource.data.email == request.auth.token.email
-        && request.resource.data.role == derivedRoleFromEmail();
+        && request.resource.data.role == 'player';
       allow update: if (isOwner(userId)
         && request.resource.data.role == resource.data.role
         && request.resource.data.email == resource.data.email) || isAdmin();

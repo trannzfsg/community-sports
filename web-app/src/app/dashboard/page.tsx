@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  addDoc,
   collection,
   deleteDoc,
   doc,
@@ -13,6 +12,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   Timestamp,
   updateDoc,
   where,
@@ -20,7 +20,7 @@ import {
 import { onAuthStateChanged, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
-import { deletePaymentRecord } from "@/lib/payments";
+import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
 import {
   createManualPlayer,
   ensureSelfRegisteredPlayers,
@@ -34,6 +34,8 @@ import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import {
   buildRegistrationId,
   createSessionEventForSeries,
+  getRegistrationCapacityState,
+  rebalanceEventRegistrations,
   type RegistrationItem,
   type SessionEvent,
   type SessionSeries,
@@ -267,25 +269,39 @@ export default function DashboardPage() {
         return;
       }
 
-      await updateDoc(doc(db, "sessionEvents", eventItem.id), {
-        bookedCount: (eventItem.bookedCount || 0) + 1,
+      const capacityState = getRegistrationCapacityState({
+        capacity: eventItem.capacity,
+        waitingListCapacity: eventItem.waitingListCapacity || series.waitingListCapacity || 0,
+        bookedCount: eventItem.bookedCount,
+        waitingCount: eventItem.waitingCount,
       });
 
-      await updateDoc(doc(db, "sessions", series.id), {
-        nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
-      });
+      if (!capacityState.canAddMore || !capacityState.nextRegistrationStatus) {
+        return;
+      }
 
-      await addDoc(collection(db, "registrations"), {
+      const registration: RegistrationItem = {
+        id: registrationId,
         sessionEventId: eventItem.id,
         sessionSeriesId: series.id,
         userId: user.uid,
         playerName: profile?.displayName || user.email || "Player",
         playerEmail: user.email || "",
         playerPaid: false,
-        organiserPaid: true,
+        organiserPaid: false,
+        status: capacityState.nextRegistrationStatus,
+      };
+
+      await setDoc(doc(db, "registrations", registrationId), {
+        ...registration,
         createdAt: serverTimestamp(),
       });
 
+      await syncPaymentRecordForRegistration(db, series, eventItem, registration);
+      await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+      await updateDoc(doc(db, "sessions", series.id), {
+        nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
+      });
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -301,9 +317,7 @@ export default function DashboardPage() {
     try {
       await deleteDoc(doc(db, "registrations", registration.id));
       await deletePaymentRecord(db, registration.id);
-      await updateDoc(doc(db, "sessionEvents", eventItem.id), {
-        bookedCount: Math.max((eventItem.bookedCount || 1) - 1, 0),
-      });
+      await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -318,9 +332,14 @@ export default function DashboardPage() {
   ) {
     setBusyKey(registration.sessionEventId);
     try {
+      const updatedRegistration = {
+        ...registration,
+        playerPaid: nextValue,
+      };
       await updateDoc(doc(db, "registrations", registration.id), {
         playerPaid: nextValue,
       });
+      await syncPaymentRecordForRegistration(db, series, eventItem, updatedRegistration);
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -335,11 +354,14 @@ export default function DashboardPage() {
   ) {
     setBusyKey(registration.sessionEventId);
     try {
-      const playerPaid = nextValue ? true : registration.playerPaid;
+      const updatedRegistration = {
+        ...registration,
+        organiserPaid: nextValue,
+      };
       await updateDoc(doc(db, "registrations", registration.id), {
         organiserPaid: nextValue,
-        playerPaid,
       });
+      await syncPaymentRecordForRegistration(db, series, eventItem, updatedRegistration);
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -347,25 +369,42 @@ export default function DashboardPage() {
   }
 
   async function addPlayerToEvent(series: SessionSeries, eventItem: SessionEvent, player: PlayerDirectoryEntry) {
+    const playerKey = player.userId || player.id;
     const existing = (registrationsByEvent[eventItem.id] ?? []).find(
-      (registration) => registration.userId === (player.userId || player.id),
+      (registration) => registration.userId === playerKey,
     );
     if (existing) return;
 
-    await addDoc(collection(db, "registrations"), {
+    const capacityState = getRegistrationCapacityState({
+      capacity: eventItem.capacity,
+      waitingListCapacity: eventItem.waitingListCapacity || series.waitingListCapacity || 0,
+      bookedCount: eventItem.bookedCount,
+      waitingCount: eventItem.waitingCount,
+    });
+
+    if (!capacityState.canAddMore || !capacityState.nextRegistrationStatus) {
+      return;
+    }
+
+    const registration: RegistrationItem = {
+      id: buildRegistrationId(eventItem.id, playerKey),
       sessionEventId: eventItem.id,
       sessionSeriesId: series.id,
-      userId: player.userId || player.id,
+      userId: playerKey,
       playerName: player.displayName,
       playerEmail: player.email,
       playerPaid: false,
-      organiserPaid: true,
+      organiserPaid: false,
+      status: capacityState.nextRegistrationStatus,
+    };
+
+    await setDoc(doc(db, "registrations", registration.id), {
+      ...registration,
       createdAt: serverTimestamp(),
     });
 
-    await updateDoc(doc(db, "sessionEvents", eventItem.id), {
-      bookedCount: (eventItem.bookedCount || 0) + 1,
-    });
+    await syncPaymentRecordForRegistration(db, series, eventItem, registration);
+    await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
   }
 
   async function handleSelectOrCreatePlayer(
@@ -465,31 +504,52 @@ export default function DashboardPage() {
               const showStartsFrom = profile?.role !== "player";
               const visiblePlayersForSeries = playerDirectory.filter(
                 (player) => player.ownerOrganiserId === null || player.ownerOrganiserId === series.organiserId,
-              ).filter((player) => !player.email.includes("+badmintonmonday") && !player.email.includes("tranzha83@gmail.com"));
-              const eventIsFull = !!nextEvent && nextEvent.bookedCount >= nextEvent.capacity;
-              const playerIsGoing = !!currentRegistration;
-              const playerCanJoin = !!nextEvent && !eventIsFull && !playerIsGoing;
-              const nextEventIsOpen = !!nextEvent && nextEvent.status !== "paused" && !eventIsFull;
+              );
+              const capacityState = getRegistrationCapacityState({
+                capacity: nextEvent?.capacity || series.capacity,
+                waitingListCapacity: nextEvent?.waitingListCapacity || series.waitingListCapacity || 0,
+                bookedCount: nextEvent?.bookedCount || 0,
+                waitingCount: nextEvent?.waitingCount || 0,
+              });
+              const waitingListCapacity = capacityState.waitingListCapacity;
+              const bookedCount = capacityState.bookedCount;
+              const waitingCount = capacityState.waitingCount;
+              const eventIsFull = !!nextEvent && capacityState.eventIsFull;
+              const waitingListIsFull = !!nextEvent && capacityState.waitingListIsFull;
+              const playerIsGoing = currentRegistration?.status === "registered";
+              const playerIsWaiting = currentRegistration?.status === "waiting";
+              const playerCanJoin = !!nextEvent && capacityState.canAddMore;
+              const nextEventIsOpen = !!nextEvent && nextEvent.status !== "paused" && capacityState.canAddMore;
 
               const eventCardClass = profile?.role === "player"
                 ? playerIsGoing
                   ? "ring-emerald-300 bg-emerald-50"
-                  : playerCanJoin
-                    ? "ring-blue-300 bg-blue-50"
-                    : "ring-zinc-300 bg-zinc-100"
-                : eventIsFull
-                  ? "ring-amber-300 bg-amber-50"
-                  : "ring-emerald-300 bg-emerald-50";
+                  : playerIsWaiting
+                    ? "ring-yellow-300 bg-yellow-50"
+                    : playerCanJoin
+                      ? "ring-blue-300 bg-blue-50"
+                      : waitingListIsFull
+                        ? "ring-red-300 bg-red-50"
+                        : "ring-zinc-300 bg-zinc-100"
+                : waitingListIsFull
+                  ? "ring-red-300 bg-red-50"
+                  : eventIsFull
+                    ? "ring-amber-300 bg-amber-50"
+                    : "ring-emerald-300 bg-emerald-50";
 
               const eventStateText = profile?.role === "player"
                 ? playerIsGoing
                   ? "going"
-                  : playerCanJoin
-                    ? "available"
-                    : "not available"
-                : eventIsFull
-                  ? "full"
-                  : "open";
+                  : playerIsWaiting
+                    ? "waiting list"
+                    : playerCanJoin
+                      ? "available"
+                      : "not available"
+                : waitingListIsFull
+                  ? "waiting list full"
+                  : eventIsFull
+                    ? "full"
+                    : "open";
 
               return (
                 <article key={series.id} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
@@ -518,13 +578,14 @@ export default function DashboardPage() {
                     {showStartsFrom ? <div><dt className="text-zinc-500">Starts from</dt><dd>{series.firstSessionOn}</dd></div> : null}
                     <div><dt className="text-zinc-500">Casual price</dt><dd>${series.defaultPriceCasual}</dd></div>
                     <div><dt className="text-zinc-500">Series capacity</dt><dd>{series.capacity}</dd></div>
+                    <div><dt className="text-zinc-500">Waiting list</dt><dd>{waitingListCapacity}</dd></div>
                   </dl>
 
                   <div className={`mt-4 rounded-2xl p-4 ring-1 ${eventCardClass}`}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
-                        <p className="mt-1 text-sm text-zinc-700">{nextEvent ? `${nextEvent.eventDate} • ${nextEvent.bookedCount}/${nextEvent.capacity} registered` : "No event created yet"}</p>
+                        <p className="mt-1 text-sm text-zinc-700">{nextEvent ? `${nextEvent.eventDate} • ${bookedCount}/${nextEvent.capacity} registered • ${waitingCount}/${waitingListCapacity} waiting` : "No event created yet"}</p>
                         {nextEvent ? <p className="mt-1 text-sm text-zinc-500">Organiser: {nextEvent.organiserName || series.organiserName || "Organiser"}</p> : null}
                       </div>
                       <div className="flex items-center gap-2">
@@ -541,7 +602,7 @@ export default function DashboardPage() {
                             currentRegistration ? (
                               <button type="button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Leave event</button>
                             ) : (
-                              <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || eventIsFull} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">Register</button>
+                              <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || !playerCanJoin} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">{eventIsFull ? "Join waiting list" : "Register"}</button>
                             )
                           ) : null}
                         </div>
@@ -550,7 +611,7 @@ export default function DashboardPage() {
                           <div className="mt-4 space-y-2">
                             <SearchablePlayerSelect
                               players={visiblePlayersForSeries}
-                              disabled={busyKey === nextEvent.id || eventIsFull}
+                              disabled={busyKey === nextEvent.id || !playerCanJoin}
                               onSelectOrCreate={(selection) => handleSelectOrCreatePlayer(series, nextEvent, selection)}
                             />
                           </div>
@@ -561,22 +622,24 @@ export default function DashboardPage() {
                             registrations.map((registration) => {
                               const isOwnRegistration = registration.userId === user?.uid;
                               const playerRecord = visiblePlayersForSeries.find((player) => (player.userId || player.id) === registration.userId);
+                              const isWaiting = registration.status === "waiting";
                               return (
                                 <div key={registration.id} className={`rounded-xl bg-white p-3 ring-1 ${isOwnRegistration ? "ring-blue-300 bg-blue-50/30" : "ring-zinc-200"}`}>
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     <div>
                                       <div className="font-medium text-zinc-900">{registration.playerName}{isOwnRegistration ? " (you)" : ""}</div>
                                       <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
+                                      <div className="mt-1 text-xs text-zinc-500">Status: {isWaiting ? "Waiting list" : "Registered"}</div>
                                       {canManageSessions ? <div className="mt-1 text-xs text-zinc-500">Skill level: {playerRecord?.skillLevel || "Not set"}</div> : null}
                                     </div>
                                     <div className="flex flex-wrap gap-2 text-xs">
-                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.playerPaid ? `Paid` : `Not paid`}</span>
-                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.organiserPaid ? `Confirmed` : `Not confirmed`}</span>
+                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.playerPaid ? "Paid" : "Not paid"}</span>
+                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.organiserPaid ? "Confirmed" : "Not confirmed"}</span>
                                     </div>
                                   </div>
                                   <div className="mt-3 flex flex-wrap gap-2">
-                                    {isOwnRegistration ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.playerPaid ? `Not paid` : `Paid`}</button> : null}
-                                    {canManageSessions ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? `Not confirmed` : `Confirmed`}</button> : null}
+                                    {isOwnRegistration && !isWaiting ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.playerPaid ? "Not paid" : "Paid"}</button> : null}
+                                    {canManageSessions && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? "Not confirmed" : "Confirmed"}</button> : null}
                                     {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button> : null}
                                     {canManageSessions && playerRecord?.ownerOrganiserId === series.organiserId ? (
                                       <select value={playerRecord?.skillLevel || ""} onChange={(e) => handleManualPlayerSkillChange(playerRecord.id, e.target.value as SkillLevel | "")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium bg-white">

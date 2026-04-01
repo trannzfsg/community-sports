@@ -6,7 +6,6 @@ import {
   query,
   serverTimestamp,
   setDoc,
-  updateDoc,
   where,
   type Firestore,
 } from "firebase/firestore";
@@ -24,6 +23,7 @@ export type SessionSeries = {
   firstSessionOn: string;
   defaultPriceCasual: number;
   capacity: number;
+  waitingListCapacity?: number;
   organiserId: string;
   organiserName?: string;
   status: string;
@@ -44,7 +44,9 @@ export type SessionEvent = {
   endAt: string;
   defaultPriceCasual: number;
   capacity: number;
+  waitingListCapacity?: number;
   bookedCount: number;
+  waitingCount?: number;
   status: string;
 };
 
@@ -57,7 +59,22 @@ export type RegistrationItem = {
   playerEmail: string;
   playerPaid: boolean;
   organiserPaid: boolean;
+  status?: "registered" | "waiting";
   createdAt?: unknown;
+};
+
+export type RegistrationCapacityState = {
+  capacity: number;
+  waitingListCapacity: number;
+  bookedCount: number;
+  waitingCount: number;
+  totalCount: number;
+  totalCapacity: number;
+  eventIsFull: boolean;
+  waitingListEnabled: boolean;
+  waitingListIsFull: boolean;
+  canAddMore: boolean;
+  nextRegistrationStatus: "registered" | "waiting" | null;
 };
 
 export function buildSessionEventId(seriesId: string, eventDate: string) {
@@ -66,6 +83,90 @@ export function buildSessionEventId(seriesId: string, eventDate: string) {
 
 export function buildRegistrationId(eventId: string, userId: string) {
   return `${eventId}__${encodeURIComponent(userId).replaceAll("%", "_")}`;
+}
+
+export function getRegistrationCapacityState(input: {
+  capacity: number;
+  waitingListCapacity?: number;
+  bookedCount?: number;
+  waitingCount?: number;
+}): RegistrationCapacityState {
+  const capacity = Math.max(0, input.capacity || 0);
+  const waitingListCapacity = Math.max(0, input.waitingListCapacity || 0);
+  const bookedCount = Math.max(0, input.bookedCount || 0);
+  const waitingCount = Math.max(0, input.waitingCount || 0);
+  const totalCount = bookedCount + waitingCount;
+  const totalCapacity = capacity + waitingListCapacity;
+  const eventIsFull = bookedCount >= capacity;
+  const waitingListEnabled = waitingListCapacity > 0;
+  const waitingListIsFull = waitingListEnabled
+    ? waitingCount >= waitingListCapacity
+    : eventIsFull;
+  const canAddMore = totalCount < totalCapacity;
+
+  return {
+    capacity,
+    waitingListCapacity,
+    bookedCount,
+    waitingCount,
+    totalCount,
+    totalCapacity,
+    eventIsFull,
+    waitingListEnabled,
+    waitingListIsFull,
+    canAddMore,
+    nextRegistrationStatus: !canAddMore ? null : eventIsFull ? "waiting" : "registered",
+  };
+}
+
+function getTimestampMillis(value: unknown) {
+  if (
+    typeof value === "object"
+    && value !== null
+    && "toMillis" in value
+    && typeof (value as { toMillis?: unknown }).toMillis === "function"
+  ) {
+    return (value as { toMillis: () => number }).toMillis();
+  }
+  return 0;
+}
+
+export async function rebalanceEventRegistrations(
+  db: Firestore,
+  sessionEventId: string,
+  capacity: number,
+) {
+  const registrationsSnapshot = await getDocs(
+    query(collection(db, "registrations"), where("sessionEventId", "==", sessionEventId)),
+  );
+
+  const registrations = registrationsSnapshot.docs
+    .map((registrationDoc) => ({
+      id: registrationDoc.id,
+      ref: registrationDoc.ref,
+      ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+    }))
+    .sort((a, b) => getTimestampMillis(a.createdAt) - getTimestampMillis(b.createdAt));
+
+  let bookedCount = 0;
+  let waitingCount = 0;
+
+  for (const [index, registration] of registrations.entries()) {
+    const shouldBeRegistered = index < capacity;
+    const nextStatus = shouldBeRegistered ? "registered" : "waiting";
+    if (registration.status !== nextStatus) {
+      await setDoc(registration.ref, { status: nextStatus }, { merge: true });
+    }
+    if (shouldBeRegistered) bookedCount += 1;
+    else waitingCount += 1;
+  }
+
+  await setDoc(doc(db, "sessionEvents", sessionEventId), {
+    bookedCount,
+    waitingCount,
+  }, { merge: true });
+
+  return { bookedCount, waitingCount };
 }
 
 export async function createSessionEventForSeries(
@@ -98,7 +199,9 @@ export async function createSessionEventForSeries(
     endAt: series.endAt,
     defaultPriceCasual: series.defaultPriceCasual,
     capacity: series.capacity,
+    waitingListCapacity: series.waitingListCapacity || 0,
     bookedCount: 0,
+    waitingCount: 0,
     status: series.status,
     createdAt: serverTimestamp(),
   });
@@ -143,6 +246,7 @@ export async function createSessionEventForSeries(
             playerEmail: registration.playerEmail,
             playerPaid: false,
             organiserPaid: false,
+            status: "registered",
             createdAt: serverTimestamp(),
           },
         );
@@ -152,9 +256,7 @@ export async function createSessionEventForSeries(
   }
 
   if (copiedCount > 0) {
-    await updateDoc(eventRef, {
-      bookedCount: copiedCount,
-    });
+    await rebalanceEventRegistrations(db, eventId, series.capacity);
   }
 
   return eventId;

@@ -40,6 +40,7 @@ export default function NewSessionPage() {
   const [firstSessionOn, setFirstSessionOn] = useState("");
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
+  const [waitingListCapacity, setWaitingListCapacity] = useState("0");
   const [status, setStatus] = useState("active");
   const [copyRosterFromLastEvent, setCopyRosterFromLastEvent] = useState(true);
   const [createNextEventNow, setCreateNextEventNow] = useState(true);
@@ -113,6 +114,7 @@ export default function NewSessionPage() {
         firstSessionOn,
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
+        waitingListCapacity: Number(waitingListCapacity || 0),
         organiserId,
         organiserName,
         status,
@@ -133,6 +135,7 @@ export default function NewSessionPage() {
           firstSessionOn,
           defaultPriceCasual: Number(defaultPriceCasual),
           capacity: Number(capacity),
+          waitingListCapacity: Number(waitingListCapacity || 0),
           organiserId,
           organiserName,
           status,
@@ -194,13 +197,7 @@ export default function NewSessionPage() {
 
           <label className="block md:col-span-2">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Series title</span>
-            <input
-              value={title}
-              onChange={(event) => setTitle(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-              placeholder="Monday Social Badminton"
-              required
-            />
+            <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" placeholder="Monday Social Badminton" required />
           </label>
 
           <label className="block">
@@ -253,6 +250,11 @@ export default function NewSessionPage() {
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Capacity</span>
             <input type="number" min="1" step="1" value={capacity} onChange={(event) => setCapacity(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Waiting list capacity</span>
+            <input type="number" min="0" step="1" value={waitingListCapacity} onChange={(event) => setWaitingListCapacity(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
           </label>
 
           <label className="block">

@@ -32,6 +32,7 @@ type SessionSeries = {
   firstSessionOn: string;
   defaultPriceCasual: number;
   capacity: number;
+  waitingListCapacity?: number;
   organiserId: string;
   organiserName?: string;
   status: string;
@@ -60,6 +61,7 @@ function EditSessionPageInner() {
   const [firstSessionOn, setFirstSessionOn] = useState("");
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
+  const [waitingListCapacity, setWaitingListCapacity] = useState("0");
   const [status, setStatus] = useState("active");
   const [copyRosterFromLastEvent, setCopyRosterFromLastEvent] = useState(true);
 
@@ -118,6 +120,7 @@ function EditSessionPageInner() {
       setFirstSessionOn(session.firstSessionOn);
       setDefaultPriceCasual(String(session.defaultPriceCasual));
       setCapacity(String(session.capacity));
+      setWaitingListCapacity(String(session.waitingListCapacity || 0));
       setStatus(session.status);
       setCopyRosterFromLastEvent(session.copyRosterFromLastEvent ?? true);
       setLoading(false);
@@ -158,6 +161,7 @@ function EditSessionPageInner() {
         firstSessionOn,
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
+        waitingListCapacity: Number(waitingListCapacity || 0),
         status,
         copyRosterFromLastEvent,
       });
@@ -268,6 +272,11 @@ function EditSessionPageInner() {
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Capacity</span>
             <input type="number" min="1" step="1" value={capacity} onChange={(event) => setCapacity(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Waiting list capacity</span>
+            <input type="number" min="0" step="1" value={waitingListCapacity} onChange={(event) => setWaitingListCapacity(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
           </label>
 
           <label className="block">
