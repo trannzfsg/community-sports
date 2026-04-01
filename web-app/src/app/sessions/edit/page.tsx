@@ -75,11 +75,8 @@ function EditSessionPageInner() {
         return;
       }
 
-      const [profileSnapshot, sessionSnapshot, organiserUsers] = await Promise.all([
-        getDoc(doc(db, "users", user.uid)),
-        getDoc(doc(db, "sessions", sessionId)),
-        getUsersByRole(db, "organiser"),
-      ]);
+      const profileSnapshot = await getDoc(doc(db, "users", user.uid));
+      const sessionSnapshot = await getDoc(doc(db, "sessions", sessionId));
 
       const profile = profileSnapshot.data() as UserProfile | undefined;
       const session = sessionSnapshot.data() as SessionSeries | undefined;
@@ -99,7 +96,10 @@ function EditSessionPageInner() {
       }
 
       setCurrentRole(profile.role);
-      setOrganisers(organiserUsers);
+      if (profile.role === "admin") {
+        const organiserUsers = await getUsersByRole(db, "organiser");
+        setOrganisers(organiserUsers);
+      }
       setAllowed(true);
       setTitle(session.title);
       setTypeOfSport(session.typeOfSport);
@@ -107,7 +107,7 @@ function EditSessionPageInner() {
       setDayOfWeek(session.dayOfWeek);
       setStartAt(session.startAt);
       setEndAt(session.endAt);
-      setOwnerOrganiserId(session.organiserId || (profile.role === "organiser" ? user.uid : organiserUsers[0]?.id || ""));
+      setOwnerOrganiserId(session.organiserId || user.uid);
       setNextGameOn(
         getEffectiveNextGameOn(
           session.dayOfWeek,

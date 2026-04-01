@@ -69,9 +69,13 @@ export default function NewSessionPage() {
       }
 
       setCurrentRole(profile.role);
-      const organiserUsers = await getUsersByRole(db, "organiser");
-      setOrganisers(organiserUsers);
-      setOwnerOrganiserId(profile.role === "organiser" ? user.uid : organiserUsers[0]?.id || "");
+      if (profile.role === "admin") {
+        const organiserUsers = await getUsersByRole(db, "organiser");
+        setOrganisers(organiserUsers);
+        setOwnerOrganiserId(organiserUsers[0]?.id || "");
+      } else {
+        setOwnerOrganiserId(user.uid);
+      }
       setAllowed(true);
       setLoading(false);
     });

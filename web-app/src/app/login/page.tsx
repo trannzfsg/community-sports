@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
@@ -8,7 +8,6 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { getRoleForEmail } from "@/lib/roles";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,8 +17,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-
-  const rolePreview = useMemo(() => getRoleForEmail(email), [email]);
 
   async function upsertPlayerDirectoryEntry(userId: string, name: string, userEmail: string) {
     await setDoc(doc(db, "players", userId), {
@@ -45,34 +42,30 @@ export default function LoginPage() {
           password,
         );
 
-        const role = getRoleForEmail(credentials.user.email);
         const name = displayName.trim() || credentials.user.email || "Player";
 
         await setDoc(doc(db, "users", credentials.user.uid), {
           displayName: name,
           email: credentials.user.email,
-          role,
+          role: "player",
           createdAt: serverTimestamp(),
         });
 
-        if (role === "player") {
-          await upsertPlayerDirectoryEntry(
-            credentials.user.uid,
-            name,
-            credentials.user.email || "",
-          );
-        }
+        await upsertPlayerDirectoryEntry(
+          credentials.user.uid,
+          name,
+          credentials.user.email || "",
+        );
       } else {
         const credentials = await signInWithEmailAndPassword(auth, email, password);
         const snapshot = await getDoc(doc(db, "users", credentials.user.uid));
 
         if (!snapshot.exists()) {
-          const role = getRoleForEmail(credentials.user.email);
           const name = credentials.user.email || "Player";
           await setDoc(doc(db, "users", credentials.user.uid), {
             displayName: name,
             email: credentials.user.email,
-            role,
+            role: "player",
             createdAt: serverTimestamp(),
           });
         }
@@ -109,10 +102,6 @@ export default function LoginPage() {
         <h1 className="text-3xl font-semibold tracking-tight">
           {mode === "login" ? "Welcome back" : "Create your account"}
         </h1>
-        <p className="mt-4 text-zinc-600">
-          Email/password only for MVP. Roles are assigned automatically by email:
-          player, organiser, or admin.
-        </p>
 
         <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
           {mode === "register" ? (
@@ -155,10 +144,6 @@ export default function LoginPage() {
               required
             />
           </label>
-
-          <div className="rounded-2xl bg-zinc-100 px-4 py-3 text-sm text-zinc-700">
-            Role preview for this email: <strong>{rolePreview}</strong>
-          </div>
 
           {error ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -20,7 +20,7 @@ import {
 import { onAuthStateChanged, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
-import { deletePaymentRecord, upsertPaymentRecord } from "@/lib/payments";
+import { deletePaymentRecord } from "@/lib/payments";
 import {
   createManualPlayer,
   ensureSelfRegisteredPlayers,
@@ -71,101 +71,119 @@ export default function DashboardPage() {
   const [registrationsByEvent, setRegistrationsByEvent] = useState<Record<string, RegistrationItem[]>>({});
   const [playerDirectory, setPlayerDirectory] = useState<PlayerDirectoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string>("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (!currentUser) {
-        router.push("/");
-        return;
-      }
-
-      setUser(currentUser);
-
-      const profileSnapshot = await getDoc(doc(db, "users", currentUser.uid));
-      if (!profileSnapshot.exists()) {
-        router.push("/");
-        return;
-      }
-
-      const profileData = profileSnapshot.data() as UserProfile;
-      setProfile(profileData);
-
-      const seriesQuery =
-        profileData.role === "organiser"
-          ? query(
-              collection(db, "sessions"),
-              where("organiserId", "==", currentUser.uid),
-              orderBy("dayOfWeek"),
-            )
-          : query(collection(db, "sessions"), orderBy("dayOfWeek"));
-
-      const seriesSnapshots = await getDocs(seriesQuery);
-      const seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
-        id: sessionDoc.id,
-        ...(sessionDoc.data() as Omit<SessionSeries, "id">),
-      }));
-
-      const eventMap: Record<string, SessionEvent[]> = {};
-      const registrationMap: Record<string, RegistrationItem[]> = {};
-
-      await Promise.all(
-        seriesItems.map(async (series) => {
-          const eventSnapshots = await getDocs(
-            query(
-              collection(db, "sessionEvents"),
-              where("sessionSeriesId", "==", series.id),
-            ),
-          );
-
-          const eventItems = eventSnapshots.docs
-            .map((eventDoc) => ({
-              id: eventDoc.id,
-              ...(eventDoc.data() as Omit<SessionEvent, "id">),
-            }))
-            .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-
-          eventMap[series.id] = eventItems;
-
-          await Promise.all(
-            eventItems.map(async (event) => {
-              const registrationsSnapshot = await getDocs(
-                query(
-                  collection(db, "registrations"),
-                  where("sessionEventId", "==", event.id),
-                ),
-              );
-              registrationMap[event.id] = sortRegistrations(
-                registrationsSnapshot.docs.map((registrationDoc) => ({
-                  id: registrationDoc.id,
-                  ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-                })),
-                currentUser.uid,
-              );
-            }),
-          );
-        }),
-      );
-
-      await ensureSelfRegisteredPlayers(db);
-      const organiserIds = Array.from(new Set(seriesItems.map((series) => series.organiserId)));
-      const visiblePlayers = new Map<string, PlayerDirectoryEntry>();
-      for (const organiserId of organiserIds) {
-        const entries = await getVisiblePlayersForOrganiser(db, organiserId);
-        for (const entry of entries) {
-          visiblePlayers.set(entry.id, entry);
+      try {
+        setLoadError("");
+        if (!currentUser) {
+          router.push("/");
+          return;
         }
-      }
-      setPlayerDirectory(Array.from(visiblePlayers.values()).sort((a, b) => {
-        const nameCompare = a.displayName.localeCompare(b.displayName);
-        if (nameCompare !== 0) return nameCompare;
-        return a.email.localeCompare(b.email);
-      }));
 
-      setSeriesList(seriesItems);
-      setEventsBySeries(eventMap);
-      setRegistrationsByEvent(registrationMap);
-      setLoading(false);
+        setUser(currentUser);
+
+        const profileSnapshot = await getDoc(doc(db, "users", currentUser.uid));
+        if (!profileSnapshot.exists()) {
+          router.push("/");
+          return;
+        }
+
+        const profileData = profileSnapshot.data() as UserProfile;
+        setProfile(profileData);
+
+        const seriesQuery =
+          profileData.role === "organiser"
+            ? query(
+                collection(db, "sessions"),
+                where("organiserId", "==", currentUser.uid),
+                orderBy("dayOfWeek"),
+              )
+            : query(collection(db, "sessions"), orderBy("dayOfWeek"));
+
+        const seriesSnapshots = await getDocs(seriesQuery);
+        const seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
+          id: sessionDoc.id,
+          ...(sessionDoc.data() as Omit<SessionSeries, "id">),
+        }));
+
+        const eventMap: Record<string, SessionEvent[]> = {};
+        const registrationMap: Record<string, RegistrationItem[]> = {};
+
+        await Promise.all(
+          seriesItems.map(async (series) => {
+            const eventSnapshots = await getDocs(
+              query(
+                collection(db, "sessionEvents"),
+                where("sessionSeriesId", "==", series.id),
+              ),
+            );
+
+            const eventItems = eventSnapshots.docs
+              .map((eventDoc) => ({
+                id: eventDoc.id,
+                ...(eventDoc.data() as Omit<SessionEvent, "id">),
+              }))
+              .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+
+            eventMap[series.id] = eventItems;
+
+            await Promise.all(
+              eventItems.map(async (event) => {
+                const registrationsSnapshot = await getDocs(
+                  query(
+                    collection(db, "registrations"),
+                    where("sessionEventId", "==", event.id),
+                  ),
+                );
+                registrationMap[event.id] = sortRegistrations(
+                  registrationsSnapshot.docs.map((registrationDoc) => ({
+                    id: registrationDoc.id,
+                    ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+                  })),
+                  currentUser.uid,
+                );
+              }),
+            );
+          }),
+        );
+
+        if (profileData.role === "admin") {
+          await ensureSelfRegisteredPlayers(db);
+        }
+
+        if (profileData.role === "admin" || profileData.role === "organiser") {
+          const organiserIds = profileData.role === "organiser"
+            ? [currentUser.uid]
+            : Array.from(new Set(seriesItems.map((series) => series.organiserId)));
+
+          const visiblePlayers = new Map<string, PlayerDirectoryEntry>();
+          for (const organiserId of organiserIds) {
+            const entries = await getVisiblePlayersForOrganiser(db, organiserId);
+            for (const entry of entries) {
+              visiblePlayers.set(entry.id, entry);
+            }
+          }
+          setPlayerDirectory(Array.from(visiblePlayers.values()).sort((a, b) => {
+            const nameCompare = a.displayName.localeCompare(b.displayName);
+            if (nameCompare !== 0) return nameCompare;
+            return a.email.localeCompare(b.email);
+          }));
+        } else {
+          setPlayerDirectory([]);
+        }
+
+        setSeriesList(seriesItems);
+        setEventsBySeries(eventMap);
+        setRegistrationsByEvent(registrationMap);
+      } catch (error) {
+        console.error("Dashboard load failed", error);
+        setLoadError(error instanceof Error ? error.message : "Unknown dashboard error");
+      } finally {
+        setLoading(false);
+      }
     });
 
     return () => unsubscribe();
@@ -205,35 +223,6 @@ export default function DashboardPage() {
 
     setEventsBySeries((current) => ({ ...current, [seriesId]: eventItems }));
     setRegistrationsByEvent((current) => ({ ...current, ...registrationMap }));
-  }
-
-  async function syncPaymentForRegistration(
-    series: SessionSeries,
-    eventItem: SessionEvent,
-    registrationId: string,
-    registration: {
-      userId: string;
-      playerName: string;
-      playerEmail: string;
-      playerPaid: boolean;
-      organiserPaid: boolean;
-    },
-  ) {
-    const effectivePaid = registration.organiserPaid || registration.playerPaid;
-    await upsertPaymentRecord(db, {
-      sessionSeriesId: series.id,
-      sessionEventId: eventItem.id,
-      registrationId,
-      organiserId: series.organiserId,
-      userId: registration.userId,
-      playerName: registration.playerName,
-      playerEmail: registration.playerEmail,
-      amount: eventItem.defaultPriceCasual,
-      playerPaid: registration.playerPaid,
-      organiserPaid: registration.organiserPaid,
-      effectivePaid,
-      status: effectivePaid ? "paid" : "pending",
-    });
   }
 
   async function handleCreateNextEvent(series: SessionSeries) {
@@ -284,7 +273,7 @@ export default function DashboardPage() {
         nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
       });
 
-      const registrationRef = await addDoc(collection(db, "registrations"), {
+      await addDoc(collection(db, "registrations"), {
         sessionEventId: eventItem.id,
         sessionSeriesId: series.id,
         userId: user.uid,
@@ -293,14 +282,6 @@ export default function DashboardPage() {
         playerPaid: false,
         organiserPaid: true,
         createdAt: serverTimestamp(),
-      });
-
-      await syncPaymentForRegistration(series, eventItem, registrationRef.id, {
-        userId: user.uid,
-        playerName: profile?.displayName || user.email || "Player",
-        playerEmail: user.email || "",
-        playerPaid: false,
-        organiserPaid: true,
       });
 
       await refreshSeriesData(series.id);
@@ -338,13 +319,6 @@ export default function DashboardPage() {
       await updateDoc(doc(db, "registrations", registration.id), {
         playerPaid: nextValue,
       });
-      await syncPaymentForRegistration(series, eventItem, registration.id, {
-        userId: registration.userId,
-        playerName: registration.playerName,
-        playerEmail: registration.playerEmail,
-        playerPaid: nextValue,
-        organiserPaid: registration.organiserPaid,
-      });
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -364,13 +338,6 @@ export default function DashboardPage() {
         organiserPaid: nextValue,
         playerPaid,
       });
-      await syncPaymentForRegistration(series, eventItem, registration.id, {
-        userId: registration.userId,
-        playerName: registration.playerName,
-        playerEmail: registration.playerEmail,
-        playerPaid,
-        organiserPaid: nextValue,
-      });
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -383,7 +350,7 @@ export default function DashboardPage() {
     );
     if (existing) return;
 
-    const registrationRef = await addDoc(collection(db, "registrations"), {
+    await addDoc(collection(db, "registrations"), {
       sessionEventId: eventItem.id,
       sessionSeriesId: series.id,
       userId: player.userId || player.id,
@@ -392,14 +359,6 @@ export default function DashboardPage() {
       playerPaid: false,
       organiserPaid: true,
       createdAt: serverTimestamp(),
-    });
-
-    await syncPaymentForRegistration(series, eventItem, registrationRef.id, {
-      userId: player.userId || player.id,
-      playerName: player.displayName,
-      playerEmail: player.email,
-      playerPaid: false,
-      organiserPaid: true,
     });
 
     await updateDoc(doc(db, "sessionEvents", eventItem.id), {
@@ -449,6 +408,18 @@ export default function DashboardPage() {
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
         <div className="mx-auto max-w-5xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
           Loading dashboard...
+        </div>
+      </main>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
+        <div className="mx-auto max-w-3xl rounded-3xl border border-red-200 bg-red-50 p-8 shadow-sm">
+          <div className="text-sm font-semibold uppercase tracking-[0.15em] text-red-600">Dashboard error</div>
+          <div className="mt-3 text-lg font-medium text-red-800">{loadError}</div>
+          <div className="mt-4 text-sm text-red-700">Open the browser console for the exact failing call if needed.</div>
         </div>
       </main>
     );
@@ -522,7 +493,7 @@ export default function DashboardPage() {
                     {canManageSessions ? (
                       <div className="flex gap-2">
                         <Link href={`/sessions/edit?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link>
-                        <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-full border border-red-400 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60">Inactivate series</button>
+                        <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-full border border-red-400 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
                       </div>
                     ) : null}
                   </div>
@@ -584,13 +555,13 @@ export default function DashboardPage() {
                                       <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
                                     </div>
                                     <div className="flex flex-wrap gap-2 text-xs">
-                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.playerPaid ? `Paid by ${registration.playerName}` : `Unpaid by ${registration.playerName}`}</span>
-                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.organiserPaid ? `Payment confirmed by ${series.organiserName || "organiser"}` : `Unconfirmed by ${series.organiserName || "organiser"}`}</span>
+                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.playerPaid ? `Paid` : `Not paid`}</span>
+                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.organiserPaid ? `Confirmed` : `Not confirmed`}</span>
                                     </div>
                                   </div>
                                   <div className="mt-3 flex flex-wrap gap-2">
-                                    {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.playerPaid ? `Mark unpaid by ${registration.playerName}` : `Paid by ${registration.playerName}`}</button> : null}
-                                    {canManageSessions ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? `Unconfirm by ${series.organiserName || "organiser"}` : `Payment confirmed by ${series.organiserName || "organiser"}`}</button> : null}
+                                    {isOwnRegistration ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.playerPaid ? `Not paid` : `Paid`}</button> : null}
+                                    {canManageSessions ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? `Not confirmed` : `Confirmed`}</button> : null}
                                     {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button> : null}
                                   </div>
                                 </div>

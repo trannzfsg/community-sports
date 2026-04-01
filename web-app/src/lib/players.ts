@@ -8,6 +8,7 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
+import type { SkillLevel } from "@/lib/skill-levels";
 
 export type PlayerDirectoryEntry = {
   id: string;
@@ -16,6 +17,7 @@ export type PlayerDirectoryEntry = {
   displayName: string;
   email: string;
   source: "self-registered" | "manual";
+  skillLevel?: SkillLevel | null;
 };
 
 export function buildManualPlayerId(ownerOrganiserId: string, displayName: string) {
@@ -91,6 +93,7 @@ export async function createManualPlayer(
       displayName: displayName.trim(),
       email: "",
       source: "manual",
+      skillLevel: null,
       updatedAt: serverTimestamp(),
     },
     { merge: true },
