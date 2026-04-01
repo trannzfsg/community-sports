@@ -21,6 +21,17 @@ export default function LoginPage() {
 
   const rolePreview = useMemo(() => getRoleForEmail(email), [email]);
 
+  async function upsertPlayerDirectoryEntry(userId: string, name: string, userEmail: string) {
+    await setDoc(doc(db, "players", userId), {
+      ownerOrganiserId: null,
+      userId,
+      displayName: name,
+      email: userEmail,
+      source: "self-registered",
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -34,24 +45,41 @@ export default function LoginPage() {
           password,
         );
 
+        const name = displayName.trim() || credentials.user.email || "Player";
+
         await setDoc(doc(db, "users", credentials.user.uid), {
-          displayName: displayName.trim() || credentials.user.email,
+          displayName: name,
           email: credentials.user.email,
           role: getRoleForEmail(credentials.user.email),
           createdAt: serverTimestamp(),
         });
+
+        await upsertPlayerDirectoryEntry(
+          credentials.user.uid,
+          name,
+          credentials.user.email || "",
+        );
       } else {
         const credentials = await signInWithEmailAndPassword(auth, email, password);
         const snapshot = await getDoc(doc(db, "users", credentials.user.uid));
 
         if (!snapshot.exists()) {
+          const name = credentials.user.email || "Player";
           await setDoc(doc(db, "users", credentials.user.uid), {
-            displayName: credentials.user.email,
+            displayName: name,
             email: credentials.user.email,
             role: getRoleForEmail(credentials.user.email),
             createdAt: serverTimestamp(),
           });
         }
+
+        const userSnapshot = await getDoc(doc(db, "users", credentials.user.uid));
+        const userData = userSnapshot.data() as { displayName?: string; email?: string } | undefined;
+        await upsertPlayerDirectoryEntry(
+          credentials.user.uid,
+          userData?.displayName || credentials.user.email || "Player",
+          userData?.email || credentials.user.email || "",
+        );
       }
 
       router.push("/dashboard");

@@ -97,6 +97,18 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    match /players/{playerId} {
+      allow read: if isAdmin()
+        || (isOrganiser() && (resource.data.ownerOrganiserId == request.auth.uid || resource.data.ownerOrganiserId == null));
+      allow create: if isAdmin()
+        || (isOrganiser() && request.resource.data.ownerOrganiserId == request.auth.uid)
+        || (isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.ownerOrganiserId == null);
+      allow update: if isAdmin()
+        || (isOrganiser() && resource.data.ownerOrganiserId == request.auth.uid)
+        || (isSignedIn() && resource.data.userId == request.auth.uid && resource.data.ownerOrganiserId == null);
+      allow delete: if isAdmin() || (isOrganiser() && resource.data.ownerOrganiserId == request.auth.uid);
+    }
+
     match /sessions/{sessionId} {
       allow read: if isAdmin()
         || isPlayer()
