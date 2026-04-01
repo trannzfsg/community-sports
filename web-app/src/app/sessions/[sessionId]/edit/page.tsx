@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
+import DatePicker from "@/components/date-picker";
 import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
 import {
@@ -197,7 +198,7 @@ export default function EditSessionPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Next game on</span>
-            <input type="date" lang="en-AU" value={nextGameOn} onChange={(event) => setNextGameOn(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+            <DatePicker value={nextGameOn} onChange={setNextGameOn} required />
             <button type="button" onClick={() => setNextGameOn(computedNextGameOn)} className="mt-2 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline">
               Reset to suggested date ({computedNextGameOn})
             </button>
@@ -205,7 +206,7 @@ export default function EditSessionPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">First session on</span>
-            <input type="date" lang="en-AU" value={firstSessionOn} onChange={(event) => setFirstSessionOn(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+            <DatePicker value={firstSessionOn} onChange={setFirstSessionOn} required />
           </label>
 
           <label className="block">
