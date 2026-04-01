@@ -11,7 +11,23 @@ service cloud.firestore {
     }
 
     function currentUserRole() {
-      return isSignedIn() ? currentUserDoc().data.role : null;
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? currentUserDoc().data.role
+        : null;
+    }
+
+    function signedInEmail() {
+      return isSignedIn() && request.auth.token.email != null
+        ? lower(request.auth.token.email)
+        : "";
+    }
+
+    function derivedRoleFromEmail() {
+      return signedInEmail() == "tranzha83@gmail.com"
+        ? "admin"
+        : signedInEmail() == "tranzha83+badmintonmonday@gmail.com"
+          ? "organiser"
+          : "player";
     }
 
     function isAdmin() {
@@ -40,21 +56,31 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId);
-      allow update: if (isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin();
+      allow create: if isOwner(userId)
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.role == derivedRoleFromEmail();
+      allow update: if (isOwner(userId)
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.email == resource.data.email) || isAdmin();
       allow delete: if isAdmin();
     }
 
     match /sessions/{sessionId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin()
+        || isPlayer()
+        || (isOrganiser() && sessionOwnedByCurrentOrganiser());
       allow create: if isAdmin() || (isOrganiser() && newSessionOwnedByCurrentOrganiser());
       allow update, delete: if isAdmin() || (isOrganiser() && sessionOwnedByCurrentOrganiser());
     }
 
     match /payments/{paymentId} {
-      allow read: if isAdmin() || (isOrganiser() && resource.data.organiserId == request.auth.uid) || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow create: if isAdmin() || (isSignedIn() && request.resource.data.userId == request.auth.uid);
-      allow update, delete: if isAdmin() || (isOrganiser() && resource.data.organiserId == request.auth.uid);
+      allow read: if isAdmin()
+        || (isOrganiser() && resource.data.organiserId == request.auth.uid)
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin()
+        || (isSignedIn() && request.resource.data.userId == request.auth.uid);
+      allow update, delete: if isAdmin()
+        || (isOrganiser() && resource.data.organiserId == request.auth.uid);
     }
 
     match /{document=**} {
