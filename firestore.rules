@@ -62,6 +62,26 @@ service cloud.firestore {
       return value in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     }
 
+    function registrationOwnedByCurrentUser() {
+      return isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    function newRegistrationOwnedByCurrentUser() {
+      return isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+
+    function registrationForOrganiserSession() {
+      return isOrganiser()
+        && exists(/databases/$(database)/documents/sessions/$(resource.data.sessionId))
+        && get(/databases/$(database)/documents/sessions/$(resource.data.sessionId)).data.organiserId == request.auth.uid;
+    }
+
+    function newRegistrationForOrganiserSession() {
+      return isOrganiser()
+        && exists(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId))
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.organiserId == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId)
@@ -83,6 +103,21 @@ service cloud.firestore {
       allow update, delete: if (isAdmin() || (isOrganiser() && sessionOwnedByCurrentOrganiser()))
         && validSport(request.resource.data.typeOfSport)
         && validDayOfWeek(request.resource.data.dayOfWeek);
+    }
+
+    match /registrations/{registrationId} {
+      allow read: if isAdmin()
+        || registrationOwnedByCurrentUser()
+        || registrationForOrganiserSession();
+      allow create: if isAdmin()
+        || newRegistrationOwnedByCurrentUser()
+        || newRegistrationForOrganiserSession();
+      allow update: if isAdmin()
+        || registrationForOrganiserSession()
+        || (registrationOwnedByCurrentUser()
+          && request.resource.data.playerPaid == request.resource.data.playerPaid
+          && request.resource.data.organiserPaid == resource.data.organiserPaid);
+      allow delete: if isAdmin() || registrationForOrganiserSession();
     }
 
     match /payments/{paymentId} {
