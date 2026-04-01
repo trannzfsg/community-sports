@@ -13,6 +13,7 @@ import {
   SPORT_OPTIONS,
 } from "@/lib/session-options";
 import { createSessionEventForSeries, type SessionSeries } from "@/lib/session-series";
+import { getUsersByRole, type UserRecord } from "@/lib/users";
 
 type UserProfile = {
   displayName?: string;
@@ -26,6 +27,9 @@ export default function NewSessionPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [organisers, setOrganisers] = useState<UserRecord[]>([]);
+  const [ownerOrganiserId, setOwnerOrganiserId] = useState("");
+  const [currentRole, setCurrentRole] = useState<AppRole | null>(null);
 
   const [title, setTitle] = useState("");
   const [typeOfSport, setTypeOfSport] = useState<(typeof SPORT_OPTIONS)[number]>("Badminton");
@@ -64,6 +68,10 @@ export default function NewSessionPage() {
         return;
       }
 
+      setCurrentRole(profile.role);
+      const organiserUsers = await getUsersByRole(db, "organiser");
+      setOrganisers(organiserUsers);
+      setOwnerOrganiserId(profile.role === "organiser" ? user.uid : organiserUsers[0]?.id || "");
       setAllowed(true);
       setLoading(false);
     });
@@ -82,6 +90,11 @@ export default function NewSessionPage() {
         throw new Error("You need to be signed in.");
       }
 
+      const organiserId = currentRole === "organiser" ? currentUser.uid : ownerOrganiserId;
+      if (!organiserId) {
+        throw new Error("Session series must have an organiser owner.");
+      }
+
       const seriesRef = await addDoc(collection(db, "sessions"), {
         title: title.trim(),
         typeOfSport,
@@ -93,7 +106,7 @@ export default function NewSessionPage() {
         firstSessionOn,
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
-        organiserId: currentUser.uid,
+        organiserId,
         status,
         copyRosterFromLastEvent,
         createdAt: serverTimestamp(),
@@ -112,7 +125,7 @@ export default function NewSessionPage() {
           firstSessionOn,
           defaultPriceCasual: Number(defaultPriceCasual),
           capacity: Number(capacity),
-          organiserId: currentUser.uid,
+          organiserId,
           status,
           copyRosterFromLastEvent,
         };
@@ -157,6 +170,19 @@ export default function NewSessionPage() {
         </p>
 
         <form className="mt-8 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+          {currentRole === "admin" ? (
+            <label className="block md:col-span-2">
+              <span className="mb-2 block text-sm font-medium text-zinc-700">Owner organiser</span>
+              <select value={ownerOrganiserId} onChange={(event) => setOwnerOrganiserId(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required>
+                {organisers.map((organiser) => (
+                  <option key={organiser.id} value={organiser.id}>
+                    {(organiser.displayName || organiser.email || organiser.id)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
           <label className="block md:col-span-2">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Series title</span>
             <input

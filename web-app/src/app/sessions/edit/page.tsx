@@ -13,6 +13,7 @@ import {
   getSuggestedNextGameOn,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
+import { getUsersByRole, type UserRecord } from "@/lib/users";
 
 type UserProfile = {
   displayName?: string;
@@ -44,6 +45,9 @@ function EditSessionPageInner() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [organisers, setOrganisers] = useState<UserRecord[]>([]);
+  const [ownerOrganiserId, setOwnerOrganiserId] = useState("");
+  const [currentRole, setCurrentRole] = useState<AppRole | null>(null);
 
   const [title, setTitle] = useState("");
   const [typeOfSport, setTypeOfSport] = useState<(typeof SPORT_OPTIONS)[number]>("Badminton");
@@ -70,9 +74,10 @@ function EditSessionPageInner() {
         return;
       }
 
-      const [profileSnapshot, sessionSnapshot] = await Promise.all([
+      const [profileSnapshot, sessionSnapshot, organiserUsers] = await Promise.all([
         getDoc(doc(db, "users", user.uid)),
         getDoc(doc(db, "sessions", sessionId)),
+        getUsersByRole(db, "organiser"),
       ]);
 
       const profile = profileSnapshot.data() as UserProfile | undefined;
@@ -92,6 +97,8 @@ function EditSessionPageInner() {
         return;
       }
 
+      setCurrentRole(profile.role);
+      setOrganisers(organiserUsers);
       setAllowed(true);
       setTitle(session.title);
       setTypeOfSport(session.typeOfSport);
@@ -99,6 +106,7 @@ function EditSessionPageInner() {
       setDayOfWeek(session.dayOfWeek);
       setStartAt(session.startAt);
       setEndAt(session.endAt);
+      setOwnerOrganiserId(session.organiserId || (profile.role === "organiser" ? user.uid : organiserUsers[0]?.id || ""));
       setNextGameOn(
         getEffectiveNextGameOn(
           session.dayOfWeek,
@@ -123,8 +131,19 @@ function EditSessionPageInner() {
     setError("");
 
     try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        throw new Error("You need to be signed in.");
+      }
+
+      const organiserId = currentRole === "organiser" ? currentUser.uid : ownerOrganiserId;
+      if (!organiserId) {
+        throw new Error("Session series must have an organiser owner.");
+      }
+
       await updateDoc(doc(db, "sessions", sessionId), {
         title: title.trim(),
+        organiserId,
         typeOfSport,
         location: location.trim(),
         dayOfWeek,
@@ -176,6 +195,19 @@ function EditSessionPageInner() {
         </p>
 
         <form className="mt-8 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+          {currentRole === "admin" ? (
+            <label className="block md:col-span-2">
+              <span className="mb-2 block text-sm font-medium text-zinc-700">Owner organiser</span>
+              <select value={ownerOrganiserId} onChange={(event) => setOwnerOrganiserId(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required>
+                {organisers.map((organiser) => (
+                  <option key={organiser.id} value={organiser.id}>
+                    {(organiser.displayName || organiser.email || organiser.id)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+
           <label className="block md:col-span-2">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Series title</span>
             <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />

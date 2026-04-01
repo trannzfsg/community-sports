@@ -45,41 +45,47 @@ export default function LoginPage() {
           password,
         );
 
+        const role = getRoleForEmail(credentials.user.email);
         const name = displayName.trim() || credentials.user.email || "Player";
 
         await setDoc(doc(db, "users", credentials.user.uid), {
           displayName: name,
           email: credentials.user.email,
-          role: getRoleForEmail(credentials.user.email),
+          role,
           createdAt: serverTimestamp(),
         });
 
-        await upsertPlayerDirectoryEntry(
-          credentials.user.uid,
-          name,
-          credentials.user.email || "",
-        );
+        if (role === "player") {
+          await upsertPlayerDirectoryEntry(
+            credentials.user.uid,
+            name,
+            credentials.user.email || "",
+          );
+        }
       } else {
         const credentials = await signInWithEmailAndPassword(auth, email, password);
         const snapshot = await getDoc(doc(db, "users", credentials.user.uid));
 
         if (!snapshot.exists()) {
+          const role = getRoleForEmail(credentials.user.email);
           const name = credentials.user.email || "Player";
           await setDoc(doc(db, "users", credentials.user.uid), {
             displayName: name,
             email: credentials.user.email,
-            role: getRoleForEmail(credentials.user.email),
+            role,
             createdAt: serverTimestamp(),
           });
         }
 
         const userSnapshot = await getDoc(doc(db, "users", credentials.user.uid));
-        const userData = userSnapshot.data() as { displayName?: string; email?: string } | undefined;
-        await upsertPlayerDirectoryEntry(
-          credentials.user.uid,
-          userData?.displayName || credentials.user.email || "Player",
-          userData?.email || credentials.user.email || "",
-        );
+        const userData = userSnapshot.data() as { displayName?: string; email?: string; role?: "player" | "organiser" | "admin" } | undefined;
+        if (userData?.role === "player") {
+          await upsertPlayerDirectoryEntry(
+            credentials.user.uid,
+            userData?.displayName || credentials.user.email || "Player",
+            userData?.email || credentials.user.email || "",
+          );
+        }
       }
 
       router.push("/dashboard");
