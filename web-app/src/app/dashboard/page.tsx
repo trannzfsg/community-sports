@@ -140,7 +140,7 @@ export default function DashboardPage() {
                   id: registrationDoc.id,
                   ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
                 })),
-                currentUser?.uid,
+                currentUser.uid,
               );
             }),
           );
@@ -241,6 +241,34 @@ export default function DashboardPage() {
     try {
       await createSessionEventForSeries(db, series, series.nextGameOn);
       await refreshSeriesData(series.id);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleDeleteSeries(series: SessionSeries) {
+    if (!confirm(`Delete session series "${series.title}"? This will also remove its events, registrations, and payment mirrors.`)) {
+      return;
+    }
+
+    setBusyKey(series.id);
+    try {
+      const events = eventsBySeries[series.id] ?? [];
+      for (const eventItem of events) {
+        const registrations = registrationsByEvent[eventItem.id] ?? [];
+        for (const registration of registrations) {
+          await deletePaymentRecord(db, registration.id);
+          await deleteDoc(doc(db, "registrations", registration.id));
+        }
+        await deleteDoc(doc(db, "sessionEvents", eventItem.id));
+      }
+      await deleteDoc(doc(db, "sessions", series.id));
+      setSeriesList((current) => current.filter((item) => item.id !== series.id));
+      setEventsBySeries((current) => {
+        const next = { ...current };
+        delete next[series.id];
+        return next;
+      });
     } finally {
       setBusyKey(null);
     }
@@ -463,7 +491,30 @@ export default function DashboardPage() {
               const visiblePlayersForSeries = playerDirectory.filter(
                 (player) => player.ownerOrganiserId === null || player.ownerOrganiserId === series.organiserId,
               );
-              const nextEventIsOpen = !!nextEvent && nextEvent.status !== "paused" && nextEvent.status !== "full";
+              const eventIsFull = !!nextEvent && nextEvent.bookedCount >= nextEvent.capacity;
+              const playerIsJoining = !!currentRegistration;
+              const playerCanJoin = !!nextEvent && !eventIsFull && !playerIsJoining;
+              const nextEventIsOpen = !!nextEvent && nextEvent.status !== "paused" && !eventIsFull;
+
+              const eventCardClass = profile?.role === "player"
+                ? playerIsJoining
+                  ? "ring-emerald-300 bg-emerald-50"
+                  : playerCanJoin
+                    ? "ring-blue-300 bg-blue-50"
+                    : "ring-zinc-300 bg-zinc-100"
+                : eventIsFull
+                  ? "ring-amber-300 bg-amber-50"
+                  : "ring-emerald-300 bg-emerald-50";
+
+              const eventStateText = profile?.role === "player"
+                ? playerIsJoining
+                  ? "joining"
+                  : playerCanJoin
+                    ? "available"
+                    : "not available"
+                : eventIsFull
+                  ? "full"
+                  : "open";
 
               return (
                 <article key={series.id} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
@@ -476,7 +527,12 @@ export default function DashboardPage() {
                       <h2 className="text-xl font-semibold">{series.title}</h2>
                       <p className="mt-2 text-sm text-zinc-600">{series.location}</p>
                     </div>
-                    {canManageSessions ? <Link href={`/sessions/edit?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link> : null}
+                    {canManageSessions ? (
+                      <div className="flex gap-2">
+                        <Link href={`/sessions/edit?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link>
+                        <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
+                      </div>
+                    ) : null}
                   </div>
 
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-zinc-700">
@@ -488,13 +544,16 @@ export default function DashboardPage() {
                     <div><dt className="text-zinc-500">Series capacity</dt><dd>{series.capacity}</dd></div>
                   </dl>
 
-                  <div className="mt-4 rounded-2xl bg-zinc-50 p-4 ring-1 ring-zinc-200">
+                  <div className={`mt-4 rounded-2xl p-4 ring-1 ${eventCardClass}`}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
                         <p className="mt-1 text-sm text-zinc-700">{nextEvent ? `${nextEvent.eventDate} • ${nextEvent.bookedCount}/${nextEvent.capacity} registered` : "No event created yet"}</p>
                       </div>
-                      {canManageSessions && !nextEventIsOpen ? <button type="button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-medium text-zinc-700">{eventStateText}</span>
+                        {canManageSessions && !nextEventIsOpen ? <button type="button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                      </div>
                     </div>
 
                     {nextEvent ? (
@@ -503,9 +562,9 @@ export default function DashboardPage() {
                           <h4 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Registrations for {nextEvent.eventDate}</h4>
                           {!canManageSessions ? (
                             currentRegistration ? (
-                              <button type="button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Leave event</button>
+                              <button type="button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Leave event</button>
                             ) : (
-                              <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || nextEvent.bookedCount >= nextEvent.capacity} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">Register</button>
+                              <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || eventIsFull} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">Register</button>
                             )
                           ) : null}
                         </div>
@@ -514,7 +573,7 @@ export default function DashboardPage() {
                           <div className="mt-4 space-y-2">
                             <SearchablePlayerSelect
                               players={visiblePlayersForSeries}
-                              disabled={busyKey === nextEvent.id}
+                              disabled={busyKey === nextEvent.id || eventIsFull}
                               onSelectOrCreate={(selection) => handleSelectOrCreatePlayer(series, nextEvent, selection)}
                             />
                           </div>
