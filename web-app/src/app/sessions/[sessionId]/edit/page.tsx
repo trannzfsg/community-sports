@@ -1,0 +1,244 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import type { AppRole } from "@/lib/roles";
+import {
+  DAY_OF_WEEK_OPTIONS,
+  getNextGameOn,
+  SPORT_OPTIONS,
+} from "@/lib/session-options";
+
+type UserProfile = {
+  displayName?: string;
+  email?: string;
+  role: AppRole;
+};
+
+type SessionItem = {
+  title: string;
+  typeOfSport: (typeof SPORT_OPTIONS)[number];
+  location: string;
+  dayOfWeek: (typeof DAY_OF_WEEK_OPTIONS)[number];
+  nextGameOn?: string;
+  startAt: string;
+  endAt: string;
+  firstSessionOn: string;
+  defaultPriceCasual: number;
+  bookedCount: number;
+  capacity: number;
+  organiserId: string;
+  status: string;
+};
+
+export default function EditSessionPage() {
+  const params = useParams<{ sessionId: string }>();
+  const router = useRouter();
+  const [allowed, setAllowed] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const [title, setTitle] = useState("");
+  const [typeOfSport, setTypeOfSport] = useState<(typeof SPORT_OPTIONS)[number]>("Badminton");
+  const [location, setLocation] = useState("");
+  const [dayOfWeek, setDayOfWeek] = useState<(typeof DAY_OF_WEEK_OPTIONS)[number]>("Mon");
+  const [nextGameOn, setNextGameOn] = useState("");
+  const [startAt, setStartAt] = useState("19:00");
+  const [endAt, setEndAt] = useState("21:00");
+  const [firstSessionOn, setFirstSessionOn] = useState("");
+  const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
+  const [capacity, setCapacity] = useState("12");
+  const [status, setStatus] = useState("active");
+
+  const computedNextGameOn = useMemo(() => getNextGameOn(dayOfWeek), [dayOfWeek]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/login");
+        return;
+      }
+
+      const [profileSnapshot, sessionSnapshot] = await Promise.all([
+        getDoc(doc(db, "users", user.uid)),
+        getDoc(doc(db, "sessions", params.sessionId)),
+      ]);
+
+      const profile = profileSnapshot.data() as UserProfile | undefined;
+      const session = sessionSnapshot.data() as SessionItem | undefined;
+
+      if (!profile || !sessionSnapshot.exists() || !session) {
+        router.push("/dashboard");
+        return;
+      }
+
+      const canEdit =
+        profile.role === "admin" ||
+        (profile.role === "organiser" && session.organiserId === user.uid);
+
+      if (!canEdit) {
+        router.push("/dashboard");
+        return;
+      }
+
+      setAllowed(true);
+      setTitle(session.title);
+      setTypeOfSport(session.typeOfSport);
+      setLocation(session.location);
+      setDayOfWeek(session.dayOfWeek);
+      setNextGameOn(session.nextGameOn ?? computedNextGameOn);
+      setStartAt(session.startAt);
+      setEndAt(session.endAt);
+      setFirstSessionOn(session.firstSessionOn);
+      setDefaultPriceCasual(String(session.defaultPriceCasual));
+      setCapacity(String(session.capacity));
+      setStatus(session.status);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [computedNextGameOn, params.sessionId, router]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+
+    try {
+      await updateDoc(doc(db, "sessions", params.sessionId), {
+        title: title.trim(),
+        typeOfSport,
+        location: location.trim(),
+        dayOfWeek,
+        nextGameOn,
+        startAt,
+        endAt,
+        firstSessionOn,
+        defaultPriceCasual: Number(defaultPriceCasual),
+        capacity: Number(capacity),
+        status,
+      });
+
+      router.push("/dashboard");
+    } catch (submitError) {
+      if (submitError instanceof Error) {
+        setError(submitError.message);
+      } else {
+        setError("Failed to update session.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
+        <div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+          Loading session...
+        </div>
+      </main>
+    );
+  }
+
+  if (!allowed) {
+    return null;
+  }
+
+  return (
+    <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
+      <div className="mx-auto w-full max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+        <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
+          Sessions
+        </p>
+        <h1 className="text-3xl font-semibold tracking-tight">Edit session</h1>
+        <p className="mt-3 text-zinc-600">
+          Organisers can edit their own sessions. Admins can edit any session.
+        </p>
+
+        <form className="mt-8 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+          <label className="block md:col-span-2">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Title</span>
+            <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Type of sport</span>
+            <select value={typeOfSport} onChange={(event) => setTypeOfSport(event.target.value as (typeof SPORT_OPTIONS)[number])} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
+              {SPORT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Location</span>
+            <input value={location} onChange={(event) => setLocation(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Day of week</span>
+            <select value={dayOfWeek} onChange={(event) => setDayOfWeek(event.target.value as (typeof DAY_OF_WEEK_OPTIONS)[number])} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
+              {DAY_OF_WEEK_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Next game on</span>
+            <input type="date" value={nextGameOn} onChange={(event) => setNextGameOn(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+            <button type="button" onClick={() => setNextGameOn(computedNextGameOn)} className="mt-2 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline">
+              Reset to suggested date ({computedNextGameOn})
+            </button>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">First session on</span>
+            <input type="date" value={firstSessionOn} onChange={(event) => setFirstSessionOn(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Start time</span>
+            <input type="time" value={startAt} onChange={(event) => setStartAt(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">End time</span>
+            <input type="time" value={endAt} onChange={(event) => setEndAt(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Casual price</span>
+            <input type="number" min="0" step="0.01" value={defaultPriceCasual} onChange={(event) => setDefaultPriceCasual(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Capacity</span>
+            <input type="number" min="1" step="1" value={capacity} onChange={(event) => setCapacity(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Status</span>
+            <select value={status} onChange={(event) => setStatus(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
+              <option value="active">active</option>
+              <option value="paused">paused</option>
+              <option value="full">full</option>
+            </select>
+          </label>
+
+          {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">{error}</div> : null}
+
+          <div className="md:col-span-2 flex gap-3">
+            <button type="submit" disabled={busy} className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">
+              {busy ? "Saving..." : "Save changes"}
+            </button>
+            <button type="button" onClick={() => router.push("/dashboard")} className="rounded-full border border-zinc-300 px-6 py-3 text-sm font-medium hover:bg-zinc-100">
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+    </main>
+  );
+}

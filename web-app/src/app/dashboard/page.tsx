@@ -159,6 +159,14 @@ export default function DashboardPage() {
                     <h2 className="text-xl font-semibold">{session.title}</h2>
                     <p className="mt-2 text-sm text-zinc-600">{session.location}</p>
                   </div>
+                  {canManageSessions ? (
+                    <Link
+                      href={`/sessions/${session.id}/edit`}
+                      className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100"
+                    >
+                      Edit
+                    </Link>
+                  ) : null}
                 </div>
 
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-zinc-700">

@@ -35,8 +35,12 @@ export default function NewSessionPage() {
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
   const [status, setStatus] = useState("active");
+  const computedNextGameOn = useMemo(() => getNextGameOn(dayOfWeek), [dayOfWeek]);
+  const [nextGameOn, setNextGameOn] = useState(computedNextGameOn);
 
-  const nextGameOn = useMemo(() => getNextGameOn(dayOfWeek), [dayOfWeek]);
+  useEffect(() => {
+    setNextGameOn(computedNextGameOn);
+  }, [computedNextGameOn]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -183,8 +187,9 @@ export default function NewSessionPage() {
             <input
               type="date"
               value={nextGameOn}
-              readOnly
-              className="w-full rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-3 text-zinc-700 outline-none"
+              onChange={(event) => setNextGameOn(event.target.value)}
+              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
+              required
             />
           </label>
 
