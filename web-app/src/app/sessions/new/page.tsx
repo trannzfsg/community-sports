@@ -1,12 +1,16 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
-import { DAY_OF_WEEK_OPTIONS, SPORT_OPTIONS } from "@/lib/session-options";
+import {
+  DAY_OF_WEEK_OPTIONS,
+  getNextGameOn,
+  SPORT_OPTIONS,
+} from "@/lib/session-options";
 
 type UserProfile = {
   displayName?: string;
@@ -31,6 +35,8 @@ export default function NewSessionPage() {
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
   const [status, setStatus] = useState("active");
+
+  const nextGameOn = useMemo(() => getNextGameOn(dayOfWeek), [dayOfWeek]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -70,6 +76,7 @@ export default function NewSessionPage() {
         typeOfSport,
         location: location.trim(),
         dayOfWeek,
+        nextGameOn,
         startAt,
         endAt,
         firstSessionOn,
@@ -169,6 +176,16 @@ export default function NewSessionPage() {
                 </option>
               ))}
             </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Next game on</span>
+            <input
+              type="date"
+              value={nextGameOn}
+              readOnly
+              className="w-full rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-3 text-zinc-700 outline-none"
+            />
           </label>
 
           <label className="block">

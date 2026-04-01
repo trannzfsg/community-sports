@@ -22,6 +22,7 @@ type SessionItem = {
   typeOfSport: "Badminton" | "Basketball";
   location: string;
   dayOfWeek: string;
+  nextGameOn?: string;
   startAt: string;
   endAt: string;
   firstSessionOn: string;
@@ -164,6 +165,10 @@ export default function DashboardPage() {
                   <div>
                     <dt className="text-zinc-500">Day</dt>
                     <dd>{session.dayOfWeek}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-500">Next game on</dt>
+                    <dd>{session.nextGameOn ?? "-"}</dd>
                   </div>
                   <div>
                     <dt className="text-zinc-500">Time</dt>
