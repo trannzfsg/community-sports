@@ -1,6 +1,7 @@
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -28,6 +29,15 @@ export async function getUsersByRole(
     id: userDoc.id,
     ...(userDoc.data() as Omit<UserRecord, "id">),
   }));
+}
+
+export async function getUserById(db: Firestore, userId: string) {
+  const snapshot = await getDoc(doc(db, "users", userId));
+  if (!snapshot.exists()) return null;
+  return {
+    id: snapshot.id,
+    ...(snapshot.data() as Omit<UserRecord, "id">),
+  };
 }
 
 export async function getAllUsers(db: Firestore) {

@@ -13,7 +13,7 @@ import {
   SPORT_OPTIONS,
 } from "@/lib/session-options";
 import { createSessionEventForSeries, type SessionSeries } from "@/lib/session-series";
-import { getUsersByRole, type UserRecord } from "@/lib/users";
+import { getUserById, getUsersByRole, type UserRecord } from "@/lib/users";
 
 type UserProfile = {
   displayName?: string;
@@ -95,6 +95,9 @@ export default function NewSessionPage() {
         throw new Error("Session series must have an organiser owner.");
       }
 
+      const organiser = await getUserById(db, organiserId);
+      const organiserName = organiser?.displayName || organiser?.email || "Organiser";
+
       const seriesRef = await addDoc(collection(db, "sessions"), {
         title: title.trim(),
         typeOfSport,
@@ -107,6 +110,7 @@ export default function NewSessionPage() {
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
         organiserId,
+        organiserName,
         status,
         copyRosterFromLastEvent,
         createdAt: serverTimestamp(),
@@ -126,6 +130,7 @@ export default function NewSessionPage() {
           defaultPriceCasual: Number(defaultPriceCasual),
           capacity: Number(capacity),
           organiserId,
+          organiserName,
           status,
           copyRosterFromLastEvent,
         };

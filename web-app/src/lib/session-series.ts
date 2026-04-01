@@ -25,6 +25,7 @@ export type SessionSeries = {
   defaultPriceCasual: number;
   capacity: number;
   organiserId: string;
+  organiserName?: string;
   status: string;
   copyRosterFromLastEvent?: boolean;
 };
@@ -33,6 +34,7 @@ export type SessionEvent = {
   id: string;
   sessionSeriesId: string;
   organiserId: string;
+  organiserName?: string;
   title: string;
   typeOfSport: TypeOfSport;
   location: string;
@@ -86,6 +88,7 @@ export async function createSessionEventForSeries(
   await setDoc(eventRef, {
     sessionSeriesId: series.id,
     organiserId: series.organiserId,
+    organiserName: series.organiserName || "Organiser",
     title: series.title,
     typeOfSport: series.typeOfSport,
     location: series.location,

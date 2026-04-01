@@ -492,12 +492,12 @@ export default function DashboardPage() {
                 (player) => player.ownerOrganiserId === null || player.ownerOrganiserId === series.organiserId,
               );
               const eventIsFull = !!nextEvent && nextEvent.bookedCount >= nextEvent.capacity;
-              const playerIsJoining = !!currentRegistration;
-              const playerCanJoin = !!nextEvent && !eventIsFull && !playerIsJoining;
+              const playerIsGoing = !!currentRegistration;
+              const playerCanJoin = !!nextEvent && !eventIsFull && !playerIsGoing;
               const nextEventIsOpen = !!nextEvent && nextEvent.status !== "paused" && !eventIsFull;
 
               const eventCardClass = profile?.role === "player"
-                ? playerIsJoining
+                ? playerIsGoing
                   ? "ring-emerald-300 bg-emerald-50"
                   : playerCanJoin
                     ? "ring-blue-300 bg-blue-50"
@@ -507,7 +507,7 @@ export default function DashboardPage() {
                   : "ring-emerald-300 bg-emerald-50";
 
               const eventStateText = profile?.role === "player"
-                ? playerIsJoining
+                ? playerIsGoing
                   ? "going"
                   : playerCanJoin
                     ? "available"
@@ -526,6 +526,7 @@ export default function DashboardPage() {
                       </div>
                       <h2 className="text-xl font-semibold">{series.title}</h2>
                       <p className="mt-2 text-sm text-zinc-600">{series.location}</p>
+                      <p className="mt-1 text-sm text-zinc-500">Organiser: {series.organiserName || "Organiser"}</p>
                     </div>
                     {canManageSessions ? (
                       <div className="flex gap-2">
@@ -549,6 +550,7 @@ export default function DashboardPage() {
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
                         <p className="mt-1 text-sm text-zinc-700">{nextEvent ? `${nextEvent.eventDate} • ${nextEvent.bookedCount}/${nextEvent.capacity} registered` : "No event created yet"}</p>
+                        {nextEvent ? <p className="mt-1 text-sm text-zinc-500">Organiser: {nextEvent.organiserName || series.organiserName || "Organiser"}</p> : null}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-medium text-zinc-700">{eventStateText}</span>

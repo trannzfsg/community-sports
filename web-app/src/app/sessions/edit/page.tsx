@@ -13,7 +13,7 @@ import {
   getSuggestedNextGameOn,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
-import { getUsersByRole, type UserRecord } from "@/lib/users";
+import { getUserById, getUsersByRole, type UserRecord } from "@/lib/users";
 
 type UserProfile = {
   displayName?: string;
@@ -33,6 +33,7 @@ type SessionSeries = {
   defaultPriceCasual: number;
   capacity: number;
   organiserId: string;
+  organiserName?: string;
   status: string;
   copyRosterFromLastEvent?: boolean;
 };
@@ -141,9 +142,13 @@ function EditSessionPageInner() {
         throw new Error("Session series must have an organiser owner.");
       }
 
+      const organiser = await getUserById(db, organiserId);
+      const organiserName = organiser?.displayName || organiser?.email || "Organiser";
+
       await updateDoc(doc(db, "sessions", sessionId), {
         title: title.trim(),
         organiserId,
+        organiserName,
         typeOfSport,
         location: location.trim(),
         dayOfWeek,

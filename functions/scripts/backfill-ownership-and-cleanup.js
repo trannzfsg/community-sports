@@ -17,21 +17,16 @@ async function main() {
 
   const organiser = organiserSnap.docs[0];
   const organiserId = organiser.id;
+  const organiserName = organiser.data().displayName || organiser.data().email || 'Organiser';
 
   const seriesSnap = await db.collection('sessions').get();
   for (const seriesDoc of seriesSnap.docs) {
-    const data = seriesDoc.data();
-    if (!data.organiserId || data.organiserId !== organiserId) {
-      await seriesDoc.ref.set({ organiserId }, { merge: true });
-    }
+    await seriesDoc.ref.set({ organiserId, organiserName }, { merge: true });
   }
 
   const eventSnap = await db.collection('sessionEvents').get();
   for (const eventDoc of eventSnap.docs) {
-    const data = eventDoc.data();
-    if (!data.organiserId || data.organiserId !== organiserId) {
-      await eventDoc.ref.set({ organiserId }, { merge: true });
-    }
+    await eventDoc.ref.set({ organiserId, organiserName }, { merge: true });
   }
 
   const nonPlayerUserIds = new Set();
@@ -58,7 +53,7 @@ async function main() {
     await eventDoc.ref.set({ bookedCount: count }, { merge: true });
   }
 
-  console.log('Backfill complete:', { organiserId, seriesCount: seriesSnap.size, eventCount: eventSnap.size });
+  console.log('Backfill complete:', { organiserId, organiserName, seriesCount: seriesSnap.size, eventCount: eventSnap.size });
 }
 
 main().catch((err) => {
