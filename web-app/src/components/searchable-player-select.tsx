@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Autocomplete, { createFilterOptions } from "@mui/material/Autocomplete";
 import TextField from "@mui/material/TextField";
 import type { PlayerDirectoryEntry } from "@/lib/players";
@@ -22,6 +23,8 @@ export default function SearchablePlayerSelect({
   disabled,
   onSelectOrCreate,
 }: Props) {
+  const [inputValue, setInputValue] = useState("");
+
   const options: PlayerOption[] = players.map((player) => ({
     ...player,
     label: `${player.displayName}${player.email ? ` <${player.email}>` : ""}`,
@@ -35,6 +38,7 @@ export default function SearchablePlayerSelect({
       clearOnBlur
       selectOnFocus
       handleHomeEndKeys
+      inputValue={inputValue}
       getOptionLabel={(option) => {
         if (typeof option === "string") return option;
         if (option.inputValue) return option.inputValue;
@@ -43,22 +47,22 @@ export default function SearchablePlayerSelect({
       isOptionEqualToValue={(option, value) => option.id === value.id}
       filterOptions={(filteredOptions, params) => {
         const result = filter(filteredOptions, params);
-        const { inputValue } = params;
+        const { inputValue: currentInput } = params;
         const isExisting = filteredOptions.some((option) => {
           const label = `${option.displayName}${option.email ? ` <${option.email}>` : ""}`;
-          return label.toLowerCase() === inputValue.toLowerCase() || option.displayName.toLowerCase() === inputValue.toLowerCase();
+          return label.toLowerCase() === currentInput.toLowerCase() || option.displayName.toLowerCase() === currentInput.toLowerCase();
         });
 
-        if (inputValue !== "" && !isExisting) {
+        if (currentInput !== "" && !isExisting) {
           result.push({
-            id: `create:${inputValue}`,
+            id: `create:${currentInput}`,
             ownerOrganiserId: null,
             userId: null,
-            displayName: inputValue,
+            displayName: currentInput,
             email: "",
             source: "manual",
-            inputValue,
-            label: `Create "${inputValue}"`,
+            inputValue: currentInput,
+            label: `Create "${currentInput}"`,
           });
         }
 
@@ -72,15 +76,20 @@ export default function SearchablePlayerSelect({
           </li>
         );
       }}
+      onInputChange={(_, newInputValue) => {
+        setInputValue(newInputValue);
+      }}
       onChange={async (_, newValue) => {
         if (!newValue || typeof newValue === "string") return;
 
         if (newValue.inputValue) {
           await onSelectOrCreate({ type: "create", name: newValue.inputValue });
+          setInputValue("");
           return;
         }
 
         await onSelectOrCreate({ type: "existing", player: newValue });
+        setInputValue("");
       }}
       renderInput={(params) => (
         <TextField
