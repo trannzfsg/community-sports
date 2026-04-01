@@ -17,6 +17,7 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { upsertPaymentRecord } from "@/lib/payments";
 import type { AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
 import {
@@ -161,6 +162,35 @@ export default function DashboardPage() {
     setRegistrationsByEvent((current) => ({ ...current, ...registrationMap }));
   }
 
+  async function syncPaymentForRegistration(
+    series: SessionSeries,
+    eventItem: SessionEvent,
+    registrationId: string,
+    registration: {
+      userId: string;
+      playerName: string;
+      playerEmail: string;
+      playerPaid: boolean;
+      organiserPaid: boolean;
+    },
+  ) {
+    const effectivePaid = registration.organiserPaid || registration.playerPaid;
+    await upsertPaymentRecord(db, {
+      sessionSeriesId: series.id,
+      sessionEventId: eventItem.id,
+      registrationId,
+      organiserId: series.organiserId,
+      userId: registration.userId,
+      playerName: registration.playerName,
+      playerEmail: registration.playerEmail,
+      amount: eventItem.defaultPriceCasual,
+      playerPaid: registration.playerPaid,
+      organiserPaid: registration.organiserPaid,
+      effectivePaid,
+      status: effectivePaid ? "paid" : "pending",
+    });
+  }
+
   async function handleCreateNextEvent(series: SessionSeries) {
     setBusyKey(series.id);
     try {
@@ -190,7 +220,7 @@ export default function DashboardPage() {
         nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
       });
 
-      await addDoc(collection(db, "registrations"), {
+      const registrationRef = await addDoc(collection(db, "registrations"), {
         sessionEventId: eventItem.id,
         sessionSeriesId: series.id,
         userId: user.uid,
@@ -201,47 +231,80 @@ export default function DashboardPage() {
         createdAt: serverTimestamp(),
       });
 
+      await syncPaymentForRegistration(series, eventItem, registrationRef.id, {
+        userId: user.uid,
+        playerName: profile?.displayName || user.email || "Player",
+        playerEmail: user.email || "",
+        playerPaid: false,
+        organiserPaid: false,
+      });
+
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
     }
   }
 
-  async function handlePlayerPaidToggle(registration: RegistrationItem, nextValue: boolean, seriesId: string) {
+  async function handlePlayerPaidToggle(
+    registration: RegistrationItem,
+    nextValue: boolean,
+    series: SessionSeries,
+    eventItem: SessionEvent,
+  ) {
     setBusyKey(registration.sessionEventId);
     try {
       await updateDoc(doc(db, "registrations", registration.id), {
         playerPaid: nextValue,
       });
-      await refreshSeriesData(seriesId);
+      await syncPaymentForRegistration(series, eventItem, registration.id, {
+        userId: registration.userId,
+        playerName: registration.playerName,
+        playerEmail: registration.playerEmail,
+        playerPaid: nextValue,
+        organiserPaid: registration.organiserPaid,
+      });
+      await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
     }
   }
 
-  async function handleOrganiserPaidToggle(registration: RegistrationItem, nextValue: boolean, seriesId: string) {
+  async function handleOrganiserPaidToggle(
+    registration: RegistrationItem,
+    nextValue: boolean,
+    series: SessionSeries,
+    eventItem: SessionEvent,
+  ) {
     setBusyKey(registration.sessionEventId);
     try {
+      const playerPaid = nextValue ? true : registration.playerPaid;
       await updateDoc(doc(db, "registrations", registration.id), {
         organiserPaid: nextValue,
-        playerPaid: nextValue ? true : registration.playerPaid,
+        playerPaid,
       });
-      await refreshSeriesData(seriesId);
+      await syncPaymentForRegistration(series, eventItem, registration.id, {
+        userId: registration.userId,
+        playerName: registration.playerName,
+        playerEmail: registration.playerEmail,
+        playerPaid,
+        organiserPaid: nextValue,
+      });
+      await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
     }
   }
 
-  async function handleOrganiserAddPlayer(seriesId: string, eventItem: SessionEvent) {
+  async function handleOrganiserAddPlayer(series: SessionSeries, eventItem: SessionEvent) {
     const playerName = (manualPlayerNames[eventItem.id] ?? "").trim();
     if (!playerName) return;
 
     setBusyKey(eventItem.id);
     try {
       const userId = `manual:${eventItem.id}:${playerName}`;
-      await addDoc(collection(db, "registrations"), {
+      const registrationRef = await addDoc(collection(db, "registrations"), {
         sessionEventId: eventItem.id,
-        sessionSeriesId: seriesId,
+        sessionSeriesId: series.id,
         userId,
         playerName,
         playerEmail: "",
@@ -250,11 +313,19 @@ export default function DashboardPage() {
         createdAt: serverTimestamp(),
       });
 
+      await syncPaymentForRegistration(series, eventItem, registrationRef.id, {
+        userId,
+        playerName,
+        playerEmail: "",
+        playerPaid: false,
+        organiserPaid: false,
+      });
+
       await updateDoc(doc(db, "sessionEvents", eventItem.id), {
         bookedCount: (eventItem.bookedCount || 0) + 1,
       });
 
-      await refreshSeriesData(seriesId);
+      await refreshSeriesData(series.id);
       setManualPlayerNames((current) => ({ ...current, [eventItem.id]: "" }));
     } finally {
       setBusyKey(null);
@@ -341,7 +412,7 @@ export default function DashboardPage() {
                         {canManageSessions ? (
                           <div className="mt-4 flex gap-2">
                             <input value={manualPlayerNames[nextEvent.id] ?? ""} onChange={(event) => setManualPlayerNames((current) => ({ ...current, [nextEvent.id]: event.target.value }))} placeholder="Add player name" className="flex-1 rounded-xl border border-zinc-300 px-4 py-2 text-sm outline-none transition focus:border-zinc-500" />
-                            <button type="button" onClick={() => handleOrganiserAddPlayer(series.id, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Add player</button>
+                            <button type="button" onClick={() => handleOrganiserAddPlayer(series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Add player</button>
                           </div>
                         ) : null}
 
@@ -364,8 +435,8 @@ export default function DashboardPage() {
                                     </div>
                                   </div>
                                   <div className="mt-3 flex flex-wrap gap-2">
-                                    {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series.id)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Toggle player paid</button> : null}
-                                    {canManageSessions ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series.id)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Toggle organiser confirm</button> : null}
+                                    {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Toggle player paid</button> : null}
+                                    {canManageSessions ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Toggle organiser confirm</button> : null}
                                   </div>
                                 </div>
                               );
