@@ -1,15 +1,25 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import {
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  orderBy,
+  query,
+  where,
+} from "firebase/firestore";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, orderBy, query } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
 
 type SessionItem = {
   id: string;
   title: string;
+  typeOfSport: "Badminton" | "Basketball";
   location: string;
   dayOfWeek: string;
   startAt: string;
@@ -45,17 +55,29 @@ export default function DashboardPage() {
       setUser(currentUser);
 
       const profileSnapshot = await getDoc(doc(db, "users", currentUser.uid));
-      if (profileSnapshot.exists()) {
-        const profileData = profileSnapshot.data() as UserProfile;
-        setProfile(profileData);
+      if (!profileSnapshot.exists()) {
+        router.push("/login");
+        return;
       }
 
-      const sessionsQuery = query(collection(db, "sessions"), orderBy("dayOfWeek"));
+      const profileData = profileSnapshot.data() as UserProfile;
+      setProfile(profileData);
+
+      const sessionsQuery =
+        profileData.role === "organiser"
+          ? query(
+              collection(db, "sessions"),
+              where("organiserId", "==", currentUser.uid),
+              orderBy("dayOfWeek"),
+            )
+          : query(collection(db, "sessions"), orderBy("dayOfWeek"));
+
       const sessionSnapshots = await getDocs(sessionsQuery);
       const sessionItems = sessionSnapshots.docs.map((sessionDoc) => ({
         id: sessionDoc.id,
         ...(sessionDoc.data() as Omit<SessionItem, "id">),
       }));
+
       setSessions(sessionItems);
       setLoading(false);
     });
@@ -63,11 +85,9 @@ export default function DashboardPage() {
     return () => unsubscribe();
   }, [router]);
 
-  const filteredSessions = useMemo(() => {
-    if (!profile) return sessions;
-    if (profile.role === "admin" || profile.role === "player") return sessions;
-    return sessions.filter((session) => session.organiserId === user?.uid);
-  }, [profile, sessions, user?.uid]);
+  const canManageSessions = useMemo(() => {
+    return profile?.role === "admin" || profile?.role === "organiser";
+  }, [profile?.role]);
 
   if (loading) {
     return (
@@ -95,34 +115,49 @@ export default function DashboardPage() {
                 Role: <strong>{profile?.role ?? "player"}</strong>
               </p>
             </div>
-            <button
-              type="button"
-              onClick={async () => {
-                await signOut(auth);
-                router.push("/login");
-              }}
-              className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100"
-            >
-              Sign out
-            </button>
+            <div className="flex flex-wrap gap-3">
+              {canManageSessions ? (
+                <Link
+                  href="/sessions/new"
+                  className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700"
+                >
+                  Create session
+                </Link>
+              ) : null}
+              <button
+                type="button"
+                onClick={async () => {
+                  await signOut(auth);
+                  router.push("/login");
+                }}
+                className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
 
         <section className="grid gap-4 md:grid-cols-2">
-          {filteredSessions.length ? (
-            filteredSessions.map((session) => (
+          {sessions.length ? (
+            sessions.map((session) => (
               <article
                 key={session.id}
                 className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                        {session.typeOfSport}
+                      </span>
+                      <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                        {session.status}
+                      </span>
+                    </div>
                     <h2 className="text-xl font-semibold">{session.title}</h2>
                     <p className="mt-2 text-sm text-zinc-600">{session.location}</p>
                   </div>
-                  <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-                    {session.status}
-                  </span>
                 </div>
 
                 <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-zinc-700">
@@ -155,7 +190,7 @@ export default function DashboardPage() {
             ))
           ) : (
             <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200 md:col-span-2">
-              No sessions yet. Next step is to seed or create organiser-managed sessions.
+              No sessions yet. Use <strong>Create session</strong> to add the first one.
             </div>
           )}
         </section>

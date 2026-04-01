@@ -54,6 +54,14 @@ service cloud.firestore {
       return isSignedIn() && request.resource.data.organiserId == request.auth.uid;
     }
 
+    function validSport(value) {
+      return value in ['Badminton', 'Basketball'];
+    }
+
+    function validDayOfWeek(value) {
+      return value in ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId)
@@ -69,8 +77,12 @@ service cloud.firestore {
       allow read: if isAdmin()
         || isPlayer()
         || (isOrganiser() && sessionOwnedByCurrentOrganiser());
-      allow create: if isAdmin() || (isOrganiser() && newSessionOwnedByCurrentOrganiser());
-      allow update, delete: if isAdmin() || (isOrganiser() && sessionOwnedByCurrentOrganiser());
+      allow create: if (isAdmin() || (isOrganiser() && newSessionOwnedByCurrentOrganiser()))
+        && validSport(request.resource.data.typeOfSport)
+        && validDayOfWeek(request.resource.data.dayOfWeek);
+      allow update, delete: if (isAdmin() || (isOrganiser() && sessionOwnedByCurrentOrganiser()))
+        && validSport(request.resource.data.typeOfSport)
+        && validDayOfWeek(request.resource.data.dayOfWeek);
     }
 
     match /payments/{paymentId} {
