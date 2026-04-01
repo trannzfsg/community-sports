@@ -18,8 +18,8 @@ export type PlayerDirectoryEntry = {
   source: "self-registered" | "manual";
 };
 
-export function buildManualPlayerId(organiserId: string, displayName: string) {
-  return `manual-player__${encodeURIComponent(organiserId)}__${encodeURIComponent(displayName.trim().toLowerCase())}`;
+export function buildManualPlayerId(ownerOrganiserId: string, displayName: string) {
+  return `manual-player__${encodeURIComponent(ownerOrganiserId)}__${encodeURIComponent(displayName.trim().toLowerCase())}`;
 }
 
 export async function ensureSelfRegisteredPlayers(db: Firestore) {
@@ -78,14 +78,14 @@ export async function getVisiblePlayersForOrganiser(db: Firestore, organiserId: 
 
 export async function createManualPlayer(
   db: Firestore,
-  organiserId: string,
+  ownerOrganiserId: string,
   displayName: string,
 ) {
-  const id = buildManualPlayerId(organiserId, displayName);
+  const id = buildManualPlayerId(ownerOrganiserId, displayName);
   await setDoc(
     doc(db, "players", id),
     {
-      ownerOrganiserId: organiserId,
+      ownerOrganiserId,
       userId: null,
       displayName: displayName.trim(),
       email: "",

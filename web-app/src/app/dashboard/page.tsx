@@ -49,7 +49,6 @@ export default function DashboardPage() {
   const [eventsBySeries, setEventsBySeries] = useState<Record<string, SessionEvent[]>>({});
   const [registrationsByEvent, setRegistrationsByEvent] = useState<Record<string, RegistrationItem[]>>({});
   const [playerDirectory, setPlayerDirectory] = useState<PlayerDirectoryEntry[]>([]);
-  const [selectedPlayerValues, setSelectedPlayerValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -126,10 +125,20 @@ export default function DashboardPage() {
         }),
       );
 
-      if (profileData.role === "organiser") {
-        await ensureSelfRegisteredPlayers(db);
-        setPlayerDirectory(await getVisiblePlayersForOrganiser(db, currentUser.uid));
+      await ensureSelfRegisteredPlayers(db);
+      const organiserIds = Array.from(new Set(seriesItems.map((series) => series.organiserId)));
+      const visiblePlayers = new Map<string, PlayerDirectoryEntry>();
+      for (const organiserId of organiserIds) {
+        const entries = await getVisiblePlayersForOrganiser(db, organiserId);
+        for (const entry of entries) {
+          visiblePlayers.set(entry.id, entry);
+        }
       }
+      setPlayerDirectory(Array.from(visiblePlayers.values()).sort((a, b) => {
+        const nameCompare = a.displayName.localeCompare(b.displayName);
+        if (nameCompare !== 0) return nameCompare;
+        return a.email.localeCompare(b.email);
+      }));
 
       setSeriesList(seriesItems);
       setEventsBySeries(eventMap);
@@ -308,61 +317,68 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleOrganiserCreateManualPlayer(name: string) {
-    if (!user) return;
-    await createManualPlayer(db, user.uid, name);
-    const refreshed = await getVisiblePlayersForOrganiser(db, user.uid);
-    setPlayerDirectory(refreshed);
-    const newPlayer = refreshed.find((player) => player.displayName === name && player.ownerOrganiserId === user.uid);
-    if (newPlayer) {
-      return newPlayer.id;
-    }
-    return null;
+  async function addPlayerToEvent(series: SessionSeries, eventItem: SessionEvent, player: PlayerDirectoryEntry) {
+    const existing = (registrationsByEvent[eventItem.id] ?? []).find(
+      (registration) => registration.userId === (player.userId || player.id),
+    );
+    if (existing) return;
+
+    const registrationRef = await addDoc(collection(db, "registrations"), {
+      sessionEventId: eventItem.id,
+      sessionSeriesId: series.id,
+      userId: player.userId || player.id,
+      playerName: player.displayName,
+      playerEmail: player.email,
+      playerPaid: false,
+      organiserPaid: false,
+      createdAt: serverTimestamp(),
+    });
+
+    await syncPaymentForRegistration(series, eventItem, registrationRef.id, {
+      userId: player.userId || player.id,
+      playerName: player.displayName,
+      playerEmail: player.email,
+      playerPaid: false,
+      organiserPaid: false,
+    });
+
+    await updateDoc(doc(db, "sessionEvents", eventItem.id), {
+      bookedCount: (eventItem.bookedCount || 0) + 1,
+    });
   }
 
-  async function handleOrganiserAddPlayer(series: SessionSeries, eventItem: SessionEvent) {
-    if (!user) return;
-
-    const selectedValue = selectedPlayerValues[eventItem.id] ?? "";
-    let selectedPlayer = playerDirectory.find((player) => player.id === selectedValue) ?? null;
-
-    if (!selectedPlayer && selectedValue.startsWith("create:")) {
-      const createdId = await handleOrganiserCreateManualPlayer(selectedValue.slice(7).trim());
-      if (createdId) {
-        selectedPlayer = (await getVisiblePlayersForOrganiser(db, user.uid)).find((player) => player.id === createdId) ?? null;
-      }
-    }
-
-    if (!selectedPlayer) return;
-
+  async function handleSelectOrCreatePlayer(
+    series: SessionSeries,
+    eventItem: SessionEvent,
+    selection: { type: "existing"; player: PlayerDirectoryEntry } | { type: "create"; name: string },
+  ) {
     setBusyKey(eventItem.id);
     try {
-      const registrationRef = await addDoc(collection(db, "registrations"), {
-        sessionEventId: eventItem.id,
-        sessionSeriesId: series.id,
-        userId: selectedPlayer.userId || selectedPlayer.id,
-        playerName: selectedPlayer.displayName,
-        playerEmail: selectedPlayer.email,
-        playerPaid: false,
-        organiserPaid: false,
-        createdAt: serverTimestamp(),
-      });
+      let player: PlayerDirectoryEntry | null = null;
 
-      await syncPaymentForRegistration(series, eventItem, registrationRef.id, {
-        userId: selectedPlayer.userId || selectedPlayer.id,
-        playerName: selectedPlayer.displayName,
-        playerEmail: selectedPlayer.email,
-        playerPaid: false,
-        organiserPaid: false,
-      });
+      if (selection.type === "existing") {
+        player = selection.player;
+      } else {
+        const ownerOrganiserId = series.organiserId;
+        const createdId = await createManualPlayer(db, ownerOrganiserId, selection.name);
+        const refreshed = await getVisiblePlayersForOrganiser(db, ownerOrganiserId);
+        setPlayerDirectory((current) => {
+          const merged = new Map<string, PlayerDirectoryEntry>();
+          for (const item of current) merged.set(item.id, item);
+          for (const item of refreshed) merged.set(item.id, item);
+          return Array.from(merged.values()).sort((a, b) => {
+            const nameCompare = a.displayName.localeCompare(b.displayName);
+            if (nameCompare !== 0) return nameCompare;
+            return a.email.localeCompare(b.email);
+          });
+        });
+        player = refreshed.find((item) => item.id === createdId) ?? null;
+      }
 
-      await updateDoc(doc(db, "sessionEvents", eventItem.id), {
-        bookedCount: (eventItem.bookedCount || 0) + 1,
-      });
+      if (!player) return;
 
+      await addPlayerToEvent(series, eventItem, player);
       await refreshSeriesData(series.id);
-      setSelectedPlayerValues((current) => ({ ...current, [eventItem.id]: "" }));
-      setPlayerDirectory(await getVisiblePlayersForOrganiser(db, user.uid));
     } finally {
       setBusyKey(null);
     }
@@ -403,6 +419,9 @@ export default function DashboardPage() {
               const registrations = nextEvent ? registrationsByEvent[nextEvent.id] ?? [] : [];
               const currentRegistration = nextEvent ? registrations.find((registration) => registration.userId === user?.uid) : undefined;
               const showStartsFrom = profile?.role !== "player";
+              const visiblePlayersForSeries = playerDirectory.filter(
+                (player) => player.ownerOrganiserId === null || player.ownerOrganiserId === series.organiserId,
+              );
 
               return (
                 <article key={series.id} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
@@ -448,26 +467,10 @@ export default function DashboardPage() {
                         {canManageSessions ? (
                           <div className="mt-4 space-y-2">
                             <SearchablePlayerSelect
-                              players={playerDirectory}
-                              value={selectedPlayerValues[nextEvent.id] ?? ""}
-                              onValueChange={(value) =>
-                                setSelectedPlayerValues((current) => ({
-                                  ...current,
-                                  [nextEvent.id]: value,
-                                }))
-                              }
-                              onCreate={async (name) => {
-                                const createdId = await handleOrganiserCreateManualPlayer(name);
-                                if (createdId) {
-                                  setSelectedPlayerValues((current) => ({
-                                    ...current,
-                                    [nextEvent.id]: createdId,
-                                  }));
-                                }
-                              }}
+                              players={visiblePlayersForSeries}
                               disabled={busyKey === nextEvent.id}
+                              onSelectOrCreate={(selection) => handleSelectOrCreatePlayer(series, nextEvent, selection)}
                             />
-                            <button type="button" onClick={() => handleOrganiserAddPlayer(series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Add selected player</button>
                           </div>
                         ) : null}
 
