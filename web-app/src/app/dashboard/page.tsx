@@ -19,23 +19,13 @@ import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
-
-type SessionItem = {
-  id: string;
-  title: string;
-  typeOfSport: "Badminton" | "Basketball";
-  location: string;
-  dayOfWeek: string;
-  nextGameOn?: string;
-  startAt: string;
-  endAt: string;
-  firstSessionOn: string;
-  defaultPriceCasual: number;
-  bookedCount: number;
-  capacity: number;
-  organiserId: string;
-  status: string;
-};
+import {
+  buildRegistrationId,
+  createSessionEventForSeries,
+  type RegistrationItem,
+  type SessionEvent,
+  type SessionSeries,
+} from "@/lib/session-series";
 
 type UserProfile = {
   displayName?: string;
@@ -43,26 +33,16 @@ type UserProfile = {
   role: AppRole;
 };
 
-type RegistrationItem = {
-  id: string;
-  sessionId: string;
-  userId: string;
-  playerName: string;
-  playerEmail: string;
-  playerPaid: boolean;
-  organiserPaid: boolean;
-  createdAt?: unknown;
-};
-
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [sessions, setSessions] = useState<SessionItem[]>([]);
-  const [registrationsBySession, setRegistrationsBySession] = useState<Record<string, RegistrationItem[]>>({});
+  const [seriesList, setSeriesList] = useState<SessionSeries[]>([]);
+  const [eventsBySeries, setEventsBySeries] = useState<Record<string, SessionEvent[]>>({});
+  const [registrationsByEvent, setRegistrationsByEvent] = useState<Record<string, RegistrationItem[]>>({});
   const [manualPlayerNames, setManualPlayerNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [busySessionId, setBusySessionId] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -82,7 +62,7 @@ export default function DashboardPage() {
       const profileData = profileSnapshot.data() as UserProfile;
       setProfile(profileData);
 
-      const sessionsQuery =
+      const seriesQuery =
         profileData.role === "organiser"
           ? query(
               collection(db, "sessions"),
@@ -91,30 +71,55 @@ export default function DashboardPage() {
             )
           : query(collection(db, "sessions"), orderBy("dayOfWeek"));
 
-      const sessionSnapshots = await getDocs(sessionsQuery);
-      const sessionItems = sessionSnapshots.docs.map((sessionDoc) => ({
+      const seriesSnapshots = await getDocs(seriesQuery);
+      const seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
         id: sessionDoc.id,
-        ...(sessionDoc.data() as Omit<SessionItem, "id">),
+        ...(sessionDoc.data() as Omit<SessionSeries, "id">),
       }));
 
+      const eventMap: Record<string, SessionEvent[]> = {};
       const registrationMap: Record<string, RegistrationItem[]> = {};
+
       await Promise.all(
-        sessionItems.map(async (session) => {
-          const registrationsQuery = query(
-            collection(db, "registrations"),
-            where("sessionId", "==", session.id),
-            orderBy("createdAt"),
+        seriesItems.map(async (series) => {
+          const eventSnapshots = await getDocs(
+            query(
+              collection(db, "sessionEvents"),
+              where("sessionSeriesId", "==", series.id),
+            ),
           );
-          const registrationSnapshots = await getDocs(registrationsQuery);
-          registrationMap[session.id] = registrationSnapshots.docs.map((registrationDoc) => ({
-            id: registrationDoc.id,
-            ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-          }));
+
+          const eventItems = eventSnapshots.docs
+            .map((eventDoc) => ({
+              id: eventDoc.id,
+              ...(eventDoc.data() as Omit<SessionEvent, "id">),
+            }))
+            .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+
+          eventMap[series.id] = eventItems;
+
+          await Promise.all(
+            eventItems.map(async (event) => {
+              const registrationsSnapshot = await getDocs(
+                query(
+                  collection(db, "registrations"),
+                  where("sessionEventId", "==", event.id),
+                ),
+              );
+              registrationMap[event.id] = registrationsSnapshot.docs
+                .map((registrationDoc) => ({
+                  id: registrationDoc.id,
+                  ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+                }))
+                .sort((a, b) => (a.playerName || "").localeCompare(b.playerName || ""));
+            }),
+          );
         }),
       );
 
-      setSessions(sessionItems);
-      setRegistrationsBySession(registrationMap);
+      setSeriesList(seriesItems);
+      setEventsBySeries(eventMap);
+      setRegistrationsByEvent(registrationMap);
       setLoading(false);
     });
 
@@ -125,35 +130,69 @@ export default function DashboardPage() {
     return profile?.role === "admin" || profile?.role === "organiser";
   }, [profile?.role]);
 
-  async function refreshRegistrations(sessionId: string) {
-    const registrationsQuery = query(
-      collection(db, "registrations"),
-      where("sessionId", "==", sessionId),
-      orderBy("createdAt"),
+  async function refreshSeriesData(seriesId: string) {
+    const eventSnapshots = await getDocs(
+      query(collection(db, "sessionEvents"), where("sessionSeriesId", "==", seriesId)),
     );
-    const registrationSnapshots = await getDocs(registrationsQuery);
-    const items = registrationSnapshots.docs.map((registrationDoc) => ({
-      id: registrationDoc.id,
-      ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-    }));
-    setRegistrationsBySession((current) => ({ ...current, [sessionId]: items }));
+
+    const eventItems = eventSnapshots.docs
+      .map((eventDoc) => ({
+        id: eventDoc.id,
+        ...(eventDoc.data() as Omit<SessionEvent, "id">),
+      }))
+      .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+
+    const registrationMap: Record<string, RegistrationItem[]> = {};
+    await Promise.all(
+      eventItems.map(async (event) => {
+        const registrationsSnapshot = await getDocs(
+          query(collection(db, "registrations"), where("sessionEventId", "==", event.id)),
+        );
+        registrationMap[event.id] = registrationsSnapshot.docs
+          .map((registrationDoc) => ({
+            id: registrationDoc.id,
+            ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+          }))
+          .sort((a, b) => (a.playerName || "").localeCompare(b.playerName || ""));
+      }),
+    );
+
+    setEventsBySeries((current) => ({ ...current, [seriesId]: eventItems }));
+    setRegistrationsByEvent((current) => ({ ...current, ...registrationMap }));
   }
 
-  async function handleRegister(session: SessionItem) {
+  async function handleCreateNextEvent(series: SessionSeries) {
+    setBusyKey(series.id);
+    try {
+      await createSessionEventForSeries(db, series, series.nextGameOn);
+      await refreshSeriesData(series.id);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleRegister(series: SessionSeries, eventItem: SessionEvent) {
     if (!user) return;
-    setBusySessionId(session.id);
+    setBusyKey(eventItem.id);
 
     try {
-      const existing = (registrationsBySession[session.id] ?? []).find(
-        (registration) => registration.userId === user.uid,
-      );
-
-      if (existing) {
+      const registrationId = buildRegistrationId(eventItem.id, user.uid);
+      const existing = await getDoc(doc(db, "registrations", registrationId));
+      if (existing.exists()) {
         return;
       }
 
+      await updateDoc(doc(db, "sessionEvents", eventItem.id), {
+        bookedCount: (eventItem.bookedCount || 0) + 1,
+      });
+
+      await updateDoc(doc(db, "sessions", series.id), {
+        nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
+      });
+
       await addDoc(collection(db, "registrations"), {
-        sessionId: session.id,
+        sessionEventId: eventItem.id,
+        sessionSeriesId: series.id,
         userId: user.uid,
         playerName: profile?.displayName || user.email || "Player",
         playerEmail: user.email || "",
@@ -162,58 +201,48 @@ export default function DashboardPage() {
         createdAt: serverTimestamp(),
       });
 
-      await updateDoc(doc(db, "sessions", session.id), {
-        bookedCount: (session.bookedCount || 0) + 1,
-      });
-
-      await refreshRegistrations(session.id);
-      setSessions((current) =>
-        current.map((item) =>
-          item.id === session.id
-            ? { ...item, bookedCount: item.bookedCount + 1 }
-            : item,
-        ),
-      );
+      await refreshSeriesData(series.id);
     } finally {
-      setBusySessionId(null);
+      setBusyKey(null);
     }
   }
 
-  async function handlePlayerPaidToggle(registration: RegistrationItem, nextValue: boolean) {
-    setBusySessionId(registration.sessionId);
+  async function handlePlayerPaidToggle(registration: RegistrationItem, nextValue: boolean, seriesId: string) {
+    setBusyKey(registration.sessionEventId);
     try {
       await updateDoc(doc(db, "registrations", registration.id), {
         playerPaid: nextValue,
       });
-      await refreshRegistrations(registration.sessionId);
+      await refreshSeriesData(seriesId);
     } finally {
-      setBusySessionId(null);
+      setBusyKey(null);
     }
   }
 
-  async function handleOrganiserPaidToggle(registration: RegistrationItem, nextValue: boolean) {
-    setBusySessionId(registration.sessionId);
+  async function handleOrganiserPaidToggle(registration: RegistrationItem, nextValue: boolean, seriesId: string) {
+    setBusyKey(registration.sessionEventId);
     try {
       await updateDoc(doc(db, "registrations", registration.id), {
         organiserPaid: nextValue,
         playerPaid: nextValue ? true : registration.playerPaid,
       });
-      await refreshRegistrations(registration.sessionId);
+      await refreshSeriesData(seriesId);
     } finally {
-      setBusySessionId(null);
+      setBusyKey(null);
     }
   }
 
-  async function handleOrganiserAddPlayer(session: SessionItem) {
-    if (!user) return;
-    const playerName = (manualPlayerNames[session.id] ?? "").trim();
+  async function handleOrganiserAddPlayer(seriesId: string, eventItem: SessionEvent) {
+    const playerName = (manualPlayerNames[eventItem.id] ?? "").trim();
     if (!playerName) return;
 
-    setBusySessionId(session.id);
+    setBusyKey(eventItem.id);
     try {
+      const userId = `manual:${eventItem.id}:${playerName}`;
       await addDoc(collection(db, "registrations"), {
-        sessionId: session.id,
-        userId: `manual:${session.id}:${playerName}`,
+        sessionEventId: eventItem.id,
+        sessionSeriesId: seriesId,
+        userId,
         playerName,
         playerEmail: "",
         playerPaid: false,
@@ -221,71 +250,14 @@ export default function DashboardPage() {
         createdAt: serverTimestamp(),
       });
 
-      await updateDoc(doc(db, "sessions", session.id), {
-        bookedCount: (session.bookedCount || 0) + 1,
+      await updateDoc(doc(db, "sessionEvents", eventItem.id), {
+        bookedCount: (eventItem.bookedCount || 0) + 1,
       });
 
-      await refreshRegistrations(session.id);
-      setSessions((current) =>
-        current.map((item) =>
-          item.id === session.id
-            ? { ...item, bookedCount: item.bookedCount + 1 }
-            : item,
-        ),
-      );
-      setManualPlayerNames((current) => ({ ...current, [session.id]: "" }));
+      await refreshSeriesData(seriesId);
+      setManualPlayerNames((current) => ({ ...current, [eventItem.id]: "" }));
     } finally {
-      setBusySessionId(null);
-    }
-  }
-
-  async function handleCopyLastRoster(session: SessionItem) {
-    const previousSessions = sessions
-      .filter((candidate) => candidate.title === session.title && candidate.id !== session.id)
-      .sort((a, b) => (a.nextGameOn ?? "").localeCompare(b.nextGameOn ?? ""));
-    const previousSession = previousSessions.at(-1);
-    if (!previousSession) return;
-
-    const previousRegistrations = registrationsBySession[previousSession.id] ?? [];
-    if (!previousRegistrations.length) return;
-
-    const existingUserIds = new Set(
-      (registrationsBySession[session.id] ?? []).map((registration) => registration.userId),
-    );
-
-    setBusySessionId(session.id);
-    try {
-      for (const registration of previousRegistrations) {
-        if (existingUserIds.has(registration.userId)) {
-          continue;
-        }
-
-        await addDoc(collection(db, "registrations"), {
-          sessionId: session.id,
-          userId: registration.userId,
-          playerName: registration.playerName,
-          playerEmail: registration.playerEmail,
-          playerPaid: false,
-          organiserPaid: false,
-          createdAt: serverTimestamp(),
-        });
-        existingUserIds.add(registration.userId);
-      }
-
-      await updateDoc(doc(db, "sessions", session.id), {
-        bookedCount: existingUserIds.size,
-      });
-
-      await refreshRegistrations(session.id);
-      setSessions((current) =>
-        current.map((item) =>
-          item.id === session.id
-            ? { ...item, bookedCount: existingUserIds.size }
-            : item,
-        ),
-      );
-    } finally {
-      setBusySessionId(null);
+      setBusyKey(null);
     }
   }
 
@@ -305,239 +277,109 @@ export default function DashboardPage() {
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
-                Dashboard
-              </p>
-              <h1 className="text-3xl font-semibold tracking-tight">
-                Welcome {profile?.displayName || user?.email}
-              </h1>
-              <p className="mt-3 text-zinc-600">
-                Role: <strong>{profile?.role ?? "player"}</strong>
-              </p>
+              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Dashboard</p>
+              <h1 className="text-3xl font-semibold tracking-tight">Welcome {profile?.displayName || user?.email}</h1>
+              <p className="mt-3 text-zinc-600">Role: <strong>{profile?.role ?? "player"}</strong></p>
             </div>
             <div className="flex flex-wrap gap-3">
-              {canManageSessions ? (
-                <Link
-                  href="/sessions/new"
-                  className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700"
-                >
-                  Create session
-                </Link>
-              ) : null}
-              <button
-                type="button"
-                onClick={async () => {
-                  await signOut(auth);
-                  router.push("/login");
-                }}
-                className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100"
-              >
-                Sign out
-              </button>
+              {canManageSessions ? <Link href="/sessions/new" className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700">Create session series</Link> : null}
+              <button type="button" onClick={async () => { await signOut(auth); router.push("/login"); }} className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Sign out</button>
             </div>
           </div>
         </div>
 
-        <section className="grid gap-4 xl:grid-cols-2">
-          {sessions.length ? (
-            sessions.map((session) => {
-              const registrations = registrationsBySession[session.id] ?? [];
-              const currentRegistration = registrations.find(
-                (registration) => registration.userId === user?.uid,
-              );
+        <section className="grid gap-4">
+          {seriesList.length ? (
+            seriesList.map((series) => {
+              const events = eventsBySeries[series.id] ?? [];
+              const nextEvent = events.find((event) => event.eventDate === series.nextGameOn) ?? events.at(-1);
+              const registrations = nextEvent ? registrationsByEvent[nextEvent.id] ?? [] : [];
+              const currentRegistration = nextEvent ? registrations.find((registration) => registration.userId === user?.uid) : undefined;
               const showStartsFrom = profile?.role !== "player";
 
               return (
-                <article
-                  key={session.id}
-                  className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200"
-                >
+                <article key={series.id} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-                          {session.typeOfSport}
-                        </span>
-                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
-                          {session.status}
-                        </span>
+                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">{series.typeOfSport}</span>
+                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">{series.status}</span>
                       </div>
-                      <h2 className="text-xl font-semibold">{session.title}</h2>
-                      <p className="mt-2 text-sm text-zinc-600">{session.location}</p>
+                      <h2 className="text-xl font-semibold">{series.title}</h2>
+                      <p className="mt-2 text-sm text-zinc-600">{series.location}</p>
                     </div>
-                    {canManageSessions ? (
-                      <Link
-                        href={`/sessions/edit?id=${session.id}`}
-                        className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100"
-                      >
-                        Edit
-                      </Link>
-                    ) : null}
+                    {canManageSessions ? <Link href={`/sessions/edit?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link> : null}
                   </div>
 
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-zinc-700">
-                    <div>
-                      <dt className="text-zinc-500">Day</dt>
-                      <dd>{session.dayOfWeek}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-zinc-500">Next game on</dt>
-                      <dd>
-                        {getEffectiveNextGameOn(
-                          session.dayOfWeek as "Mon" | "Tue" | "Wed" | "Thu" | "Fri" | "Sat" | "Sun",
-                          session.startAt,
-                          session.nextGameOn,
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-zinc-500">Time</dt>
-                      <dd>
-                        {session.startAt} - {session.endAt}
-                      </dd>
-                    </div>
-                    {showStartsFrom ? (
-                      <div>
-                        <dt className="text-zinc-500">Starts from</dt>
-                        <dd>{session.firstSessionOn}</dd>
-                      </div>
-                    ) : null}
-                    <div>
-                      <dt className="text-zinc-500">Casual price</dt>
-                      <dd>${session.defaultPriceCasual}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-zinc-500">Capacity</dt>
-                      <dd>
-                        {session.bookedCount} / {session.capacity}
-                      </dd>
-                    </div>
+                    <div><dt className="text-zinc-500">Day</dt><dd>{series.dayOfWeek}</dd></div>
+                    <div><dt className="text-zinc-500">Next game on</dt><dd>{getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn)}</dd></div>
+                    <div><dt className="text-zinc-500">Time</dt><dd>{series.startAt} - {series.endAt}</dd></div>
+                    {showStartsFrom ? <div><dt className="text-zinc-500">Starts from</dt><dd>{series.firstSessionOn}</dd></div> : null}
+                    <div><dt className="text-zinc-500">Casual price</dt><dd>${series.defaultPriceCasual}</dd></div>
+                    <div><dt className="text-zinc-500">Series capacity</dt><dd>{series.capacity}</dd></div>
                   </dl>
 
-                  <div className="mt-6 rounded-2xl bg-zinc-50 p-4 ring-1 ring-zinc-200">
-                    <div className="flex items-center justify-between gap-3">
-                      <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">
-                        Registrations
-                      </h3>
-                      {!canManageSessions ? (
-                        currentRegistration ? (
-                          <span className="text-sm font-medium text-green-700">Registered</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => handleRegister(session)}
-                            disabled={busySessionId === session.id || session.bookedCount >= session.capacity}
-                            className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            Register
-                          </button>
-                        )
-                      ) : null}
-                    </div>
-
-                    {canManageSessions ? (
-                      <div className="mt-4 space-y-3">
-                        <div className="flex gap-2">
-                          <input
-                            value={manualPlayerNames[session.id] ?? ""}
-                            onChange={(event) =>
-                              setManualPlayerNames((current) => ({
-                                ...current,
-                                [session.id]: event.target.value,
-                              }))
-                            }
-                            placeholder="Add player name"
-                            className="flex-1 rounded-xl border border-zinc-300 px-4 py-2 text-sm outline-none transition focus:border-zinc-500"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleOrganiserAddPlayer(session)}
-                            disabled={busySessionId === session.id}
-                            className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            Add player
-                          </button>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyLastRoster(session)}
-                          disabled={busySessionId === session.id}
-                          className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Copy last occurrence roster
-                        </button>
+                  <div className="mt-4 rounded-2xl bg-zinc-50 p-4 ring-1 ring-zinc-200">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
+                        <p className="mt-1 text-sm text-zinc-700">{nextEvent ? `${nextEvent.eventDate} • ${nextEvent.bookedCount}/${nextEvent.capacity} registered` : "No event created yet"}</p>
                       </div>
-                    ) : null}
-
-                    <div className="mt-4 space-y-2">
-                      {registrations.length ? (
-                        registrations.map((registration) => {
-                          const effectivePaid = registration.organiserPaid || registration.playerPaid;
-                          const isOwnRegistration = registration.userId === user?.uid;
-                          return (
-                            <div
-                              key={registration.id}
-                              className="rounded-xl bg-white p-3 ring-1 ring-zinc-200"
-                            >
-                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                  <div className="font-medium text-zinc-900">
-                                    {registration.playerName}
-                                  </div>
-                                  <div className="text-xs text-zinc-500">
-                                    {registration.playerEmail || "Manually added player"}
-                                  </div>
-                                </div>
-                                <div className="flex flex-wrap gap-2 text-xs">
-                                  <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>
-                                    player: {registration.playerPaid ? "paid" : "not paid"}
-                                  </span>
-                                  <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>
-                                    organiser: {registration.organiserPaid ? "confirmed" : "unconfirmed"}
-                                  </span>
-                                  <span className={`rounded-full px-3 py-1 font-medium ${effectivePaid ? "bg-violet-100 text-violet-700" : "bg-zinc-100 text-zinc-600"}`}>
-                                    effective: {effectivePaid ? "paid" : "pending"}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {(isOwnRegistration || canManageSessions) && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid)}
-                                    disabled={busySessionId === session.id}
-                                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    Toggle player paid
-                                  </button>
-                                )}
-                                {canManageSessions ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid)}
-                                    disabled={busySessionId === session.id}
-                                    className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                  >
-                                    Toggle organiser confirm
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                          );
-                        })
-                      ) : (
-                        <div className="text-sm text-zinc-500">No players registered yet.</div>
-                      )}
+                      {canManageSessions ? <button type="button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
                     </div>
+
+                    {nextEvent ? (
+                      <>
+                        <div className="mt-4 flex items-center justify-between gap-3">
+                          <h4 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Registrations for {nextEvent.eventDate}</h4>
+                          {!canManageSessions ? (
+                            currentRegistration ? <span className="text-sm font-medium text-green-700">Registered</span> : <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || nextEvent.bookedCount >= nextEvent.capacity} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">Register</button>
+                          ) : null}
+                        </div>
+
+                        {canManageSessions ? (
+                          <div className="mt-4 flex gap-2">
+                            <input value={manualPlayerNames[nextEvent.id] ?? ""} onChange={(event) => setManualPlayerNames((current) => ({ ...current, [nextEvent.id]: event.target.value }))} placeholder="Add player name" className="flex-1 rounded-xl border border-zinc-300 px-4 py-2 text-sm outline-none transition focus:border-zinc-500" />
+                            <button type="button" onClick={() => handleOrganiserAddPlayer(series.id, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Add player</button>
+                          </div>
+                        ) : null}
+
+                        <div className="mt-4 space-y-2">
+                          {registrations.length ? (
+                            registrations.map((registration) => {
+                              const effectivePaid = registration.organiserPaid || registration.playerPaid;
+                              const isOwnRegistration = registration.userId === user?.uid;
+                              return (
+                                <div key={registration.id} className="rounded-xl bg-white p-3 ring-1 ring-zinc-200">
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div>
+                                      <div className="font-medium text-zinc-900">{registration.playerName}</div>
+                                      <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 text-xs">
+                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>player: {registration.playerPaid ? "paid" : "not paid"}</span>
+                                      <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>organiser: {registration.organiserPaid ? "confirmed" : "unconfirmed"}</span>
+                                      <span className={`rounded-full px-3 py-1 font-medium ${effectivePaid ? "bg-violet-100 text-violet-700" : "bg-zinc-100 text-zinc-600"}`}>effective: {effectivePaid ? "paid" : "pending"}</span>
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series.id)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Toggle player paid</button> : null}
+                                    {canManageSessions ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series.id)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Toggle organiser confirm</button> : null}
+                                  </div>
+                                </div>
+                              );
+                            })
+                          ) : <div className="text-sm text-zinc-500">No players registered yet.</div>}
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 </article>
               );
             })
           ) : (
-            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200 md:col-span-2">
-              No sessions yet. Use <strong>Create session</strong> to add the first one.
-            </div>
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">No session series yet. Use <strong>Create session series</strong> to add the first one.</div>
           )}
         </section>
       </div>

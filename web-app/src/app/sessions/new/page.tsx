@@ -12,6 +12,7 @@ import {
   getSuggestedNextGameOn,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
+import { createSessionEventForSeries, type SessionSeries } from "@/lib/session-series";
 
 type UserProfile = {
   displayName?: string;
@@ -36,6 +37,8 @@ export default function NewSessionPage() {
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
   const [status, setStatus] = useState("active");
+  const [copyRosterFromLastEvent, setCopyRosterFromLastEvent] = useState(true);
+  const [createNextEventNow, setCreateNextEventNow] = useState(true);
   const computedNextGameOn = useMemo(
     () => getSuggestedNextGameOn(dayOfWeek, startAt),
     [dayOfWeek, startAt],
@@ -79,7 +82,7 @@ export default function NewSessionPage() {
         throw new Error("You need to be signed in.");
       }
 
-      await addDoc(collection(db, "sessions"), {
+      const seriesRef = await addDoc(collection(db, "sessions"), {
         title: title.trim(),
         typeOfSport,
         location: location.trim(),
@@ -89,19 +92,39 @@ export default function NewSessionPage() {
         endAt,
         firstSessionOn,
         defaultPriceCasual: Number(defaultPriceCasual),
-        bookedCount: 0,
         capacity: Number(capacity),
         organiserId: currentUser.uid,
         status,
+        copyRosterFromLastEvent,
         createdAt: serverTimestamp(),
       });
+
+      if (createNextEventNow) {
+        const series: SessionSeries = {
+          id: seriesRef.id,
+          title: title.trim(),
+          typeOfSport,
+          location: location.trim(),
+          dayOfWeek,
+          nextGameOn,
+          startAt,
+          endAt,
+          firstSessionOn,
+          defaultPriceCasual: Number(defaultPriceCasual),
+          capacity: Number(capacity),
+          organiserId: currentUser.uid,
+          status,
+          copyRosterFromLastEvent,
+        };
+        await createSessionEventForSeries(db, series, nextGameOn);
+      }
 
       router.push("/dashboard");
     } catch (submitError) {
       if (submitError instanceof Error) {
         setError(submitError.message);
       } else {
-        setError("Failed to create session.");
+        setError("Failed to create session series.");
       }
     } finally {
       setBusy(false);
@@ -126,16 +149,16 @@ export default function NewSessionPage() {
     <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
       <div className="mx-auto w-full max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
         <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          Sessions
+          Session series
         </p>
-        <h1 className="text-3xl font-semibold tracking-tight">Create a session</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Create a session series</h1>
         <p className="mt-3 text-zinc-600">
-          Admins can create any session. Organisers create and manage only their own sessions.
+          A session series defines the recurring event. Individual session events happen on specific dates inside that series.
         </p>
 
         <form className="mt-8 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
           <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-zinc-700">Title</span>
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Series title</span>
             <input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
@@ -147,53 +170,27 @@ export default function NewSessionPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Type of sport</span>
-            <select
-              value={typeOfSport}
-              onChange={(event) => setTypeOfSport(event.target.value as (typeof SPORT_OPTIONS)[number])}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-            >
-              {SPORT_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
+            <select value={typeOfSport} onChange={(event) => setTypeOfSport(event.target.value as (typeof SPORT_OPTIONS)[number])} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
+              {SPORT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Location</span>
-            <input
-              value={location}
-              onChange={(event) => setLocation(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-              placeholder="Community Hall Court 1"
-              required
-            />
+            <input value={location} onChange={(event) => setLocation(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" placeholder="Community Hall Court 1" required />
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Day of week</span>
-            <select
-              value={dayOfWeek}
-              onChange={(event) => setDayOfWeek(event.target.value as (typeof DAY_OF_WEEK_OPTIONS)[number])}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-            >
-              {DAY_OF_WEEK_OPTIONS.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
+            <select value={dayOfWeek} onChange={(event) => setDayOfWeek(event.target.value as (typeof DAY_OF_WEEK_OPTIONS)[number])} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
+              {DAY_OF_WEEK_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Next game on</span>
             <DatePicker value={nextGameOn} onChange={setNextGameOn} required />
-            <button
-              type="button"
-              onClick={() => setNextGameOn(computedNextGameOn)}
-              className="mt-2 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline"
-            >
+            <button type="button" onClick={() => setNextGameOn(computedNextGameOn)} className="mt-2 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline">
               Reset to suggested date ({computedNextGameOn})
             </button>
           </label>
@@ -205,84 +202,50 @@ export default function NewSessionPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Start time</span>
-            <input
-              type="time"
-              value={startAt}
-              onChange={(event) => setStartAt(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-              required
-            />
+            <input type="time" value={startAt} onChange={(event) => setStartAt(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">End time</span>
-            <input
-              type="time"
-              value={endAt}
-              onChange={(event) => setEndAt(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-              required
-            />
+            <input type="time" value={endAt} onChange={(event) => setEndAt(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Casual price</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={defaultPriceCasual}
-              onChange={(event) => setDefaultPriceCasual(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-              required
-            />
+            <input type="number" min="0" step="0.01" value={defaultPriceCasual} onChange={(event) => setDefaultPriceCasual(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Capacity</span>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={capacity}
-              onChange={(event) => setCapacity(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-              required
-            />
+            <input type="number" min="1" step="1" value={capacity} onChange={(event) => setCapacity(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Status</span>
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value)}
-              className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
-            >
+            <select value={status} onChange={(event) => setStatus(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
               <option value="active">active</option>
               <option value="paused">paused</option>
               <option value="full">full</option>
             </select>
           </label>
 
-          {error ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">
-              {error}
-            </div>
-          ) : null}
+          <label className="flex items-start gap-3 md:col-span-2">
+            <input type="checkbox" checked={copyRosterFromLastEvent} onChange={(event) => setCopyRosterFromLastEvent(event.target.checked)} className="mt-1 h-4 w-4" />
+            <span className="text-sm text-zinc-700">Automatically copy the roster from the last event in this series when a new event is created.</span>
+          </label>
+
+          <label className="flex items-start gap-3 md:col-span-2">
+            <input type="checkbox" checked={createNextEventNow} onChange={(event) => setCreateNextEventNow(event.target.checked)} className="mt-1 h-4 w-4" />
+            <span className="text-sm text-zinc-700">Create the next session event immediately for the selected next game date.</span>
+          </label>
+
+          {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">{error}</div> : null}
 
           <div className="md:col-span-2 flex gap-3">
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {busy ? "Creating..." : "Create session"}
+            <button type="submit" disabled={busy} className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">
+              {busy ? "Creating..." : "Create session series"}
             </button>
-            <button
-              type="button"
-              onClick={() => router.push("/dashboard")}
-              className="rounded-full border border-zinc-300 px-6 py-3 text-sm font-medium hover:bg-zinc-100"
-            >
+            <button type="button" onClick={() => router.push("/dashboard")} className="rounded-full border border-zinc-300 px-6 py-3 text-sm font-medium hover:bg-zinc-100">
               Cancel
             </button>
           </div>

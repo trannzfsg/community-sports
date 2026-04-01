@@ -7,38 +7,6 @@
         { "fieldPath": "organiserId", "mode": "ASCENDING" },
         { "fieldPath": "dayOfWeek", "mode": "ASCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "registrations",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "sessionId", "mode": "ASCENDING" },
-        { "fieldPath": "createdAt", "mode": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "registrations",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "sessionId", "mode": "ASCENDING" },
-        { "fieldPath": "playerPaid", "mode": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "payments",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "organiserId", "mode": "ASCENDING" },
-        { "fieldPath": "status", "mode": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "payments",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "userId", "mode": "ASCENDING" },
-        { "fieldPath": "status", "mode": "ASCENDING" }
-      ]
     }
   ],
   "fieldOverrides": []

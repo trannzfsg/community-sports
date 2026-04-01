@@ -20,7 +20,7 @@ type UserProfile = {
   role: AppRole;
 };
 
-type SessionItem = {
+type SessionSeries = {
   title: string;
   typeOfSport: (typeof SPORT_OPTIONS)[number];
   location: string;
@@ -30,10 +30,10 @@ type SessionItem = {
   endAt: string;
   firstSessionOn: string;
   defaultPriceCasual: number;
-  bookedCount: number;
   capacity: number;
   organiserId: string;
   status: string;
+  copyRosterFromLastEvent?: boolean;
 };
 
 function EditSessionPageInner() {
@@ -56,6 +56,7 @@ function EditSessionPageInner() {
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
   const [status, setStatus] = useState("active");
+  const [copyRosterFromLastEvent, setCopyRosterFromLastEvent] = useState(true);
 
   const computedNextGameOn = useMemo(
     () => getSuggestedNextGameOn(dayOfWeek, startAt),
@@ -75,7 +76,7 @@ function EditSessionPageInner() {
       ]);
 
       const profile = profileSnapshot.data() as UserProfile | undefined;
-      const session = sessionSnapshot.data() as SessionItem | undefined;
+      const session = sessionSnapshot.data() as SessionSeries | undefined;
 
       if (!profile || !sessionSnapshot.exists() || !session) {
         router.push("/dashboard");
@@ -109,6 +110,7 @@ function EditSessionPageInner() {
       setDefaultPriceCasual(String(session.defaultPriceCasual));
       setCapacity(String(session.capacity));
       setStatus(session.status);
+      setCopyRosterFromLastEvent(session.copyRosterFromLastEvent ?? true);
       setLoading(false);
     });
 
@@ -133,6 +135,7 @@ function EditSessionPageInner() {
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
         status,
+        copyRosterFromLastEvent,
       });
 
       router.push("/dashboard");
@@ -140,7 +143,7 @@ function EditSessionPageInner() {
       if (submitError instanceof Error) {
         setError(submitError.message);
       } else {
-        setError("Failed to update session.");
+        setError("Failed to update session series.");
       }
     } finally {
       setBusy(false);
@@ -151,7 +154,7 @@ function EditSessionPageInner() {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
         <div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
-          Loading session...
+          Loading session series...
         </div>
       </main>
     );
@@ -165,16 +168,16 @@ function EditSessionPageInner() {
     <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
       <div className="mx-auto w-full max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
         <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          Sessions
+          Session series
         </p>
-        <h1 className="text-3xl font-semibold tracking-tight">Edit session</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Edit session series</h1>
         <p className="mt-3 text-zinc-600">
-          Organisers can edit their own sessions. Admins can edit any session.
+          Organisers can edit their own series. Admins can edit any series.
         </p>
 
         <form className="mt-8 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
           <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-zinc-700">Title</span>
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Series title</span>
             <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
           </label>
 
@@ -239,6 +242,11 @@ function EditSessionPageInner() {
             </select>
           </label>
 
+          <label className="flex items-start gap-3 md:col-span-2">
+            <input type="checkbox" checked={copyRosterFromLastEvent} onChange={(event) => setCopyRosterFromLastEvent(event.target.checked)} className="mt-1 h-4 w-4" />
+            <span className="text-sm text-zinc-700">Automatically copy the roster from the last event in this series when a new event is created.</span>
+          </label>
+
           {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">{error}</div> : null}
 
           <div className="md:col-span-2 flex gap-3">
@@ -257,15 +265,7 @@ function EditSessionPageInner() {
 
 export default function EditSessionPage() {
   return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
-          <div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
-            Loading session...
-          </div>
-        </main>
-      }
-    >
+    <Suspense fallback={<main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900"><div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">Loading session series...</div></main>}>
       <EditSessionPageInner />
     </Suspense>
   );

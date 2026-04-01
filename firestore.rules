@@ -46,11 +46,19 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function sessionOwnedByCurrentOrganiser() {
+    function seriesOwnedByCurrentOrganiser() {
       return isSignedIn() && resource.data.organiserId == request.auth.uid;
     }
 
-    function newSessionOwnedByCurrentOrganiser() {
+    function newSeriesOwnedByCurrentOrganiser() {
+      return isSignedIn() && request.resource.data.organiserId == request.auth.uid;
+    }
+
+    function eventOwnedByCurrentOrganiser() {
+      return isSignedIn() && resource.data.organiserId == request.auth.uid;
+    }
+
+    function newEventOwnedByCurrentOrganiser() {
       return isSignedIn() && request.resource.data.organiserId == request.auth.uid;
     }
 
@@ -66,20 +74,16 @@ service cloud.firestore {
       return isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
-    function newRegistrationOwnedByCurrentUser() {
-      return isSignedIn() && request.resource.data.userId == request.auth.uid;
+    function registrationForOrganiserEvent() {
+      return isOrganiser()
+        && exists(/databases/$(database)/documents/sessionEvents/$(resource.data.sessionEventId))
+        && get(/databases/$(database)/documents/sessionEvents/$(resource.data.sessionEventId)).data.organiserId == request.auth.uid;
     }
 
-    function registrationForOrganiserSession() {
+    function newRegistrationForOrganiserEvent() {
       return isOrganiser()
-        && exists(/databases/$(database)/documents/sessions/$(resource.data.sessionId))
-        && get(/databases/$(database)/documents/sessions/$(resource.data.sessionId)).data.organiserId == request.auth.uid;
-    }
-
-    function newRegistrationForOrganiserSession() {
-      return isOrganiser()
-        && exists(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId))
-        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.organiserId == request.auth.uid;
+        && exists(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId))
+        && get(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId)).data.organiserId == request.auth.uid;
     }
 
     match /users/{userId} {
@@ -96,28 +100,38 @@ service cloud.firestore {
     match /sessions/{sessionId} {
       allow read: if isAdmin()
         || isPlayer()
-        || (isOrganiser() && sessionOwnedByCurrentOrganiser());
-      allow create: if (isAdmin() || (isOrganiser() && newSessionOwnedByCurrentOrganiser()))
+        || (isOrganiser() && seriesOwnedByCurrentOrganiser());
+      allow create: if (isAdmin() || (isOrganiser() && newSeriesOwnedByCurrentOrganiser()))
         && validSport(request.resource.data.typeOfSport)
         && validDayOfWeek(request.resource.data.dayOfWeek);
-      allow update, delete: if (isAdmin() || (isOrganiser() && sessionOwnedByCurrentOrganiser()))
+      allow update, delete: if (isAdmin() || (isOrganiser() && seriesOwnedByCurrentOrganiser()))
         && validSport(request.resource.data.typeOfSport)
         && validDayOfWeek(request.resource.data.dayOfWeek);
     }
 
-    match /registrations/{registrationId} {
+    match /sessionEvents/{eventId} {
       allow read: if isAdmin()
-        || registrationOwnedByCurrentUser()
-        || registrationForOrganiserSession();
+        || isPlayer()
+        || (isOrganiser() && eventOwnedByCurrentOrganiser());
+      allow create, update, delete: if isAdmin()
+        || (isOrganiser() && newEventOwnedByCurrentOrganiser());
+    }
+
+    match /registrations/{registrationId} {
+      allow read: if isSignedIn();
       allow create: if isAdmin()
-        || newRegistrationOwnedByCurrentUser()
-        || newRegistrationForOrganiserSession();
+        || newRegistrationForOrganiserEvent()
+        || (isSignedIn() && request.resource.data.userId == request.auth.uid);
       allow update: if isAdmin()
-        || registrationForOrganiserSession()
+        || registrationForOrganiserEvent()
         || (registrationOwnedByCurrentUser()
-          && request.resource.data.playerPaid == request.resource.data.playerPaid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.sessionEventId == resource.data.sessionEventId
+          && request.resource.data.sessionSeriesId == resource.data.sessionSeriesId
+          && request.resource.data.playerName == resource.data.playerName
+          && request.resource.data.playerEmail == resource.data.playerEmail
           && request.resource.data.organiserPaid == resource.data.organiserPaid);
-      allow delete: if isAdmin() || registrationForOrganiserSession();
+      allow delete: if isAdmin() || registrationForOrganiserEvent();
     }
 
     match /payments/{paymentId} {
