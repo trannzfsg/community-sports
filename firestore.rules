@@ -78,6 +78,32 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId)).data.organiserId == request.auth.uid;
     }
 
+    function paymentHasOwnedRegistration() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/registrations/$(resource.data.registrationId))
+        && get(/databases/$(database)/documents/registrations/$(resource.data.registrationId)).data.userId == request.auth.uid;
+    }
+
+    function newPaymentHasOwnedRegistration() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId))
+        && get(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.userId == request.auth.uid;
+    }
+
+    function paymentBelongsToOrganiserByRegistration() {
+      return isOrganiser()
+        && exists(/databases/$(database)/documents/registrations/$(resource.data.registrationId))
+        && exists(/databases/$(database)/documents/sessionEvents/$(get(/databases/$(database)/documents/registrations/$(resource.data.registrationId)).data.sessionEventId))
+        && get(/databases/$(database)/documents/sessionEvents/$(get(/databases/$(database)/documents/registrations/$(resource.data.registrationId)).data.sessionEventId)).data.organiserId == request.auth.uid;
+    }
+
+    function newPaymentBelongsToOrganiserByRegistration() {
+      return isOrganiser()
+        && exists(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId))
+        && exists(/databases/$(database)/documents/sessionEvents/$(get(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.sessionEventId))
+        && get(/databases/$(database)/documents/sessionEvents/$(get(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.sessionEventId)).data.organiserId == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId)
@@ -141,17 +167,21 @@ service cloud.firestore {
 
     match /payments/{paymentId} {
       allow read: if isAdmin()
-        || (isOrganiser() && resource.data.organiserId == request.auth.uid)
-        || (isSignedIn() && resource.data.userId == request.auth.uid);
+        || (isOrganiser() && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration()))
+        || (isSignedIn() && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()));
       allow create: if isAdmin()
-        || (isOrganiser() && request.resource.data.organiserId == request.auth.uid)
-        || (isSignedIn() && request.resource.data.userId == request.auth.uid);
+        || (isOrganiser() && (request.resource.data.organiserId == request.auth.uid || newPaymentBelongsToOrganiserByRegistration()))
+        || (isSignedIn() && (request.resource.data.userId == request.auth.uid || newPaymentHasOwnedRegistration()));
       allow update: if isAdmin()
-        || (isOrganiser() && resource.data.organiserId == request.auth.uid && request.resource.data.organiserId == request.auth.uid)
-        || (isSignedIn() && resource.data.userId == request.auth.uid && request.resource.data.userId == request.auth.uid);
+        || (isOrganiser()
+          && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration())
+          && (request.resource.data.organiserId == request.auth.uid || newPaymentBelongsToOrganiserByRegistration()))
+        || (isSignedIn()
+          && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration())
+          && (request.resource.data.userId == request.auth.uid || newPaymentHasOwnedRegistration()));
       allow delete: if isAdmin()
-        || (isOrganiser() && resource.data.organiserId == request.auth.uid)
-        || (isSignedIn() && resource.data.userId == request.auth.uid);
+        || (isOrganiser() && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration()))
+        || (isSignedIn() && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()));
     }
 
     match /{document=**} {

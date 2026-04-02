@@ -315,8 +315,8 @@ export default function DashboardPage() {
   ) {
     setBusyKey(registration.id);
     try {
-      await deleteDoc(doc(db, "registrations", registration.id));
       await deletePaymentRecord(db, registration.id);
+      await deleteDoc(doc(db, "registrations", registration.id));
       await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
       await refreshSeriesData(series.id);
     } finally {
