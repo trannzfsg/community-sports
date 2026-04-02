@@ -66,6 +66,20 @@ function sortRegistrations(
   return copy;
 }
 
+function withDerivedEventCounts(
+  event: SessionEvent,
+  registrations: RegistrationItem[],
+): SessionEvent {
+  const bookedCount = registrations.filter((registration) => registration.status !== "waiting").length;
+  const waitingCount = registrations.filter((registration) => registration.status === "waiting").length;
+
+  return {
+    ...event,
+    bookedCount,
+    waitingCount,
+  };
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -125,17 +139,15 @@ export default function DashboardPage() {
               ),
             );
 
-            const eventItems = eventSnapshots.docs
+            const rawEventItems = eventSnapshots.docs
               .map((eventDoc) => ({
                 id: eventDoc.id,
                 ...(eventDoc.data() as Omit<SessionEvent, "id">),
               }))
               .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
 
-            eventMap[series.id] = eventItems;
-
             await Promise.all(
-              eventItems.map(async (event) => {
+              rawEventItems.map(async (event) => {
                 const registrationsSnapshot = await getDocs(
                   query(
                     collection(db, "registrations"),
@@ -151,6 +163,8 @@ export default function DashboardPage() {
                 );
               }),
             );
+
+            eventMap[series.id] = rawEventItems.map((event) => withDerivedEventCounts(event, registrationMap[event.id] ?? []));
           }),
         );
 
@@ -202,7 +216,7 @@ export default function DashboardPage() {
       query(collection(db, "sessionEvents"), where("sessionSeriesId", "==", seriesId)),
     );
 
-    const eventItems = eventSnapshots.docs
+    const rawEventItems = eventSnapshots.docs
       .map((eventDoc) => ({
         id: eventDoc.id,
         ...(eventDoc.data() as Omit<SessionEvent, "id">),
@@ -211,7 +225,7 @@ export default function DashboardPage() {
 
     const registrationMap: Record<string, RegistrationItem[]> = {};
     await Promise.all(
-      eventItems.map(async (event) => {
+      rawEventItems.map(async (event) => {
         const registrationsSnapshot = await getDocs(
           query(collection(db, "registrations"), where("sessionEventId", "==", event.id)),
         );
@@ -224,6 +238,8 @@ export default function DashboardPage() {
         );
       }),
     );
+
+    const eventItems = rawEventItems.map((event) => withDerivedEventCounts(event, registrationMap[event.id] ?? []));
 
     setEventsBySeries((current) => ({ ...current, [seriesId]: eventItems }));
     setRegistrationsByEvent((current) => ({ ...current, ...registrationMap }));
@@ -298,10 +314,12 @@ export default function DashboardPage() {
       });
 
       await syncPaymentRecordForRegistration(db, series, eventItem, registration);
-      await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
-      await updateDoc(doc(db, "sessions", series.id), {
-        nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
-      });
+      if (canManageSessions) {
+        await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+        await updateDoc(doc(db, "sessions", series.id), {
+          nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
+        });
+      }
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
