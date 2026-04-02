@@ -21,6 +21,8 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
 import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
+import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
+import { resolveAuthProfile } from "@/lib/auth-profile";
 import {
   createManualPlayer,
   ensureSelfRegisteredPlayers,
@@ -104,13 +106,47 @@ export default function DashboardPage() {
 
         setUser(currentUser);
 
-        const profileSnapshot = await getDoc(doc(db, "users", currentUser.uid));
+        const userRef = doc(db, "users", currentUser.uid);
+        const profileSnapshot = await getDoc(userRef);
+
+        let profileData: UserProfile;
         if (!profileSnapshot.exists()) {
-          router.push("/");
-          return;
+          const managedUser = currentUser.email ? await getManagedUserByEmail(db, currentUser.email) : null;
+          const resolved = resolveAuthProfile({
+            authDisplayName: currentUser.displayName,
+            authEmail: currentUser.email,
+            existing: undefined,
+            managedUser,
+          });
+
+          await setDoc(userRef, {
+            displayName: resolved.displayName,
+            email: resolved.email,
+            role: resolved.role,
+            status: resolved.status,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+
+          if (managedUser) {
+            await upsertManagedUser(db, {
+              email: resolved.email,
+              displayName: resolved.displayName,
+              role: managedUser.role,
+              status: managedUser.status,
+              userId: currentUser.uid,
+            });
+          }
+
+          profileData = {
+            displayName: resolved.displayName,
+            email: resolved.email,
+            role: resolved.role,
+          };
+        } else {
+          profileData = profileSnapshot.data() as UserProfile;
         }
 
-        const profileData = profileSnapshot.data() as UserProfile;
         setProfile(profileData);
 
         const seriesQuery =
