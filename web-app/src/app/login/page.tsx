@@ -5,9 +5,53 @@ import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  type User,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, googleProvider } from "@/lib/firebase";
+
+type AppUserRole = "player" | "organiser" | "admin";
+
+type UserProfile = {
+  displayName?: string;
+  email?: string;
+  role?: AppUserRole;
+};
+
+async function upsertPlayerDirectoryEntry(userId: string, name: string, userEmail: string) {
+  await setDoc(doc(db, "players", userId), {
+    ownerOrganiserId: null,
+    userId,
+    displayName: name,
+    email: userEmail,
+    source: "self-registered",
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: string) {
+  const userRef = doc(db, "users", user.uid);
+  const snapshot = await getDoc(userRef);
+  const existing = snapshot.data() as UserProfile | undefined;
+  const displayName = (fallbackDisplayName || user.displayName || existing?.displayName || user.email || "Player").trim();
+  const email = user.email || existing?.email || "";
+  const role: AppUserRole = existing?.role || "player";
+
+  await setDoc(userRef, {
+    displayName,
+    email,
+    role,
+    createdAt: existing ? existing : serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+
+  if (role === "player") {
+    await upsertPlayerDirectoryEntry(user.uid, displayName, email);
+  }
+
+  return { displayName, email, role };
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -17,17 +61,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-
-  async function upsertPlayerDirectoryEntry(userId: string, name: string, userEmail: string) {
-    await setDoc(doc(db, "players", userId), {
-      ownerOrganiserId: null,
-      userId,
-      displayName: name,
-      email: userEmail,
-      source: "self-registered",
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,42 +76,10 @@ export default function LoginPage() {
         );
 
         const name = displayName.trim() || credentials.user.email || "Player";
-
-        await setDoc(doc(db, "users", credentials.user.uid), {
-          displayName: name,
-          email: credentials.user.email,
-          role: "player",
-          createdAt: serverTimestamp(),
-        });
-
-        await upsertPlayerDirectoryEntry(
-          credentials.user.uid,
-          name,
-          credentials.user.email || "",
-        );
+        await ensureUserProfileForAuthUser(credentials.user, name);
       } else {
         const credentials = await signInWithEmailAndPassword(auth, email, password);
-        const snapshot = await getDoc(doc(db, "users", credentials.user.uid));
-
-        if (!snapshot.exists()) {
-          const name = credentials.user.email || "Player";
-          await setDoc(doc(db, "users", credentials.user.uid), {
-            displayName: name,
-            email: credentials.user.email,
-            role: "player",
-            createdAt: serverTimestamp(),
-          });
-        }
-
-        const userSnapshot = await getDoc(doc(db, "users", credentials.user.uid));
-        const userData = userSnapshot.data() as { displayName?: string; email?: string; role?: "player" | "organiser" | "admin" } | undefined;
-        if (userData?.role === "player") {
-          await upsertPlayerDirectoryEntry(
-            credentials.user.uid,
-            userData?.displayName || credentials.user.email || "Player",
-            userData?.email || credentials.user.email || "",
-          );
-        }
+        await ensureUserProfileForAuthUser(credentials.user);
       }
 
       router.push("/dashboard");
@@ -87,6 +88,25 @@ export default function LoginPage() {
         setError(submitError.message);
       } else {
         setError("Something went wrong. Please try again.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setBusy(true);
+    setError("");
+
+    try {
+      const credentials = await signInWithPopup(auth, googleProvider);
+      await ensureUserProfileForAuthUser(credentials.user);
+      router.push("/dashboard");
+    } catch (signInError) {
+      if (signInError instanceof Error) {
+        setError(signInError.message);
+      } else {
+        setError("Google sign-in failed. Please try again.");
       }
     } finally {
       setBusy(false);
@@ -159,6 +179,17 @@ export default function LoginPage() {
             {busy ? "Working..." : mode === "login" ? "Sign in" : "Create account"}
           </button>
         </form>
+
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={busy}
+            className="w-full rounded-full border border-zinc-300 bg-white px-6 py-3 text-sm font-medium text-zinc-900 transition hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Continue with Google
+          </button>
+        </div>
 
         <button
           type="button"
