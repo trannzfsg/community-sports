@@ -10,6 +10,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
+import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 
 type AppUserRole = "player" | "organiser" | "admin";
 
@@ -34,17 +35,29 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   const userRef = doc(db, "users", user.uid);
   const snapshot = await getDoc(userRef);
   const existing = snapshot.data() as UserProfile | undefined;
-  const displayName = (fallbackDisplayName || user.displayName || existing?.displayName || user.email || "Player").trim();
   const email = user.email || existing?.email || "";
-  const role: AppUserRole = existing?.role || "player";
+  const managedUser = email ? await getManagedUserByEmail(db, email) : null;
+  const displayName = (fallbackDisplayName || user.displayName || existing?.displayName || managedUser?.displayName || user.email || "Player").trim();
+  const role: AppUserRole = existing?.role || managedUser?.role || "player";
 
   await setDoc(userRef, {
     displayName,
     email,
     role,
-    createdAt: existing ? existing : serverTimestamp(),
+    status: managedUser?.status || "active",
+    createdAt: snapshot.exists() ? snapshot.data()?.createdAt || serverTimestamp() : serverTimestamp(),
     updatedAt: serverTimestamp(),
   }, { merge: true });
+
+  if (managedUser) {
+    await upsertManagedUser(db, {
+      email,
+      displayName,
+      role: managedUser.role,
+      status: managedUser.status,
+      userId: user.uid,
+    });
+  }
 
   if (role === "player") {
     await upsertPlayerDirectoryEntry(user.uid, displayName, email);

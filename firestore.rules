@@ -32,6 +32,33 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function signedInEmail() {
+      return isSignedIn() && request.auth.token.email != null
+        ? request.auth.token.email
+        : null;
+    }
+
+    function hasManagedUserForSignedInEmail() {
+      return signedInEmail() != null
+        && exists(/databases/$(database)/documents/managedUsers/$(signedInEmail()));
+    }
+
+    function managedUserForSignedInEmail() {
+      return get(/databases/$(database)/documents/managedUsers/$(signedInEmail()));
+    }
+
+    function allowedSelfRegistrationRole() {
+      return hasManagedUserForSignedInEmail()
+        ? managedUserForSignedInEmail().data.role
+        : 'player';
+    }
+
+    function allowedSelfRegistrationStatus() {
+      return hasManagedUserForSignedInEmail()
+        ? managedUserForSignedInEmail().data.status
+        : 'active';
+    }
+
     function seriesOwnedByCurrentOrganiser() {
       return isSignedIn() && resource.data.organiserId == request.auth.uid;
     }
@@ -104,11 +131,16 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sessionEvents/$(get(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.sessionEventId)).data.organiserId == request.auth.uid;
     }
 
+    match /managedUsers/{managedUserId} {
+      allow read, create, update, delete: if isAdmin();
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId)
         && request.resource.data.email == request.auth.token.email
-        && request.resource.data.role == 'player';
+        && request.resource.data.role == allowedSelfRegistrationRole()
+        && request.resource.data.status == allowedSelfRegistrationStatus();
       allow update: if (isOwner(userId)
         && request.resource.data.role == resource.data.role
         && request.resource.data.email == resource.data.email) || isAdmin();

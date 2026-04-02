@@ -508,6 +508,7 @@ export default function DashboardPage() {
             </div>
             <div className="flex flex-wrap gap-3">
               <Link href="/profile" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Profile</Link>
+              {profile?.role === "admin" ? <Link href="/admin/organisers" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Organisers</Link> : null}
               {canManageSessions ? <Link href="/sessions/new" className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700">Create session series</Link> : null}
               <Link href="/logout" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Sign out</Link>
             </div>
