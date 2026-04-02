@@ -8,6 +8,7 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
+import { getUsersByRole } from "@/lib/users";
 import type { SkillLevel } from "@/lib/skill-levels";
 
 export type PlayerDirectoryEntry = {
@@ -56,19 +57,34 @@ export async function ensureSelfRegisteredPlayers(db: Firestore) {
 }
 
 export async function getVisiblePlayersForOrganiser(db: Firestore, organiserId: string) {
-  const snapshots = await Promise.all([
-    getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId))),
-    getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", null))),
+  const [snapshots, adminUsers, organiserUsers] = await Promise.all([
+    Promise.all([
+      getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId))),
+      getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", null))),
+    ]),
+    getUsersByRole(db, "admin"),
+    getUsersByRole(db, "organiser"),
+  ]);
+
+  const excludedUserIds = new Set([
+    ...adminUsers.map((user) => user.id),
+    ...organiserUsers.map((user) => user.id),
   ]);
 
   const merged = new Map<string, PlayerDirectoryEntry>();
 
   for (const snapshot of snapshots) {
     for (const playerDoc of snapshot.docs) {
-      merged.set(playerDoc.id, {
+      const player = {
         id: playerDoc.id,
         ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
-      });
+      };
+
+      if (player.userId && excludedUserIds.has(player.userId)) {
+        continue;
+      }
+
+      merged.set(playerDoc.id, player);
     }
   }
 
