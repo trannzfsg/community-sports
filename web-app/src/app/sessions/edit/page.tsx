@@ -4,6 +4,7 @@ import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { deletePaymentRecord } from "@/lib/payments";
 import DatePicker from "@/components/date-picker";
 import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
@@ -181,8 +182,9 @@ function EditSessionPageInner() {
             query(collection(db, "registrations"), where("sessionEventId", "==", previousEventId)),
           );
 
-          if (!registrationsSnapshot.empty) {
-            throw new Error("Cannot replace the current active event because registrations already exist for that event. Remove or move those registrations first.");
+          for (const registrationDoc of registrationsSnapshot.docs) {
+            await deletePaymentRecord(db, registrationDoc.id);
+            await deleteDoc(registrationDoc.ref);
           }
 
           await deleteDoc(previousEventRef);

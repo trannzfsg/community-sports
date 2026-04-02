@@ -22,17 +22,31 @@ export type ManagedUserRecord = {
   userId?: string | null;
 };
 
+export function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
 export function buildManagedUserId(email: string) {
-  return email.trim();
+  return normalizeEmail(email);
 }
 
 export async function getManagedUserByEmail(db: Firestore, email: string) {
-  const snapshot = await getDoc(doc(db, "managedUsers", buildManagedUserId(email)));
-  if (!snapshot.exists()) return null;
-  return {
-    id: snapshot.id,
-    ...(snapshot.data() as Omit<ManagedUserRecord, "id">),
-  };
+  const canonicalId = buildManagedUserId(email);
+  const legacyId = email.trim();
+
+  const candidateIds = Array.from(new Set([canonicalId, legacyId])).filter(Boolean);
+
+  for (const id of candidateIds) {
+    const snapshot = await getDoc(doc(db, "managedUsers", id));
+    if (snapshot.exists()) {
+      return {
+        id: snapshot.id,
+        ...(snapshot.data() as Omit<ManagedUserRecord, "id">),
+      };
+    }
+  }
+
+  return null;
 }
 
 export async function getManagedUsersByRole(
@@ -63,7 +77,7 @@ export async function upsertManagedUser(
   await setDoc(
     doc(db, "managedUsers", id),
     {
-      email: input.email.trim(),
+      email: normalizeEmail(input.email),
       displayName: input.displayName.trim(),
       role: input.role,
       status: input.status || "active",

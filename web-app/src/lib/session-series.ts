@@ -5,6 +5,7 @@ import {
   query,
   serverTimestamp,
   setDoc,
+  updateDoc,
   where,
   type Firestore,
 } from "firebase/firestore";
@@ -195,6 +196,15 @@ export async function createSessionEventForSeries(
     return eventId;
   }
 
+  const currentActiveEvent = sameSeriesEventsSnapshot.docs
+    .map((eventDoc) => ({
+      id: eventDoc.id,
+      ...(eventDoc.data() as Omit<SessionEvent, "id">),
+    }))
+    .filter((event) => event.eventDate < eventDate && event.status !== "completed" && event.status !== "cancelled")
+    .sort((a, b) => a.eventDate.localeCompare(b.eventDate))
+    .at(-1);
+
   await setDoc(eventRef, {
     sessionSeriesId: series.id,
     organiserId: series.organiserId,
@@ -211,9 +221,15 @@ export async function createSessionEventForSeries(
     waitingListCapacity: series.waitingListCapacity || 0,
     bookedCount: 0,
     waitingCount: 0,
-    status: series.status,
+    status: "active",
     createdAt: serverTimestamp(),
   });
+
+  if (currentActiveEvent) {
+    await updateDoc(doc(db, "sessionEvents", currentActiveEvent.id), {
+      status: "completed",
+    });
+  }
 
   let copiedCount = 0;
 
