@@ -335,7 +335,9 @@ export default function DashboardPage() {
     try {
       await deletePaymentRecord(db, registration.id);
       await deleteDoc(doc(db, "registrations", registration.id));
-      await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+      if (canManageSessions) {
+        await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+      }
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
