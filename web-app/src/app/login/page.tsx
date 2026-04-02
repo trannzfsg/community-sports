@@ -11,6 +11,7 @@ import {
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
+import { resolveAuthProfile } from "@/lib/auth-profile";
 
 type AppUserRole = "player" | "organiser" | "admin";
 
@@ -35,35 +36,39 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   const userRef = doc(db, "users", user.uid);
   const snapshot = await getDoc(userRef);
   const existing = snapshot.data() as UserProfile | undefined;
-  const email = user.email || existing?.email || "";
-  const managedUser = email ? await getManagedUserByEmail(db, email) : null;
-  const displayName = (fallbackDisplayName || user.displayName || existing?.displayName || managedUser?.displayName || user.email || "Player").trim();
-  const role: AppUserRole = existing?.role || managedUser?.role || "player";
+  const managedUser = user.email ? await getManagedUserByEmail(db, user.email) : null;
+  const resolved = resolveAuthProfile({
+    fallbackDisplayName,
+    authDisplayName: user.displayName,
+    authEmail: user.email,
+    existing,
+    managedUser,
+  });
 
   await setDoc(userRef, {
-    displayName,
-    email,
-    role,
-    status: managedUser?.status || "active",
+    displayName: resolved.displayName,
+    email: resolved.email,
+    role: resolved.role,
+    status: resolved.status,
     createdAt: snapshot.exists() ? snapshot.data()?.createdAt || serverTimestamp() : serverTimestamp(),
     updatedAt: serverTimestamp(),
   }, { merge: true });
 
   if (managedUser) {
     await upsertManagedUser(db, {
-      email,
-      displayName,
+      email: resolved.email,
+      displayName: resolved.displayName,
       role: managedUser.role,
       status: managedUser.status,
       userId: user.uid,
     });
   }
 
-  if (role === "player") {
-    await upsertPlayerDirectoryEntry(user.uid, displayName, email);
+  if (resolved.role === "player") {
+    await upsertPlayerDirectoryEntry(user.uid, resolved.displayName, resolved.email);
   }
 
-  return { displayName, email, role };
+  return { displayName: resolved.displayName, email: resolved.email, role: resolved.role };
 }
 
 export default function LoginPage() {

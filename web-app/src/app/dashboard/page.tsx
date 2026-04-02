@@ -30,6 +30,7 @@ import {
 } from "@/lib/players";
 import type { AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
+import { getDashboardEventPresentation } from "@/lib/dashboard-event-state";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import {
   buildRegistrationId,
@@ -249,6 +250,19 @@ export default function DashboardPage() {
     setBusyKey(series.id);
     try {
       await createSessionEventForSeries(db, series, series.nextGameOn);
+      await updateDoc(doc(db, "sessions", series.id), {
+        nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
+      });
+      await refreshSeriesData(series.id);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleSetEventStatus(series: SessionSeries, eventItem: SessionEvent, status: "completed" | "cancelled") {
+    setBusyKey(eventItem.id);
+    try {
+      await updateDoc(doc(db, "sessionEvents", eventItem.id), { status });
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -509,6 +523,7 @@ export default function DashboardPage() {
             <div className="flex flex-wrap gap-3">
               <Link href="/profile" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Profile</Link>
               {profile?.role === "admin" ? <Link href="/admin/organisers" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Organisers</Link> : null}
+              {profile?.role === "admin" ? <Link href="/admin/players" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Players</Link> : null}
               {canManageSessions ? <Link href="/sessions/new" className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700">Create session series</Link> : null}
               <Link href="/logout" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Sign out</Link>
             </div>
@@ -540,37 +555,19 @@ export default function DashboardPage() {
               const playerIsGoing = currentRegistration?.status === "registered";
               const playerIsWaiting = currentRegistration?.status === "waiting";
               const playerCanJoin = !!nextEvent && capacityState.canAddMore;
-              const nextEventIsOpen = !!nextEvent && nextEvent.status !== "paused" && capacityState.canAddMore;
+              const nextEventIsOpen = !!nextEvent && (nextEvent.status || "active") === "active" && capacityState.canAddMore;
 
-              const eventCardClass = profile?.role === "player"
-                ? playerIsGoing
-                  ? "ring-emerald-300 bg-emerald-50"
-                  : playerIsWaiting
-                    ? "ring-yellow-300 bg-yellow-50"
-                    : playerCanJoin
-                      ? "ring-blue-300 bg-blue-50"
-                      : waitingListIsFull
-                        ? "ring-red-300 bg-red-50"
-                        : "ring-zinc-300 bg-zinc-100"
-                : waitingListIsFull
-                  ? "ring-red-300 bg-red-50"
-                  : eventIsFull
-                    ? "ring-amber-300 bg-amber-50"
-                    : "ring-emerald-300 bg-emerald-50";
+              const eventPresentation = getDashboardEventPresentation({
+                role: profile?.role,
+                playerIsGoing,
+                playerIsWaiting,
+                playerCanJoin,
+                eventIsFull,
+                waitingListIsFull,
+              });
 
-              const eventStateText = profile?.role === "player"
-                ? playerIsGoing
-                  ? "going"
-                  : playerIsWaiting
-                    ? "waiting list"
-                    : playerCanJoin
-                      ? "available"
-                      : "not available"
-                : waitingListIsFull
-                  ? "waiting list full"
-                  : eventIsFull
-                    ? "full"
-                    : "open";
+              const eventCardClass = eventPresentation.className;
+              const eventStateText = eventPresentation.stateText;
 
               return (
                 <article key={series.id} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
@@ -607,10 +604,17 @@ export default function DashboardPage() {
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
                         <p className="mt-1 text-sm text-zinc-700">{nextEvent ? `${nextEvent.eventDate} • ${bookedCount}/${nextEvent.capacity} registered • ${waitingCount}/${waitingListCapacity} waiting` : "No event created yet"}</p>
+                        {nextEvent ? <p className="mt-1 text-xs text-zinc-500">Status: {nextEvent.status || "active"}</p> : null}
                         {nextEvent ? <p className="mt-1 text-sm text-zinc-500">Organiser: {nextEvent.organiserName || series.organiserName || "Organiser"}</p> : null}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-medium text-zinc-700">{eventStateText}</span>
+                        {canManageSessions && nextEvent && nextEvent.status !== "completed" && nextEvent.status !== "cancelled" ? (
+                          <>
+                            <button type="button" onClick={() => handleSetEventStatus(series, nextEvent, "completed")} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Mark completed</button>
+                            <button type="button" onClick={() => handleSetEventStatus(series, nextEvent, "cancelled")} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Mark cancelled</button>
+                          </>
+                        ) : null}
                         {canManageSessions && !nextEventIsOpen ? <button type="button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
                       </div>
                     </div>
