@@ -3,7 +3,7 @@
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import DatePicker from "@/components/date-picker";
 import { auth, db } from "@/lib/firebase";
 import type { AppRole } from "@/lib/roles";
@@ -13,6 +13,7 @@ import {
   getSuggestedNextGameOn,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
+import { buildSessionEventId, createSessionEventForSeries, type SessionSeries as SessionSeriesRecord } from "@/lib/session-series";
 import { getUserById, getUsersByRole, type UserRecord } from "@/lib/users";
 
 type UserProfile = {
@@ -56,6 +57,7 @@ function EditSessionPageInner() {
   const [location, setLocation] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState<(typeof DAY_OF_WEEK_OPTIONS)[number]>("Mon");
   const [nextGameOn, setNextGameOn] = useState("");
+  const [originalNextGameOn, setOriginalNextGameOn] = useState("");
   const [startAt, setStartAt] = useState("19:00");
   const [endAt, setEndAt] = useState("21:00");
   const [firstSessionOn, setFirstSessionOn] = useState("");
@@ -110,13 +112,13 @@ function EditSessionPageInner() {
       setStartAt(session.startAt);
       setEndAt(session.endAt);
       setOwnerOrganiserId(session.organiserId || user.uid);
-      setNextGameOn(
-        getEffectiveNextGameOn(
-          session.dayOfWeek,
-          session.startAt,
-          session.nextGameOn,
-        ),
+      const effectiveNextGameOn = getEffectiveNextGameOn(
+        session.dayOfWeek,
+        session.startAt,
+        session.nextGameOn,
       );
+      setNextGameOn(effectiveNextGameOn);
+      setOriginalNextGameOn(effectiveNextGameOn);
       setFirstSessionOn(session.firstSessionOn);
       setDefaultPriceCasual(String(session.defaultPriceCasual));
       setCapacity(String(session.capacity));
@@ -148,7 +150,8 @@ function EditSessionPageInner() {
       const organiser = await getUserById(db, organiserId);
       const organiserName = organiser?.displayName || organiser?.email || "Organiser";
 
-      await updateDoc(doc(db, "sessions", sessionId), {
+      const updatedSeries: SessionSeriesRecord = {
+        id: sessionId,
         title: title.trim(),
         organiserId,
         organiserName,
@@ -164,7 +167,29 @@ function EditSessionPageInner() {
         waitingListCapacity: Number(waitingListCapacity || 0),
         status,
         copyRosterFromLastEvent,
-      });
+      };
+
+      await updateDoc(doc(db, "sessions", sessionId), updatedSeries);
+
+      if (originalNextGameOn && nextGameOn !== originalNextGameOn) {
+        const previousEventId = buildSessionEventId(sessionId, originalNextGameOn);
+        const previousEventRef = doc(db, "sessionEvents", previousEventId);
+        const previousEventSnapshot = await getDoc(previousEventRef);
+
+        if (previousEventSnapshot.exists()) {
+          const registrationsSnapshot = await getDocs(
+            query(collection(db, "registrations"), where("sessionEventId", "==", previousEventId)),
+          );
+
+          if (!registrationsSnapshot.empty) {
+            throw new Error("Cannot replace the current active event because registrations already exist for that event. Remove or move those registrations first.");
+          }
+
+          await deleteDoc(previousEventRef);
+        }
+
+        await createSessionEventForSeries(db, updatedSeries, nextGameOn);
+      }
 
       router.push("/dashboard");
     } catch (submitError) {
