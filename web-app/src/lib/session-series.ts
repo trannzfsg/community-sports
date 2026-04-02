@@ -1,7 +1,6 @@
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -180,9 +179,19 @@ export async function createSessionEventForSeries(
 
   const eventId = buildSessionEventId(series.id, eventDate);
   const eventRef = doc(db, "sessionEvents", eventId);
-  const existingEvent = await getDoc(eventRef);
+  const sameSeriesEventsSnapshot = await getDocs(
+    query(
+      collection(db, "sessionEvents"),
+      where("sessionSeriesId", "==", series.id),
+    ),
+  );
 
-  if (existingEvent.exists()) {
+  const eventAlreadyExists = sameSeriesEventsSnapshot.docs.some((eventDoc) => {
+    const data = eventDoc.data() as Omit<SessionEvent, "id">;
+    return eventDoc.id === eventId || data.eventDate === eventDate;
+  });
+
+  if (eventAlreadyExists) {
     return eventId;
   }
 
