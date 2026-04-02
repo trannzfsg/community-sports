@@ -4,9 +4,9 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { getManagedUsersByRole, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
+import { getManagedUserByEmail, getManagedUsersByRole, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
 
 type UserProfile = {
   displayName?: string;
@@ -23,6 +23,9 @@ export default function AdminOrganisersPage() {
   const [organisers, setOrganisers] = useState<ManagedUserRecord[]>([]);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editEmail, setEditEmail] = useState("");
+  const [editDisplayName, setEditDisplayName] = useState("");
 
   async function loadOrganisers() {
     const items = await getManagedUsersByRole(db, "organiser");
@@ -67,6 +70,79 @@ export default function AdminOrganisersPage() {
       await loadOrganisers();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Failed to create organiser.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function startEdit(organiser: ManagedUserRecord) {
+    setEditingId(organiser.id);
+    setEditDisplayName(organiser.displayName);
+    setEditEmail(organiser.email);
+    setError("");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDisplayName("");
+    setEditEmail("");
+  }
+
+  async function handleUpdate(organiser: ManagedUserRecord) {
+    setBusyKey(`edit-${organiser.id}`);
+    setError("");
+
+    try {
+      const trimmedDisplayName = editDisplayName.trim();
+      const normalizedNextEmail = normalizeEmail(editEmail);
+      const normalizedCurrentEmail = normalizeEmail(organiser.email);
+
+      if (!trimmedDisplayName) {
+        throw new Error("Display name is required.");
+      }
+
+      if (!normalizedNextEmail) {
+        throw new Error("Email is required.");
+      }
+
+      if (organiser.userId && normalizedNextEmail !== normalizedCurrentEmail) {
+        throw new Error("Email cannot be changed after organiser registration.");
+      }
+
+      if (!organiser.userId && normalizedNextEmail !== normalizedCurrentEmail) {
+        const existing = await getManagedUserByEmail(db, normalizedNextEmail);
+        if (existing && existing.id !== organiser.id) {
+          throw new Error("Another organiser already uses that email.");
+        }
+
+        await setDoc(doc(db, "managedUsers", normalizedNextEmail), {
+          ...organiser,
+          email: normalizedNextEmail,
+          displayName: trimmedDisplayName,
+          updatedAt: serverTimestamp(),
+        });
+
+        if (normalizedNextEmail !== organiser.id) {
+          await deleteDoc(doc(db, "managedUsers", organiser.id));
+        }
+      } else {
+        await updateDoc(doc(db, "managedUsers", organiser.id), {
+          displayName: trimmedDisplayName,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      if (organiser.userId) {
+        await setDoc(doc(db, "users", organiser.userId), {
+          displayName: trimmedDisplayName,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+
+      cancelEdit();
+      await loadOrganisers();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Failed to update organiser.");
     } finally {
       setBusyKey(null);
     }
@@ -150,20 +226,100 @@ export default function AdminOrganisersPage() {
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
           <h2 className="text-xl font-semibold">Existing organisers</h2>
           <div className="mt-6 space-y-3">
-            {organisers.length ? organisers.map((organiser) => (
-              <div key={organiser.id} className="rounded-2xl border border-zinc-200 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="font-medium text-zinc-900">{organiser.displayName}</div>
-                    <div className="text-sm text-zinc-500">{organiser.email}</div>
-                    <div className="mt-1 text-xs text-zinc-500">Status: {organiser.status}{organiser.userId ? ` • linked: ${organiser.userId}` : " • not registered yet"}</div>
-                  </div>
-                  <button type="button" onClick={() => handleInactivate(organiser)} disabled={busyKey === organiser.id || organiser.status === "inactive"} className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">
-                    {organiser.status === "inactive" ? "Inactive" : "Inactivate organiser"}
-                  </button>
+            {organisers.length ? organisers.map((organiser) => {
+              const isEditing = editingId === organiser.id;
+              const isSaving = busyKey === `edit-${organiser.id}`;
+              const canEditEmail = !organiser.userId;
+
+              return (
+                <div key={organiser.id} className="rounded-2xl border border-zinc-200 p-4">
+                  {isEditing ? (
+                    <form
+                      className="space-y-3"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleUpdate(organiser);
+                      }}
+                    >
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-600">Display name</span>
+                        <input
+                          value={editDisplayName}
+                          onChange={(event) => setEditDisplayName(event.target.value)}
+                          className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                          required
+                        />
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-600">Email</span>
+                        <input
+                          type="email"
+                          value={editEmail}
+                          onChange={(event) => setEditEmail(event.target.value)}
+                          disabled={!canEditEmail}
+                          className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                          required
+                        />
+                      </label>
+
+                      {!canEditEmail ? <div className="text-xs text-zinc-500">Email is locked after organiser registration.</div> : null}
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="submit"
+                          disabled={isSaving}
+                          className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? "Saving..." : "Save changes"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={isSaving}
+                          className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleInactivate(organiser)}
+                          disabled={busyKey === organiser.id || organiser.status === "inactive" || isSaving}
+                          className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {organiser.status === "inactive" ? "Inactive" : "Inactivate organiser"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="font-medium text-zinc-900">{organiser.displayName}</div>
+                        <div className="text-sm text-zinc-500">{organiser.email}</div>
+                        <div className="mt-1 text-xs text-zinc-500">Status: {organiser.status}{organiser.userId ? ` • linked: ${organiser.userId}` : " • not registered yet"}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(organiser)}
+                          className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleInactivate(organiser)}
+                          disabled={busyKey === organiser.id || organiser.status === "inactive"}
+                          className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {organiser.status === "inactive" ? "Inactive" : "Inactivate organiser"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )) : <div className="text-sm text-zinc-500">No organisers yet.</div>}
+              );
+            }) : <div className="text-sm text-zinc-500">No organisers yet.</div>}
           </div>
         </div>
       </div>
