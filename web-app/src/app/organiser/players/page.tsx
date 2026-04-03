@@ -13,6 +13,7 @@ import {
   updateManualPlayerSkillLevel,
   type PlayerDirectoryEntry,
 } from "@/lib/players";
+import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 
 type UserProfile = {
@@ -77,6 +78,12 @@ export default function OrganiserPlayersPage() {
       }
 
       await createManualPlayer(db, organiserId, trimmedName, normalizedEmail);
+      await upsertManagedUser(db, {
+        email: normalizedEmail,
+        displayName: trimmedName,
+        role: "player",
+        status: "active",
+      });
       setEmail("");
       setDisplayName("");
       await loadPlayers(organiserId);
@@ -116,6 +123,16 @@ export default function OrganiserPlayersPage() {
         email: normalizedEmail,
         updatedAt: serverTimestamp(),
       }, { merge: true });
+
+      const existingManaged = await getManagedUserByEmail(db, normalizedEmail);
+      await upsertManagedUser(db, {
+        id: existingManaged?.id,
+        email: normalizedEmail,
+        displayName: trimmedName,
+        role: "player",
+        status: "active",
+        userId: existingManaged?.userId ?? null,
+      });
 
       if (player.userId) {
         await setDoc(doc(db, "users", player.userId), {

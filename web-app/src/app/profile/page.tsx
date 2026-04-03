@@ -94,7 +94,9 @@ export default function ProfilePage() {
       }
 
       if (role !== "admin") {
+        const existingManaged = await getManagedUserByEmail(db, normalizedNextEmail);
         await upsertManagedUser(db, {
+          id: existingManaged?.id,
           email: normalizedNextEmail,
           displayName: name,
           role,

@@ -62,6 +62,17 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
     }, { merge: true });
   }
 
+  if (resolved.role === "player" || resolved.role === "organiser") {
+    await upsertManagedUser(db, {
+      id: managedUser?.id,
+      email: resolved.email,
+      displayName: resolved.displayName,
+      role: resolved.role,
+      status: resolved.status,
+      userId: user.uid,
+    });
+  }
+
   if (resolved.role === "player") {
     await promoteManualPlayerToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
     await upsertPlayerDirectoryEntry(user.uid, resolved.displayName, resolved.email);
