@@ -58,7 +58,11 @@ export default function AdminPlayersPage() {
 
   async function loadPlayers() {
     const items = await getManagedUsersByRole(db, "player");
-    setPlayers(items.sort((a, b) => a.email.localeCompare(b.email)));
+    setPlayers(
+      items
+        .filter((item) => item.status !== "inactive")
+        .sort((a, b) => a.email.localeCompare(b.email)),
+    );
   }
 
   useEffect(() => {
@@ -339,7 +343,7 @@ export default function AdminPlayersPage() {
                           disabled={busyKey === player.id || player.status === "inactive" || isSaving}
                           className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {player.status === "inactive" ? "Inactive" : "Inactivate player"}
+                          Remove player
                         </button>
                       </div>
                     </form>
@@ -364,7 +368,7 @@ export default function AdminPlayersPage() {
                           disabled={busyKey === player.id || player.status === "inactive"}
                           className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {player.status === "inactive" ? "Inactive" : "Inactivate player"}
+                          Remove player
                         </button>
                       </div>
                     </div>

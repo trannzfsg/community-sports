@@ -29,7 +29,11 @@ export default function AdminOrganisersPage() {
 
   async function loadOrganisers() {
     const items = await getManagedUsersByRole(db, "organiser");
-    setOrganisers(items.sort((a, b) => a.email.localeCompare(b.email)));
+    setOrganisers(
+      items
+        .filter((item) => item.status !== "inactive")
+        .sort((a, b) => a.email.localeCompare(b.email)),
+    );
   }
 
   useEffect(() => {
@@ -280,7 +284,7 @@ export default function AdminOrganisersPage() {
                           disabled={busyKey === organiser.id || organiser.status === "inactive" || isSaving}
                           className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {organiser.status === "inactive" ? "Inactive" : "Inactivate organiser"}
+                          Remove organiser
                         </button>
                       </div>
                     </form>
@@ -305,7 +309,7 @@ export default function AdminOrganisersPage() {
                           disabled={busyKey === organiser.id || organiser.status === "inactive"}
                           className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {organiser.status === "inactive" ? "Inactive" : "Inactivate organiser"}
+                          Remove organiser
                         </button>
                       </div>
                     </div>
