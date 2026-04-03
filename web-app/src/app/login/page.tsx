@@ -10,7 +10,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
-import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
+import { getManagedUserByEmail } from "@/lib/managed-users";
 import { resolveAuthProfile } from "@/lib/auth-profile";
 
 type AppUserRole = "player" | "organiser" | "admin";
@@ -54,14 +54,11 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
     updatedAt: serverTimestamp(),
   }, { merge: true });
 
-  if (managedUser) {
-    await upsertManagedUser(db, {
-      email: resolved.email,
-      displayName: resolved.displayName,
-      role: managedUser.role,
-      status: managedUser.status,
+  if (managedUser?.id) {
+    await setDoc(doc(db, "managedUsers", managedUser.id), {
       userId: user.uid,
-    });
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
   }
 
   if (resolved.role === "player") {

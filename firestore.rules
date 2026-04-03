@@ -131,8 +131,27 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sessionEvents/$(get(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.sessionEventId)).data.organiserId == request.auth.uid;
     }
 
+    function managedUserBelongsToSignedInEmail() {
+      return isSignedIn()
+        && resource.data.email is string
+        && signedInEmail() != null
+        && lower(resource.data.email) == lower(signedInEmail());
+    }
+
+    function managedUserSelfLinkUpdate() {
+      return managedUserBelongsToSignedInEmail()
+        && (resource.data.userId == null || resource.data.userId == request.auth.uid)
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.role == resource.data.role
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.displayName == resource.data.displayName;
+    }
+
     match /managedUsers/{managedUserId} {
-      allow read, create, update, delete: if isAdmin();
+      allow read: if isAdmin() || managedUserBelongsToSignedInEmail();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || managedUserSelfLinkUpdate();
     }
 
     match /users/{userId} {
