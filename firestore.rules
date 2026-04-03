@@ -38,26 +38,13 @@ service cloud.firestore {
         : null;
     }
 
-    function normalizedEmail(value) {
-      return value == null ? null : lower(value);
-    }
-
     function hasManagedUserForSignedInEmail() {
-      return signedInEmail() != null && (
-        exists(/databases/$(database)/documents/managedUserEmailIndex/$(normalizedEmail(signedInEmail())))
-        || exists(/databases/$(database)/documents/managedUsers/$(normalizedEmail(signedInEmail())))
-        || exists(/databases/$(database)/documents/managedUsers/$(signedInEmail()))
-      );
+      return signedInEmail() != null
+        && exists(/databases/$(database)/documents/managedUsers/$(signedInEmail()));
     }
 
     function managedUserForSignedInEmail() {
-      let normalized = normalizedEmail(signedInEmail());
-      let indexPath = /databases/$(database)/documents/managedUserEmailIndex/$(normalized);
-      return exists(indexPath)
-        ? get(/databases/$(database)/documents/managedUsers/$(get(indexPath).data.managedUserId))
-        : exists(/databases/$(database)/documents/managedUsers/$(normalized))
-          ? get(/databases/$(database)/documents/managedUsers/$(normalized))
-          : get(/databases/$(database)/documents/managedUsers/$(signedInEmail()));
+      return get(/databases/$(database)/documents/managedUsers/$(signedInEmail()));
     }
 
     function allowedSelfRegistrationRole() {
