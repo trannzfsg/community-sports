@@ -21,7 +21,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState<UserProfile["role"] | "">("");
+  const [role, setRole] = useState<UserProfile["role"]>("player");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [message, setMessage] = useState("");
 
@@ -93,7 +93,7 @@ export default function ProfilePage() {
         }, { merge: true });
       }
 
-      if (role !== "admin") {
+      if (role === "player" || role === "organiser") {
         const existingManaged = await getManagedUserByEmail(db, normalizedNextEmail);
         await upsertManagedUser(db, {
           id: existingManaged?.id,

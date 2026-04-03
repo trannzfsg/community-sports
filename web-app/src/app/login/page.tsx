@@ -10,7 +10,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
-import { getManagedUserByEmail } from "@/lib/managed-users";
+import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { resolveAuthProfile } from "@/lib/auth-profile";
 import { promoteManualPlayerToSelfRegistered } from "@/lib/players";
 
