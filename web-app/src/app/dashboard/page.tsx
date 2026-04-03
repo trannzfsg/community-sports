@@ -22,7 +22,6 @@ import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
 import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
 import {
-  createManualPlayer,
   ensureSelfRegisteredPlayers,
   getVisiblePlayersForOrganiser,
   updateManualPlayerSkillLevel,
@@ -463,34 +462,11 @@ export default function DashboardPage() {
   async function handleSelectOrCreatePlayer(
     series: SessionSeries,
     eventItem: SessionEvent,
-    selection: { type: "existing"; player: PlayerDirectoryEntry } | { type: "create"; name: string },
+    selection: { type: "existing"; player: PlayerDirectoryEntry },
   ) {
     setBusyKey(eventItem.id);
     try {
-      let player: PlayerDirectoryEntry | null = null;
-
-      if (selection.type === "existing") {
-        player = selection.player;
-      } else {
-        const ownerOrganiserId = series.organiserId;
-        const createdId = await createManualPlayer(db, ownerOrganiserId, selection.name);
-        const refreshed = await getVisiblePlayersForOrganiser(db, ownerOrganiserId);
-        setPlayerDirectory((current) => {
-          const merged = new Map<string, PlayerDirectoryEntry>();
-          for (const item of current) merged.set(item.id, item);
-          for (const item of refreshed) merged.set(item.id, item);
-          return Array.from(merged.values()).sort((a, b) => {
-            const nameCompare = a.displayName.localeCompare(b.displayName);
-            if (nameCompare !== 0) return nameCompare;
-            return a.email.localeCompare(b.email);
-          });
-        });
-        player = refreshed.find((item) => item.id === createdId) ?? null;
-      }
-
-      if (!player) return;
-
-      await addPlayerToEvent(series, eventItem, player);
+      await addPlayerToEvent(series, eventItem, selection.player);
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -655,8 +631,12 @@ export default function DashboardPage() {
                           <div className="mt-4 space-y-2">
                             <SearchablePlayerSelect
                               players={visiblePlayersForSeries}
+                              allowCreate={false}
                               disabled={busyKey === nextEvent.id || !playerCanJoin}
-                              onSelectOrCreate={(selection) => handleSelectOrCreatePlayer(series, nextEvent, selection)}
+                              onSelectOrCreate={async (selection) => {
+                                if (selection.type === "create") return;
+                                await handleSelectOrCreatePlayer(series, nextEvent, selection);
+                              }}
                             />
                           </div>
                         ) : null}

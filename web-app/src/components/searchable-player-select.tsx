@@ -13,6 +13,7 @@ type PlayerOption = PlayerDirectoryEntry & {
 type Props = {
   players: PlayerDirectoryEntry[];
   disabled?: boolean;
+  allowCreate?: boolean;
   onSelectOrCreate: (value: { type: "existing"; player: PlayerDirectoryEntry } | { type: "create"; name: string }) => Promise<void> | void;
 };
 
@@ -21,6 +22,7 @@ const filter = createFilterOptions<PlayerOption>();
 export default function SearchablePlayerSelect({
   players,
   disabled,
+  allowCreate = false,
   onSelectOrCreate,
 }: Props) {
   const [inputValue, setInputValue] = useState("");
@@ -53,7 +55,7 @@ export default function SearchablePlayerSelect({
           return label.toLowerCase() === currentInput.toLowerCase() || option.displayName.toLowerCase() === currentInput.toLowerCase();
         });
 
-        if (currentInput !== "" && !isExisting) {
+        if (allowCreate && currentInput !== "" && !isExisting) {
           result.push({
             id: `create:${currentInput}`,
             ownerOrganiserId: null,
