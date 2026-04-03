@@ -21,8 +21,6 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
 import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
-import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
-import { resolveAuthProfile } from "@/lib/auth-profile";
 import {
   createManualPlayer,
   ensureSelfRegisteredPlayers,
@@ -111,37 +109,22 @@ export default function DashboardPage() {
 
         let profileData: UserProfile;
         if (!profileSnapshot.exists()) {
-          const managedUser = currentUser.email ? await getManagedUserByEmail(db, currentUser.email) : null;
-          const resolved = resolveAuthProfile({
-            authDisplayName: currentUser.displayName,
-            authEmail: currentUser.email,
-            existing: undefined,
-            managedUser,
-          });
+          const email = currentUser.email || "";
+          const displayName = (currentUser.displayName || currentUser.email || "Player").trim();
 
           await setDoc(userRef, {
-            displayName: resolved.displayName,
-            email: resolved.email,
-            role: resolved.role,
-            status: resolved.status,
+            displayName,
+            email,
+            role: "player",
+            status: "active",
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           }, { merge: true });
 
-          if (managedUser) {
-            await upsertManagedUser(db, {
-              email: resolved.email,
-              displayName: resolved.displayName,
-              role: managedUser.role,
-              status: managedUser.status,
-              userId: currentUser.uid,
-            });
-          }
-
           profileData = {
-            displayName: resolved.displayName,
-            email: resolved.email,
-            role: resolved.role,
+            displayName,
+            email,
+            role: "player",
           };
         } else {
           profileData = profileSnapshot.data() as UserProfile;
