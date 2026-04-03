@@ -138,9 +138,6 @@ export default function AdminPlayersPage() {
         throw new Error("Email is required.");
       }
 
-      if (player.userId && normalizedNextEmail !== normalizedCurrentEmail) {
-        throw new Error("Email cannot be changed after player registration.");
-      }
 
       if (!player.userId && normalizedNextEmail !== normalizedCurrentEmail) {
         const existing = await getManagedUserByEmail(db, normalizedNextEmail);
@@ -151,7 +148,7 @@ export default function AdminPlayersPage() {
 
       await upsertManagedUser(db, {
         id: player.id,
-        email: player.userId ? player.email : normalizedNextEmail,
+        email: normalizedNextEmail,
         displayName: trimmedDisplayName,
         role: player.role,
         status: player.status,
@@ -161,12 +158,13 @@ export default function AdminPlayersPage() {
       if (player.userId) {
         await setDoc(doc(db, "users", player.userId), {
           displayName: trimmedDisplayName,
+          email: normalizedNextEmail,
           updatedAt: serverTimestamp(),
         }, { merge: true });
 
         await setDoc(doc(db, "players", player.userId), {
           displayName: trimmedDisplayName,
-          email: player.userId ? player.email : normalizedNextEmail,
+          email: normalizedNextEmail,
           updatedAt: serverTimestamp(),
         }, { merge: true });
       }
@@ -268,7 +266,7 @@ export default function AdminPlayersPage() {
             </label>
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-zinc-700">Email</span>
-              <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+              <input type="email" value={email} onChange={(event) => setEmail(normalizeEmail(event.target.value))} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
             </label>
             <div className="md:col-span-2">
               <button type="submit" disabled={busyKey === "create"} className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">
@@ -285,7 +283,7 @@ export default function AdminPlayersPage() {
             {players.length ? players.map((player) => {
               const isEditing = editingId === player.id;
               const isSaving = busyKey === `edit-${player.id}`;
-              const canEditEmail = !player.userId;
+              const canEditEmail = true;
 
               return (
                 <div key={player.id} className="rounded-2xl border border-zinc-200 p-4">
@@ -319,7 +317,6 @@ export default function AdminPlayersPage() {
                         />
                       </label>
 
-                      {!canEditEmail ? <div className="text-xs text-zinc-500">Email is locked after player registration.</div> : null}
 
                       <div className="flex flex-wrap gap-2">
                         <button

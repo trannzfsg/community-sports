@@ -21,8 +21,14 @@ export type PlayerDirectoryEntry = {
   skillLevel?: SkillLevel | null;
 };
 
-export function buildManualPlayerId(ownerOrganiserId: string, displayName: string) {
-  return `manual-player__${encodeURIComponent(ownerOrganiserId)}__${encodeURIComponent(displayName.trim().toLowerCase())}`;
+export function normalizePlayerEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+export function buildManualPlayerId(ownerOrganiserId: string, displayName: string, email?: string) {
+  const normalizedEmail = normalizePlayerEmail(email || "");
+  const suffix = normalizedEmail || displayName.trim().toLowerCase();
+  return `manual-player__${encodeURIComponent(ownerOrganiserId)}__${encodeURIComponent(suffix)}`;
 }
 
 export async function ensureSelfRegisteredPlayers(db: Firestore) {
@@ -84,7 +90,19 @@ export async function getVisiblePlayersForOrganiser(db: Firestore, organiserId: 
         continue;
       }
 
-      merged.set(playerDoc.id, player);
+      const dedupeKey = normalizePlayerEmail(player.email) || `id:${player.id}`;
+      const existing = merged.get(dedupeKey);
+
+      if (!existing) {
+        merged.set(dedupeKey, player);
+        continue;
+      }
+
+      const existingIsSelfRegistered = existing.ownerOrganiserId == null && !!existing.userId;
+      const playerIsSelfRegistered = player.ownerOrganiserId == null && !!player.userId;
+      if (!existingIsSelfRegistered && playerIsSelfRegistered) {
+        merged.set(dedupeKey, player);
+      }
     }
   }
 
@@ -99,15 +117,17 @@ export async function createManualPlayer(
   db: Firestore,
   ownerOrganiserId: string,
   displayName: string,
+  email: string,
 ) {
-  const id = buildManualPlayerId(ownerOrganiserId, displayName);
+  const normalizedEmail = normalizePlayerEmail(email);
+  const id = buildManualPlayerId(ownerOrganiserId, displayName, normalizedEmail);
   await setDoc(
     doc(db, "players", id),
     {
       ownerOrganiserId,
       userId: null,
       displayName: displayName.trim(),
-      email: "",
+      email: normalizedEmail,
       source: "manual",
       skillLevel: null,
       updatedAt: serverTimestamp(),
@@ -115,6 +135,34 @@ export async function createManualPlayer(
     { merge: true },
   );
   return id;
+}
+
+export async function promoteManualPlayerToSelfRegistered(
+  db: Firestore,
+  userId: string,
+  email: string,
+  displayName: string,
+) {
+  const normalizedEmail = normalizePlayerEmail(email);
+
+  const matches = await getDocs(
+    query(collection(db, "players"), where("email", "==", normalizedEmail), where("userId", "==", null)),
+  );
+
+
+  await setDoc(
+    doc(db, "players", userId),
+    {
+      ownerOrganiserId: null,
+      userId,
+      displayName: displayName.trim(),
+      email: normalizedEmail,
+      source: "self-registered",
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+
 }
 
 export async function updateManualPlayerSkillLevel(

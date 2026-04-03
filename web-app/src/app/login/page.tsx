@@ -12,6 +12,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail } from "@/lib/managed-users";
 import { resolveAuthProfile } from "@/lib/auth-profile";
+import { promoteManualPlayerToSelfRegistered } from "@/lib/players";
 
 type AppUserRole = "player" | "organiser" | "admin";
 
@@ -62,6 +63,7 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   }
 
   if (resolved.role === "player") {
+    await promoteManualPlayerToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
     await upsertPlayerDirectoryEntry(user.uid, resolved.displayName, resolved.email);
   }
 

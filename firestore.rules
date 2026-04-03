@@ -142,10 +142,8 @@ service cloud.firestore {
       return managedUserBelongsToSignedInEmail()
         && (resource.data.userId == null || resource.data.userId == request.auth.uid)
         && request.resource.data.userId == request.auth.uid
-        && request.resource.data.email == resource.data.email
         && request.resource.data.role == resource.data.role
-        && request.resource.data.status == resource.data.status
-        && request.resource.data.displayName == resource.data.displayName;
+        && request.resource.data.status == resource.data.status;
     }
 
     match /managedUsers/{managedUserId} {
@@ -161,8 +159,7 @@ service cloud.firestore {
         && request.resource.data.role == allowedSelfRegistrationRole()
         && request.resource.data.status == allowedSelfRegistrationStatus();
       allow update: if (isOwner(userId)
-        && request.resource.data.role == resource.data.role
-        && request.resource.data.email == resource.data.email) || isAdmin();
+        && request.resource.data.role == resource.data.role) || isAdmin();
       allow delete: if isAdmin();
     }
 

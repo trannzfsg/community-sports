@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc, setDoc } from "firebase/firestore";
+import { updateEmail } from "firebase/auth";
+import { getManagedUserByEmail, normalizeEmail, upsertManagedUser } from "@/lib/managed-users";
 import { auth, db } from "@/lib/firebase";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 
@@ -58,9 +60,25 @@ export default function ProfilePage() {
     setMessage("");
 
     try {
+      const normalizedNextEmail = normalizeEmail(email);
+      const normalizedCurrentAuthEmail = normalizeEmail(user.email || "");
+
+      if (!normalizedNextEmail) {
+        throw new Error("Email is required.");
+      }
+
+      const existingManaged = await getManagedUserByEmail(db, normalizedNextEmail);
+      if (existingManaged && existingManaged.userId && existingManaged.userId !== user.uid) {
+        throw new Error("Another user already uses this email.");
+      }
+
+      if (normalizedNextEmail !== normalizedCurrentAuthEmail) {
+        await updateEmail(user, normalizedNextEmail);
+      }
+
       await setDoc(doc(db, "users", user.uid), {
         displayName: name,
-        email,
+        email: normalizedNextEmail,
         role,
       }, { merge: true });
 
@@ -69,12 +87,23 @@ export default function ProfilePage() {
           ownerOrganiserId: null,
           userId: user.uid,
           displayName: name,
-          email,
+          email: normalizedNextEmail,
           source: "self-registered",
           skillLevel: skillLevel || null,
         }, { merge: true });
       }
 
+      if (role !== "admin") {
+        await upsertManagedUser(db, {
+          email: normalizedNextEmail,
+          displayName: name,
+          role,
+          status: "active",
+          userId: user.uid,
+        });
+      }
+
+      setEmail(normalizedNextEmail);
       setMessage("Profile saved.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Failed to save profile.");
@@ -110,7 +139,7 @@ export default function ProfilePage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Email</span>
-            <input value={email} disabled className="w-full rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-3 text-zinc-600" />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" />
           </label>
 
           <label className="block">
