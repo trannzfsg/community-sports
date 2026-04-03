@@ -17,7 +17,7 @@ import {
   where,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { getManagedUsersByRole, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
+import { getManagedUserByEmail, getManagedUsersByRole, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
 import { deletePaymentRecord } from "@/lib/payments";
 import { shouldRemoveRegistrationForInactivatedPlayer } from "@/lib/admin-player-flows";
 import { rebalanceEventRegistrations, type SessionEvent } from "@/lib/session-series";
@@ -52,6 +52,9 @@ export default function AdminPlayersPage() {
   const [players, setPlayers] = useState<ManagedUserRecord[]>([]);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editEmail, setEditEmail] = useState("");
+  const [editDisplayName, setEditDisplayName] = useState("");
 
   async function loadPlayers() {
     const items = await getManagedUsersByRole(db, "player");
@@ -96,6 +99,78 @@ export default function AdminPlayersPage() {
       await loadPlayers();
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : "Failed to create player.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function startEdit(player: ManagedUserRecord) {
+    setEditingId(player.id);
+    setEditDisplayName(player.displayName);
+    setEditEmail(player.email);
+    setError("");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDisplayName("");
+    setEditEmail("");
+  }
+
+  async function handleUpdate(player: ManagedUserRecord) {
+    setBusyKey(`edit-${player.id}`);
+    setError("");
+
+    try {
+      const trimmedDisplayName = editDisplayName.trim();
+      const normalizedNextEmail = normalizeEmail(editEmail);
+      const normalizedCurrentEmail = normalizeEmail(player.email);
+
+      if (!trimmedDisplayName) {
+        throw new Error("Display name is required.");
+      }
+
+      if (!normalizedNextEmail) {
+        throw new Error("Email is required.");
+      }
+
+      if (player.userId && normalizedNextEmail !== normalizedCurrentEmail) {
+        throw new Error("Email cannot be changed after player registration.");
+      }
+
+      if (!player.userId && normalizedNextEmail !== normalizedCurrentEmail) {
+        const existing = await getManagedUserByEmail(db, normalizedNextEmail);
+        if (existing && existing.id !== player.id) {
+          throw new Error("Another managed user already uses that email.");
+        }
+      }
+
+      await upsertManagedUser(db, {
+        id: player.id,
+        email: player.userId ? player.email : normalizedNextEmail,
+        displayName: trimmedDisplayName,
+        role: player.role,
+        status: player.status,
+        userId: player.userId ?? null,
+      });
+
+      if (player.userId) {
+        await setDoc(doc(db, "users", player.userId), {
+          displayName: trimmedDisplayName,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+
+        await setDoc(doc(db, "players", player.userId), {
+          displayName: trimmedDisplayName,
+          email: player.userId ? player.email : normalizedNextEmail,
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+
+      cancelEdit();
+      await loadPlayers();
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Failed to update player.");
     } finally {
       setBusyKey(null);
     }
@@ -203,20 +278,100 @@ export default function AdminPlayersPage() {
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
           <h2 className="text-xl font-semibold">Existing players</h2>
           <div className="mt-6 space-y-3">
-            {players.length ? players.map((player) => (
-              <div key={player.id} className="rounded-2xl border border-zinc-200 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <div className="font-medium text-zinc-900">{player.displayName}</div>
-                    <div className="text-sm text-zinc-500">{player.email}</div>
-                    <div className="mt-1 text-xs text-zinc-500">Status: {player.status}{player.userId ? ` • linked: ${player.userId}` : " • not registered yet"}</div>
-                  </div>
-                  <button type="button" onClick={() => handleInactivate(player)} disabled={busyKey === player.id || player.status === "inactive"} className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">
-                    {player.status === "inactive" ? "Inactive" : "Inactivate player"}
-                  </button>
+            {players.length ? players.map((player) => {
+              const isEditing = editingId === player.id;
+              const isSaving = busyKey === `edit-${player.id}`;
+              const canEditEmail = !player.userId;
+
+              return (
+                <div key={player.id} className="rounded-2xl border border-zinc-200 p-4">
+                  {isEditing ? (
+                    <form
+                      className="space-y-3"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleUpdate(player);
+                      }}
+                    >
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-600">Display name</span>
+                        <input
+                          value={editDisplayName}
+                          onChange={(event) => setEditDisplayName(event.target.value)}
+                          className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                          required
+                        />
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-600">Email</span>
+                        <input
+                          type="email"
+                          value={editEmail}
+                          onChange={(event) => setEditEmail(event.target.value)}
+                          disabled={!canEditEmail}
+                          className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500 disabled:cursor-not-allowed disabled:bg-zinc-100 disabled:text-zinc-500"
+                          required
+                        />
+                      </label>
+
+                      {!canEditEmail ? <div className="text-xs text-zinc-500">Email is locked after player registration.</div> : null}
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="submit"
+                          disabled={isSaving}
+                          className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSaving ? "Saving..." : "Save changes"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={isSaving}
+                          className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleInactivate(player)}
+                          disabled={busyKey === player.id || player.status === "inactive" || isSaving}
+                          className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {player.status === "inactive" ? "Inactive" : "Inactivate player"}
+                        </button>
+                      </div>
+                    </form>
+                  ) : (
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="font-medium text-zinc-900">{player.displayName}</div>
+                        <div className="text-sm text-zinc-500">{player.email}</div>
+                        <div className="mt-1 text-xs text-zinc-500">Status: {player.status}{player.userId ? ` • linked: ${player.userId}` : " • not registered yet"}</div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => startEdit(player)}
+                          className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleInactivate(player)}
+                          disabled={busyKey === player.id || player.status === "inactive"}
+                          className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {player.status === "inactive" ? "Inactive" : "Inactivate player"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )) : <div className="text-sm text-zinc-500">No managed players yet.</div>}
+              );
+            }) : <div className="text-sm text-zinc-500">No managed players yet.</div>}
           </div>
         </div>
       </div>

@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { getManagedUserByEmail, getManagedUsersByRole, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
 
@@ -114,23 +114,16 @@ export default function AdminOrganisersPage() {
         if (existing && existing.id !== organiser.id) {
           throw new Error("Another organiser already uses that email.");
         }
-
-        await setDoc(doc(db, "managedUsers", normalizedNextEmail), {
-          ...organiser,
-          email: normalizedNextEmail,
-          displayName: trimmedDisplayName,
-          updatedAt: serverTimestamp(),
-        });
-
-        if (normalizedNextEmail !== organiser.id) {
-          await deleteDoc(doc(db, "managedUsers", organiser.id));
-        }
-      } else {
-        await updateDoc(doc(db, "managedUsers", organiser.id), {
-          displayName: trimmedDisplayName,
-          updatedAt: serverTimestamp(),
-        });
       }
+
+      await upsertManagedUser(db, {
+        id: organiser.id,
+        email: organiser.userId ? organiser.email : normalizedNextEmail,
+        displayName: trimmedDisplayName,
+        role: organiser.role,
+        status: organiser.status,
+        userId: organiser.userId ?? null,
+      });
 
       if (organiser.userId) {
         await setDoc(doc(db, "users", organiser.userId), {

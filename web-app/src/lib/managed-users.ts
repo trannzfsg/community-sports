@@ -1,4 +1,5 @@
 import {
+  addDoc,
   collection,
   doc,
   getDoc,
@@ -31,10 +32,23 @@ export function buildManagedUserId(email: string) {
 }
 
 export async function getManagedUserByEmail(db: Firestore, email: string) {
-  const canonicalId = buildManagedUserId(email);
-  const legacyId = email.trim();
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
 
-  const candidateIds = Array.from(new Set([canonicalId, legacyId])).filter(Boolean);
+  const byEmailSnapshot = await getDocs(
+    query(collection(db, "managedUsers"), where("email", "==", normalizedEmail)),
+  );
+
+  if (!byEmailSnapshot.empty) {
+    const managedUserDoc = byEmailSnapshot.docs[0];
+    return {
+      id: managedUserDoc.id,
+      ...(managedUserDoc.data() as Omit<ManagedUserRecord, "id">),
+    };
+  }
+
+  const legacyId = email.trim();
+  const candidateIds = Array.from(new Set([normalizedEmail, legacyId])).filter(Boolean);
 
   for (const id of candidateIds) {
     const snapshot = await getDoc(doc(db, "managedUsers", id));
@@ -66,6 +80,7 @@ export async function getManagedUsersByRole(
 export async function upsertManagedUser(
   db: Firestore,
   input: {
+    id?: string;
     email: string;
     displayName: string;
     role: ManagedUserRole;
@@ -73,18 +88,22 @@ export async function upsertManagedUser(
     userId?: string | null;
   },
 ) {
-  const id = buildManagedUserId(input.email);
-  await setDoc(
-    doc(db, "managedUsers", id),
-    {
-      email: normalizeEmail(input.email),
-      displayName: input.displayName.trim(),
-      role: input.role,
-      status: input.status || "active",
-      userId: input.userId ?? null,
-      updatedAt: serverTimestamp(),
-    },
-    { merge: true },
-  );
-  return id;
+  const normalizedEmail = normalizeEmail(input.email);
+  const payload = {
+    email: normalizedEmail,
+    displayName: input.displayName.trim(),
+    role: input.role,
+    status: input.status || "active",
+    userId: input.userId ?? null,
+    updatedAt: serverTimestamp(),
+  };
+
+  const id = input.id || (await getManagedUserByEmail(db, normalizedEmail))?.id;
+  if (id) {
+    await setDoc(doc(db, "managedUsers", id), payload, { merge: true });
+    return id;
+  }
+
+  const created = await addDoc(collection(db, "managedUsers"), payload);
+  return created.id;
 }
