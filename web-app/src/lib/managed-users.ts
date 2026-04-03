@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -99,11 +100,36 @@ export async function upsertManagedUser(
   };
 
   const id = input.id || (await getManagedUserByEmail(db, normalizedEmail))?.id;
+  const previousSnapshot = id ? await getDoc(doc(db, "managedUsers", id)) : null;
+  const previousEmail = previousSnapshot?.exists()
+    ? normalizeEmail((previousSnapshot.data() as ManagedUserRecord).email || "")
+    : null;
+
   if (id) {
     await setDoc(doc(db, "managedUsers", id), payload, { merge: true });
+
+    await setDoc(doc(db, "managedUserEmailIndex", normalizedEmail), {
+      managedUserId: id,
+      role: payload.role,
+      status: payload.status,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+
+    if (previousEmail && previousEmail !== normalizedEmail) {
+      await deleteDoc(doc(db, "managedUserEmailIndex", previousEmail));
+    }
+
     return id;
   }
 
   const created = await addDoc(collection(db, "managedUsers"), payload);
+
+  await setDoc(doc(db, "managedUserEmailIndex", normalizedEmail), {
+    managedUserId: created.id,
+    role: payload.role,
+    status: payload.status,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+
   return created.id;
 }
