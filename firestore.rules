@@ -38,24 +38,25 @@ service cloud.firestore {
         : null;
     }
 
-    function hasManagedUserForSignedInEmail() {
+    function hasPendingUserForSignedInEmail() {
       return signedInEmail() != null
-        && exists(/databases/$(database)/documents/managedUsers/$(signedInEmail()));
+        && exists(/databases/$(database)/documents/users/$(signedInEmail()))
+        && get(/databases/$(database)/documents/users/$(signedInEmail())).data.isPending == true;
     }
 
-    function managedUserForSignedInEmail() {
-      return get(/databases/$(database)/documents/managedUsers/$(signedInEmail()));
+    function pendingUserForSignedInEmail() {
+      return get(/databases/$(database)/documents/users/$(signedInEmail()));
     }
 
     function allowedSelfRegistrationRole() {
-      return hasManagedUserForSignedInEmail()
-        ? managedUserForSignedInEmail().data.role
+      return hasPendingUserForSignedInEmail()
+        ? pendingUserForSignedInEmail().data.role
         : 'player';
     }
 
     function allowedSelfRegistrationStatus() {
-      return hasManagedUserForSignedInEmail()
-        ? managedUserForSignedInEmail().data.status
+      return hasPendingUserForSignedInEmail()
+        ? pendingUserForSignedInEmail().data.status
         : 'active';
     }
 
@@ -131,25 +132,21 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sessionEvents/$(get(/databases/$(database)/documents/registrations/$(request.resource.data.registrationId)).data.sessionEventId)).data.organiserId == request.auth.uid;
     }
 
-    function managedUserBelongsToSignedInEmail() {
+    function pendingUserBelongsToSignedInEmail() {
       return isSignedIn()
         && resource.data.email is string
+        && resource.data.isPending == true
         && signedInEmail() != null
         && resource.data.email == signedInEmail();
     }
 
-    function managedUserSelfLinkUpdate() {
-      return managedUserBelongsToSignedInEmail()
+    function pendingUserSelfLinkUpdate() {
+      return pendingUserBelongsToSignedInEmail()
         && (resource.data.userId == null || resource.data.userId == request.auth.uid)
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.role == resource.data.role
-        && request.resource.data.status == resource.data.status;
-    }
-
-    match /managedUsers/{managedUserId} {
-      allow read: if isAdmin() || managedUserBelongsToSignedInEmail();
-      allow create, delete: if isAdmin();
-      allow update: if isAdmin() || managedUserSelfLinkUpdate();
+        && request.resource.data.status == resource.data.status
+        && request.resource.data.isPending == true;
     }
 
     match /users/{userId} {
@@ -157,9 +154,14 @@ service cloud.firestore {
       allow create: if isOwner(userId)
         && request.resource.data.email == request.auth.token.email
         && request.resource.data.role == allowedSelfRegistrationRole()
-        && request.resource.data.status == allowedSelfRegistrationStatus();
-      allow update: if (isOwner(userId)
-        && request.resource.data.role == resource.data.role) || isAdmin();
+        && request.resource.data.status == allowedSelfRegistrationStatus()
+        && request.resource.data.isPending != true;
+      allow update: if isAdmin()
+        || pendingUserSelfLinkUpdate()
+        || (isOwner(userId)
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.email == resource.data.email
+          && request.resource.data.isPending != true);
       allow delete: if isAdmin();
     }
 

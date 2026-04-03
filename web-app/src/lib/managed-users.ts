@@ -1,5 +1,4 @@
 import {
-  addDoc,
   collection,
   doc,
   getDoc,
@@ -21,6 +20,7 @@ export type ManagedUserRecord = {
   role: ManagedUserRole;
   status: ManagedUserStatus;
   userId?: string | null;
+  isPending?: boolean;
 };
 
 export function normalizeEmail(email: string) {
@@ -32,35 +32,19 @@ export function buildManagedUserId(email: string) {
 }
 
 export async function getManagedUserByEmail(db: Firestore, email: string) {
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) return null;
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
 
-  const byEmailSnapshot = await getDocs(
-    query(collection(db, "managedUsers"), where("email", "==", normalizedEmail)),
-  );
+  const snapshot = await getDoc(doc(db, "users", buildManagedUserId(normalized)));
+  if (!snapshot.exists()) return null;
 
-  if (!byEmailSnapshot.empty) {
-    const managedUserDoc = byEmailSnapshot.docs[0];
-    return {
-      id: managedUserDoc.id,
-      ...(managedUserDoc.data() as Omit<ManagedUserRecord, "id">),
-    };
-  }
+  const data = snapshot.data() as Omit<ManagedUserRecord, "id">;
+  if (!data.isPending) return null;
 
-  const legacyId = email.trim();
-  const candidateIds = Array.from(new Set([normalizedEmail, legacyId])).filter(Boolean);
-
-  for (const id of candidateIds) {
-    const snapshot = await getDoc(doc(db, "managedUsers", id));
-    if (snapshot.exists()) {
-      return {
-        id: snapshot.id,
-        ...(snapshot.data() as Omit<ManagedUserRecord, "id">),
-      };
-    }
-  }
-
-  return null;
+  return {
+    id: snapshot.id,
+    ...data,
+  };
 }
 
 export async function getManagedUsersByRole(
@@ -68,7 +52,7 @@ export async function getManagedUsersByRole(
   role: ManagedUserRole,
 ) {
   const snapshot = await getDocs(
-    query(collection(db, "managedUsers"), where("role", "==", role)),
+    query(collection(db, "users"), where("role", "==", role), where("isPending", "==", true)),
   );
 
   return snapshot.docs.map((managedUserDoc) => ({
@@ -89,21 +73,20 @@ export async function upsertManagedUser(
   },
 ) {
   const normalizedEmail = normalizeEmail(input.email);
-  const payload = {
-    email: normalizedEmail,
-    displayName: input.displayName.trim(),
-    role: input.role,
-    status: input.status || "active",
-    userId: input.userId ?? null,
-    updatedAt: serverTimestamp(),
-  };
+  const id = input.id || buildManagedUserId(normalizedEmail);
 
-  const id = input.id || (await getManagedUserByEmail(db, normalizedEmail))?.id;
-  if (id) {
-    await setDoc(doc(db, "managedUsers", id), payload, { merge: true });
-    return id;
-  }
-
-  const created = await addDoc(collection(db, "managedUsers"), payload);
-  return created.id;
+  await setDoc(
+    doc(db, "users", id),
+    {
+      email: normalizedEmail,
+      displayName: input.displayName.trim(),
+      role: input.role,
+      status: input.status || "active",
+      userId: input.userId ?? null,
+      isPending: true,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+  return id;
 }
