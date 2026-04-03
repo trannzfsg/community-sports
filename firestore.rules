@@ -135,7 +135,7 @@ service cloud.firestore {
       return isSignedIn()
         && resource.data.email is string
         && signedInEmail() != null
-        && lower(resource.data.email) == lower(signedInEmail());
+        && resource.data.email == signedInEmail();
     }
 
     function managedUserSelfLinkUpdate() {
