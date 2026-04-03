@@ -145,11 +145,6 @@ export async function promoteManualPlayerToSelfRegistered(
 ) {
   const normalizedEmail = normalizePlayerEmail(email);
 
-  const matches = await getDocs(
-    query(collection(db, "players"), where("email", "==", normalizedEmail), where("userId", "==", null)),
-  );
-
-
   await setDoc(
     doc(db, "players", userId),
     {
@@ -162,7 +157,6 @@ export async function promoteManualPlayerToSelfRegistered(
     },
     { merge: true },
   );
-
 }
 
 export async function updateManualPlayerSkillLevel(
