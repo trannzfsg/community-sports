@@ -25,3 +25,6 @@ web-app/.env.local
 
 # claude
 .claude
+
+# deploy scripts
+deploy/
