@@ -114,13 +114,13 @@ export default function DashboardPage() {
         let profileData: UserProfile;
         if (!profileSnapshot.exists()) {
           const email = currentUser.email || "";
-          // users/{uid} doesn't exist — look up the pending user doc to get the correct role
+          // users/{uid} doesn't exist - look up the pending user doc to get the correct role
           // rather than defaulting to "player". This covers organisers on first login.
           const managedUser = email ? await getManagedUserByEmail(db, email) : null;
           const displayName = (managedUser?.displayName || currentUser.displayName || currentUser.email || "Player").trim();
           const role: AppRole = managedUser?.role || "player";
           const status = managedUser?.status || "active";
-          console.warn("[dashboard] No users/{uid} doc found — creating from pending user doc or default.", { email, resolvedRole: role });
+          console.warn("[dashboard] No users/{uid} doc found - creating from pending user doc or default.", { email, resolvedRole: role });
 
           await setDoc(userRef, {
             displayName,
