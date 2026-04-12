@@ -148,7 +148,7 @@ export default function AdminOrganisersPage() {
     setError("");
 
     try {
-      await updateDoc(doc(db, "managedUsers", organiser.id), {
+      await updateDoc(doc(db, "users", organiser.id), {
         status: "inactive",
         updatedAt: serverTimestamp(),
       });

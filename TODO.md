@@ -1,13 +1,8 @@
-# Consolidated To-Do List
+# To-Do List
 
-#### In Progress
-
-- [ ] **Fix organiser/player permission error (root cause: dead `managedUsers` write in login.tsx)**
-  - [ ] Remove dead `managedUsers` write block from `login/page.tsx` (5 lines)
-  - [ ] Add logging/tracing to `ensureUserProfileForAuthUser`
-  - [ ] Deploy updated Firestore rules if needed
-  - [ ] Browser-test login as organiser and player — confirm no permission errors
-
+- [ ] Separate current TODO into 2 files, TODO_COMPLETED.md and current one. Move all completed tasks to TODO_COMPLETED.md, and leave in progress ones in current file.
+- [ ] For player user, to confirm payment, instead of a paid button, use UX to allow user to enter a "payment reference". This is then visible to organisers (and admin). It allows organisers to confirm the bank payment against registered player easily.
+- [ ] Fix admin user permission error - cannot remove organiser/player, but can create/edit
 - [ ] **Event history + event locking**
   - [ ] Confirm UX approach with user (inline accordion vs detail page)
   - [ ] Add `locked` boolean field to `sessionEvents` data model + type
@@ -17,7 +12,13 @@
   - [ ] Player: view all joined events; can toggle own paid status on past events; can only register for active event
   - [ ] Browser-test all roles
 
-#### Next Items
+- [x] **Fix organiser/player permission error**
+  - [x] Remove dead `managedUsers` write block from `login/page.tsx`
+  - [x] Fix Firestore rules: `users/{email}` read allowed on first login
+  - [x] Fix Firestore rules: `users/{uid}` CREATE — replaced `null \!= true` with `get("isPending", false) \!= true` (Firestore null comparisons unreliable)
+  - [x] Fix Firestore rules: `users/{uid}` UPDATE now allows role correction from pending user doc
+  - [x] Fix dashboard fallback to use managed user role when `users/{uid}` doesn't exist
+  - [x] Browser-tested: john@example.com (organiser) and tranp1@example.com (player) both log in with correct roles, no errors
 - [x] Merge `users` + `managedUsers` into a single canonical users model that supports both manually created users and self-registered users.
 - [x] Make user email unique and editable by user themselves (profile). (Admin-changing-auth-email requirement removed)
 - [x] Ensure self-registration with an email matching a manually created user links to that existing user record (enables login while preserving prior admin-created metadata).
@@ -62,15 +63,10 @@
 - [x] Expand automated tests for full role flows (admin/organiser/player) and auth-profile role resolution logic.
 - [x] Run expanded checks successfully (`npm run lint`, `npm test`, `npm run build`).
 
-#### Backend Development
-- [ ] Deploy the backend to Firebase Functions. (Deferred by product decision: app works fine without backend deployment for now; only do this if/when absolutely needed.)
-
-#### Final Checks and Review
 - [x] Test the full app workflow:
   - [x] Player registration, login, and session booking.
   - [x] Organiser session management and payment tracking.
 
-### Completed
 - [x] Discord integration completed
 - [x] Consolidate the roles and create corresponding markdown files with consolidated rules for each role as future references.
 - [x] Outline, assign, and prioritize tasks like research, devops, hosting, and expert roles as needed.
@@ -120,15 +116,4 @@
 - [x] Fully registered events should be highlighted to organiser as full. Not fully registered events should be highlighted too in different colour.
 - [x] Self-registered players can view all session series and events. The ones that's full and they're not registered to, should be greyed out in colour and state not available. The ones that they're in should be highlighted in colour and state going. The ones that they're not registered yet, and not full yet, should be highlighted in colour and state available to join.
 - [x] Implement a logout feature via URL so the session can be cleared easily.
-- [x] Toggle player paid - change to "Paid by {player name}".
-- [x] Toggle organiser confirm - change to "Payment confirmed by {name of organiser}".
-- [x] Remove the "effective: pending" text/flag completely. Once a player is added, it's confirmed.
-- [x] Remove the current home page. Home page is now the dashboard; if user isn't logged in, it shows login, and after login, user goes to home/dashboard.
-- [x] Delete series should show a big red warning. Confirming it now inactivates instead of deleting from the database.
-- [x] Remove admin and organiser users from the player autocomplete results.
-- [x] Fix the remaining "Runtime FirebaseError Missing or insufficient permissions." errors for player and organiser logins, and verify/test before marking complete.
-- [x] Add organiser display to each event and series for all roles.
-- [x] Document the current architecture in `ARCHITECTURE.md`.
-- [x] Add a practical testing checklist in `TESTING.md`.
-- [x] Optimize Firestore query/index usage to better fit free-tier limits.
-- [x] Finalize and document the project structure for potential future scalability.
+- [x] Toggle player paid - c

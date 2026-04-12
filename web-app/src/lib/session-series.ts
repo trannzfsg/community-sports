@@ -48,6 +48,7 @@ export type SessionEvent = {
   bookedCount: number;
   waitingCount?: number;
   status: string;
+  locked?: boolean;
 };
 
 export type RegistrationItem = {
@@ -59,6 +60,7 @@ export type RegistrationItem = {
   playerEmail: string;
   playerPaid: boolean;
   organiserPaid: boolean;
+  paymentReference?: string | null;
   status?: "registered" | "waiting";
   createdAt?: unknown;
 };

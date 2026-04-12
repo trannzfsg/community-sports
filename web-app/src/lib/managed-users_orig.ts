@@ -35,23 +35,16 @@ export async function getManagedUserByEmail(db: Firestore, email: string) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
 
-  try {
-    const snapshot = await getDoc(doc(db, "users", buildManagedUserId(normalized)));
-    if (!snapshot.exists()) return null;
+  const snapshot = await getDoc(doc(db, "users", buildManagedUserId(normalized)));
+  if (!snapshot.exists()) return null;
 
-    const data = snapshot.data() as Omit<ManagedUserRecord, "id">;
-    if (!data.isPending) return null;
+  const data = snapshot.data() as Omit<ManagedUserRecord, "id">;
+  if (!data.isPending) return null;
 
-    return {
-      id: snapshot.id,
-      ...data,
-    };
-  } catch (err) {
-    // This can happen on first login if users/{uid} doesn't exist yet and the Firestore
-    // rule hasn't been deployed. Degrade gracefully.
-    console.warn("[auth] getManagedUserByEmail: could not read pending user doc, defaulting to no managed user.", err);
-    return null;
-  }
+  return {
+    id: snapshot.id,
+    ...data,
+  };
 }
 
 export async function getManagedUsersByRole(

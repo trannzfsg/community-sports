@@ -20,7 +20,9 @@ These rules apply to all work in this repository and cannot be skipped:
 
 7. **Always search memory for known errors before investigating new ones.** Check existing error memory for a matching solution first. If a new solution is found, record it in memory so future sessions can reuse it.
 
-8. **Always maintain TODO.md.** Before starting any task, add it to the top of `TODO.md` as an incomplete item. If the task has multiple steps or it makes sense to break it down during planning, add sub-items. Mark each item complete once done. If multiple tasks are requested at once, add all of them before starting.
+8. **Always maintain TODO.md.** Before starting any task, add it to the top of `TODO.md` as an incomplete item. If the task has multiple steps or it makes sense to break it down during planning, add sub-items. Mark each item complete once done. If multiple tasks are requested at once, add all of them before starting. Once a main task is completed (means all subtasks should be completed too), move it to TODO_COMPLETED.md for future reference.
+
+9. **Always commit and merge to main** After finishing any task, commit and merge to main. If the task has multiple steps or it makes sense to break it down, commit after each step, and push to main as long as the user impacts (including features, performance and security) don't go backward. Also always deploy to firebase and GCP.
 
 ## Commands
 

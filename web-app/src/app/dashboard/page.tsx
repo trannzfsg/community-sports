@@ -21,6 +21,7 @@ import { onAuthStateChanged, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
 import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
+import { getManagedUserByEmail } from "@/lib/managed-users";
 import {
   ensureSelfRegisteredPlayers,
   getVisiblePlayersForOrganiser,
@@ -91,6 +92,8 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string>("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [paymentReferenceInputs, setPaymentReferenceInputs] = useState<Record<string, string>>({});
+  const [editingReferenceId, setEditingReferenceId] = useState<string | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -111,23 +114,24 @@ export default function DashboardPage() {
         let profileData: UserProfile;
         if (!profileSnapshot.exists()) {
           const email = currentUser.email || "";
-          const displayName = (currentUser.displayName || currentUser.email || "Player").trim();
-          console.warn("[dashboard] No users/{uid} doc found — creating with default role: player. If this user should be organiser/admin, their login flow may not have completed.");
+          // users/{uid} doesn't exist — look up the pending user doc to get the correct role
+          // rather than defaulting to "player". This covers organisers on first login.
+          const managedUser = email ? await getManagedUserByEmail(db, email) : null;
+          const displayName = (managedUser?.displayName || currentUser.displayName || currentUser.email || "Player").trim();
+          const role: AppRole = managedUser?.role || "player";
+          const status = managedUser?.status || "active";
+          console.warn("[dashboard] No users/{uid} doc found — creating from pending user doc or default.", { email, resolvedRole: role });
 
           await setDoc(userRef, {
             displayName,
             email,
-            role: "player",
-            status: "active",
+            role,
+            status,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           }, { merge: true });
 
-          profileData = {
-            displayName,
-            email,
-            role: "player",
-          };
+          profileData = { displayName, email, role };
         } else {
           profileData = profileSnapshot.data() as UserProfile;
         }
@@ -380,22 +384,31 @@ export default function DashboardPage() {
     }
   }
 
-  async function handlePlayerPaidToggle(
+  async function handlePaymentReferenceSubmit(
     registration: RegistrationItem,
-    nextValue: boolean,
+    reference: string,
     series: SessionSeries,
     eventItem: SessionEvent,
   ) {
     setBusyKey(registration.sessionEventId);
     try {
+      const trimmedRef = reference.trim();
       const updatedRegistration = {
         ...registration,
-        playerPaid: nextValue,
+        paymentReference: trimmedRef || null,
+        playerPaid: !!trimmedRef,
       };
       await updateDoc(doc(db, "registrations", registration.id), {
-        playerPaid: nextValue,
+        paymentReference: trimmedRef || null,
+        playerPaid: !!trimmedRef,
       });
       await syncPaymentRecordForRegistration(db, series, eventItem, updatedRegistration);
+      setEditingReferenceId(null);
+      setPaymentReferenceInputs((current) => {
+        const next = { ...current };
+        delete next[registration.id];
+        return next;
+      });
       await refreshSeriesData(series.id);
     } finally {
       setBusyKey(null);
@@ -581,12 +594,15 @@ export default function DashboardPage() {
                       <p className="mt-2 text-sm text-zinc-600">{series.location}</p>
                       <p className="mt-1 text-sm text-zinc-500">Organiser: {series.organiserName || "Organiser"}</p>
                     </div>
-                    {canManageSessions ? (
-                      <div className="flex gap-2">
-                        <Link href={`/sessions/edit?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link>
-                        <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-full border border-red-400 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
-                      </div>
-                    ) : null}
+                    <div className="flex flex-wrap gap-2">
+                      <Link href={`/sessions/view?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">View all events</Link>
+                      {canManageSessions ? (
+                        <>
+                          <Link href={`/sessions/edit?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link>
+                          <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-full border border-red-400 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
 
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-zinc-700">
@@ -660,14 +676,35 @@ export default function DashboardPage() {
                                       <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
                                       <div className="mt-1 text-xs text-zinc-500">Status: {isWaiting ? "Waiting list" : "Registered"}</div>
                                       {canManageSessions ? <div className="mt-1 text-xs text-zinc-500">Skill level: {playerRecord?.skillLevel || "Not set"}</div> : null}
+                                      {canManageSessions && registration.paymentReference ? <div className="mt-1 text-xs text-zinc-500">Payment ref: <span className="font-medium text-zinc-700">{registration.paymentReference}</span></div> : null}
                                     </div>
                                     <div className="flex flex-wrap gap-2 text-xs">
                                       <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.playerPaid ? "Paid" : "Not paid"}</span>
                                       <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.organiserPaid ? "Confirmed" : "Not confirmed"}</span>
                                     </div>
                                   </div>
-                                  <div className="mt-3 flex flex-wrap gap-2">
-                                    {isOwnRegistration && !isWaiting ? <button type="button" onClick={() => handlePlayerPaidToggle(registration, !registration.playerPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.playerPaid ? "Not paid" : "Paid"}</button> : null}
+                                  <div className="mt-3 flex flex-wrap gap-2 items-center">
+                                    {isOwnRegistration && !isWaiting && !canManageSessions ? (
+                                      registration.paymentReference && editingReferenceId !== registration.id ? (
+                                        <>
+                                          <span className="text-xs text-zinc-500">Ref: <span className="font-medium text-zinc-700">{registration.paymentReference}</span></span>
+                                          <button type="button" onClick={() => { setEditingReferenceId(registration.id); setPaymentReferenceInputs((c) => ({ ...c, [registration.id]: registration.paymentReference || "" })); }} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100">Edit ref</button>
+                                          <button type="button" onClick={() => handlePaymentReferenceSubmit(registration, "", series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Clear ref</button>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <input
+                                            type="text"
+                                            value={paymentReferenceInputs[registration.id] ?? ""}
+                                            onChange={(e) => setPaymentReferenceInputs((c) => ({ ...c, [registration.id]: e.target.value }))}
+                                            placeholder="Payment ref (e.g. TRF-2024-04-12)"
+                                            className="rounded-full border border-zinc-300 px-3 py-1 text-xs outline-none focus:border-zinc-500"
+                                          />
+                                          <button type="button" onClick={() => handlePaymentReferenceSubmit(registration, paymentReferenceInputs[registration.id] ?? "", series, nextEvent)} disabled={busyKey === nextEvent.id || !(paymentReferenceInputs[registration.id] ?? "").trim()} className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">Submit ref</button>
+                                          {editingReferenceId === registration.id ? <button type="button" onClick={() => setEditingReferenceId(null)} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100">Cancel</button> : null}
+                                        </>
+                                      )
+                                    ) : null}
                                     {canManageSessions && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? "Not confirmed" : "Confirmed"}</button> : null}
                                     {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button> : null}
                                     {canManageSessions && playerRecord?.ownerOrganiserId === series.organiserId ? (

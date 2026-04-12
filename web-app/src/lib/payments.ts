@@ -23,6 +23,7 @@ export type PaymentRecord = {
   amount: number;
   playerPaid: boolean;
   organiserPaid: boolean;
+  paymentReference?: string | null;
   effectivePaid: boolean;
   status: "pending" | "paid";
 };
@@ -61,6 +62,7 @@ export async function syncPaymentRecordForRegistration(
     amount: eventItem.defaultPriceCasual ?? series.defaultPriceCasual,
     playerPaid: !!registration.playerPaid,
     organiserPaid: !!registration.organiserPaid,
+    paymentReference: registration.paymentReference ?? null,
     effectivePaid,
     status: effectivePaid ? "paid" : "pending",
   });

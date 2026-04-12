@@ -183,7 +183,7 @@ export default function AdminPlayersPage() {
     setError("");
 
     try {
-      await updateDoc(doc(db, "managedUsers", player.id), {
+      await updateDoc(doc(db, "users", player.id), {
         status: "inactive",
         updatedAt: serverTimestamp(),
       });
