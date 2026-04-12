@@ -101,15 +101,18 @@ export default function DashboardPage() {
           return;
         }
 
+        console.log("[dashboard] auth user", { uid: currentUser.uid, email: currentUser.email });
         setUser(currentUser);
 
         const userRef = doc(db, "users", currentUser.uid);
         const profileSnapshot = await getDoc(userRef);
+        console.log("[dashboard] profile doc exists:", profileSnapshot.exists(), "role:", profileSnapshot.data()?.role);
 
         let profileData: UserProfile;
         if (!profileSnapshot.exists()) {
           const email = currentUser.email || "";
           const displayName = (currentUser.displayName || currentUser.email || "Player").trim();
+          console.warn("[dashboard] No users/{uid} doc found — creating with default role: player. If this user should be organiser/admin, their login flow may not have completed.");
 
           await setDoc(userRef, {
             displayName,
@@ -129,6 +132,7 @@ export default function DashboardPage() {
           profileData = profileSnapshot.data() as UserProfile;
         }
 
+        console.log("[dashboard] loaded profile", { role: profileData.role });
         setProfile(profileData);
 
         const seriesQuery =
@@ -216,7 +220,7 @@ export default function DashboardPage() {
         setEventsBySeries(eventMap);
         setRegistrationsByEvent(registrationMap);
       } catch (error) {
-        console.error("Dashboard load failed", error);
+        console.error("[dashboard] Load failed:", error);
         setLoadError(error instanceof Error ? error.message : "Unknown dashboard error");
       } finally {
         setLoading(false);

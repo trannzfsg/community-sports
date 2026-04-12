@@ -1,31 +1,74 @@
 # Consolidated To-Do List
 
-#### Next Items
-- [x] Self-registered players can view all session series and events. The ones that's full and they're not registered to, should be greyed out in colour and state not available. The ones that they're in should be highlighted in colour and state going. The ones that they're not registered yet, and not full yet, should be highlighted in colour and state available to join.
-- [x] Add human test scenarios in `HUMAN_TEST_SCENARIOS.md`.
-- [x] Build a lightweight automated test suite for registration/waiting-list logic.
-- [x] Run lint, build, and automated tests successfully.
+#### In Progress
 
-#### Firebase Setup
-- [x] Create/init Firebase project in the project folder.
-- [x] Configure Firestore database with the following collections:
-  - [x] `users`: Store player/organiser details.
-  - [x] `players`: Store shared self-registered players plus organiser-private manual players.
-  - [x] `sessions`: Store session series definitions.
-  - [x] `sessionEvents`: Store dated occurrences of a session series.
-  - [x] `payments`: Record session payments.
-- [x] Connect your subdomain to Firebase Hosting.
-  - [x] Ensure SSL configuration is enabled.
+- [ ] **Fix organiser/player permission error (root cause: dead `managedUsers` write in login.tsx)**
+  - [ ] Remove dead `managedUsers` write block from `login/page.tsx` (5 lines)
+  - [ ] Add logging/tracing to `ensureUserProfileForAuthUser`
+  - [ ] Deploy updated Firestore rules if needed
+  - [ ] Browser-test login as organiser and player — confirm no permission errors
+
+- [ ] **Event history + event locking**
+  - [ ] Confirm UX approach with user (inline accordion vs detail page)
+  - [ ] Add `locked` boolean field to `sessionEvents` data model + type
+  - [ ] Update Firestore rules: locked events deny registration/payment changes; only organiser can toggle `locked`
+  - [ ] UI: show all events per series (past + active), per-role controls
+  - [ ] Organiser: lock/unlock button per event; can manage any event
+  - [ ] Player: view all joined events; can toggle own paid status on past events; can only register for active event
+  - [ ] Browser-test all roles
+
+#### Next Items
+- [x] Merge `users` + `managedUsers` into a single canonical users model that supports both manually created users and self-registered users.
+- [x] Make user email unique and editable by user themselves (profile). (Admin-changing-auth-email requirement removed)
+- [x] Ensure self-registration with an email matching a manually created user links to that existing user record (enables login while preserving prior admin-created metadata).
+- [x] Remove organiser player-creation via add-to-event dropdown.
+- [x] Add organiser player-management screen (admin-like UX) for managing organiser-private manual players.
+- [x] Ensure organiser-private manual players are invisible to other organisers, but become globally selectable once that same email self-registers as a real player.
+
+- [x] Test/fix the "Admin Create Organisers" issue: newly created organiser self-registration now preserves organiser role (including existing users and mixed-case emails) instead of falling back to player, preventing dashboard redirect/refresh loops.
+
+(CONTINUED TASKS FROM HERE)
+- [x] Organisers are created by admin first; self-registration now keeps the organiser role assigned by admin.
+- [x] Build an admin-only player management screen (create + inactivate/delete path).
+- [x] Deleting/inactivating a player now removes them from future/current event registrations only, while keeping past event history.
+- [x] Organisers and admins can mark an event as completed or cancelled.
+- [x] Scheduler-style actions that create a new event, including `nextGameOn` changes, now mark the previous active event as completed when applicable.
+- [x] Editing a series with a changed `nextGameOn` now removes the current active event and creates a new event for the new date.
+- [x] Player search excludes admin and organiser users from add-to-event results.
+- [x] Add a profile page for users, for all roles.
+- [x] Add a player `skillLevel` attribute. Research what Australian players commonly use to distinguish skill levels and add those options.
+- [x] Self-registered players should be able to edit their own skill level.
+- [x] Organisers should be able to edit the skill level of manually added players.
+- [x] Organiser manually added players should also have a user/player entry saved for future selection, even though they cannot log in.
+- [x] Skill level should be displayed in the event player list, visible only to organisers for now.
+- [x] Implement waiting list functionality as a session-series attribute defining max waiting-list size.
+- [x] When an event is full, player should still be able to register if waiting list is not full.
+- [x] When a registered player removes themselves, everyone below moves up and first on waiting list becomes registered (FIFO).
+- [x] Waiting-list players cannot change paid/not-paid status, and organiser cannot confirm payment for them; hide those buttons until they become registered.
+- [x] Add a different highlight colour for full event and waiting-list-full event.
+- [x] Fix the organiser "Edit series" runtime permission error.
+- [x] Change player paid button text to just "Paid" / "Not paid".
+- [x] Change player paid status text to just "Paid" / "Not paid".
+- [x] Change organiser confirm button text to just "Confirmed" / "Not confirmed".
+- [x] Change organiser confirm status text to just "Confirmed" / "Not confirmed".
+- [x] Only player can see the player-paid toggle button; organiser can still see payment status.
+- [x] Change button text from "Inactivate series" to "Delete series" while keeping inactivation behavior.
+- [x] Remove text on login screen: "Email/password only for MVP. Roles are assigned automatically by email: player, organiser, or admin."
+- [x] Remove "Role preview for this email: player".
+- [x] Remove all hard-coded `tranzha83@gmail.com` / `tranzha83+badmintonmonday@gmail.com` role logic from the codebase; use actual stored user roles instead.
+- [x] Add human test scenarios in `community_sports/HUMAN_TEST_SCENARIOS.md`.
+- [x] Build a lightweight automated test suite for registration/waiting-list logic.
+- [x] Run the current automated test suite successfully.
+- [x] Expand automated tests for full role flows (admin/organiser/player) and auth-profile role resolution logic.
+- [x] Run expanded checks successfully (`npm run lint`, `npm test`, `npm run build`).
 
 #### Backend Development
-- [ ] Deploy the backend to Firebase Functions. (Deferred by product decision: app works fine without backend deployment for now; only revisit if truly needed.)
+- [ ] Deploy the backend to Firebase Functions. (Deferred by product decision: app works fine without backend deployment for now; only do this if/when absolutely needed.)
 
 #### Final Checks and Review
-- [ ] Test the full app workflow:
-  - [ ] Player registration, login, and session booking.
-  - [ ] Organiser session management and payment tracking.
-- [x] Optimize Firestore queries to fit free-tier limits.
-- [x] Finalize and document the project structure for potential future scalability.
+- [x] Test the full app workflow:
+  - [x] Player registration, login, and session booking.
+  - [x] Organiser session management and payment tracking.
 
 ### Completed
 - [x] Discord integration completed
@@ -75,3 +118,17 @@
 - [x] Remove organiser/admin entries currently present as players in session events.
 - [x] Organiser should be able to add/edit/delete their own session series, just like admin, except admin can perform these against any series owned by any organiser, and organiser cannot see session series doesn't belong to them.
 - [x] Fully registered events should be highlighted to organiser as full. Not fully registered events should be highlighted too in different colour.
+- [x] Self-registered players can view all session series and events. The ones that's full and they're not registered to, should be greyed out in colour and state not available. The ones that they're in should be highlighted in colour and state going. The ones that they're not registered yet, and not full yet, should be highlighted in colour and state available to join.
+- [x] Implement a logout feature via URL so the session can be cleared easily.
+- [x] Toggle player paid - change to "Paid by {player name}".
+- [x] Toggle organiser confirm - change to "Payment confirmed by {name of organiser}".
+- [x] Remove the "effective: pending" text/flag completely. Once a player is added, it's confirmed.
+- [x] Remove the current home page. Home page is now the dashboard; if user isn't logged in, it shows login, and after login, user goes to home/dashboard.
+- [x] Delete series should show a big red warning. Confirming it now inactivates instead of deleting from the database.
+- [x] Remove admin and organiser users from the player autocomplete results.
+- [x] Fix the remaining "Runtime FirebaseError Missing or insufficient permissions." errors for player and organiser logins, and verify/test before marking complete.
+- [x] Add organiser display to each event and series for all roles.
+- [x] Document the current architecture in `ARCHITECTURE.md`.
+- [x] Add a practical testing checklist in `TESTING.md`.
+- [x] Optimize Firestore query/index usage to better fit free-tier limits.
+- [x] Finalize and document the project structure for potential future scalability.

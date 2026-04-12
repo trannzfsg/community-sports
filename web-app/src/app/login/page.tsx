@@ -34,10 +34,16 @@ async function upsertPlayerDirectoryEntry(userId: string, name: string, userEmai
 }
 
 async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: string) {
+  console.log("[auth] ensureUserProfileForAuthUser start", { uid: user.uid, email: user.email });
+
   const userRef = doc(db, "users", user.uid);
   const snapshot = await getDoc(userRef);
   const existing = snapshot.data() as UserProfile | undefined;
+  console.log("[auth] existing users/{uid} doc", { exists: snapshot.exists(), role: existing?.role });
+
   const managedUser = user.email ? await getManagedUserByEmail(db, user.email) : null;
+  console.log("[auth] managed user (email-keyed pending doc)", { found: !!managedUser, role: managedUser?.role });
+
   const resolved = resolveAuthProfile({
     fallbackDisplayName,
     authDisplayName: user.displayName,
@@ -45,6 +51,7 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
     existing,
     managedUser,
   });
+  console.log("[auth] resolved profile", { role: resolved.role, status: resolved.status });
 
   await setDoc(userRef, {
     displayName: resolved.displayName,
@@ -54,13 +61,11 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
     createdAt: snapshot.exists() ? snapshot.data()?.createdAt || serverTimestamp() : serverTimestamp(),
     updatedAt: serverTimestamp(),
   }, { merge: true });
+  console.log("[auth] users/{uid} written with role:", resolved.role);
 
-  if (managedUser?.id) {
-    await setDoc(doc(db, "managedUsers", managedUser.id), {
-      userId: user.uid,
-      updatedAt: serverTimestamp(),
-    }, { merge: true });
-  }
+  // NOTE: The old managedUsers collection was merged into users in a prior refactor.
+  // Writing to managedUsers has no security rules and always fails — that dead write
+  // was the root cause of the recurring organiser/player permission error. Removed.
 
   if (resolved.role === "player" || resolved.role === "organiser") {
     await upsertManagedUser(db, {
@@ -71,13 +76,16 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
       status: resolved.status,
       userId: user.uid,
     });
+    console.log("[auth] upsertManagedUser done for role:", resolved.role);
   }
 
   if (resolved.role === "player") {
     await promoteManualPlayerToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
     await upsertPlayerDirectoryEntry(user.uid, resolved.displayName, resolved.email);
+    console.log("[auth] player directory updated");
   }
 
+  console.log("[auth] ensureUserProfileForAuthUser complete", { role: resolved.role });
   return { displayName: resolved.displayName, email: resolved.email, role: resolved.role };
 }
 

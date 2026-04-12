@@ -22,3 +22,6 @@ yarn-error.log*
 .env.*.local
 functions/.env
 web-app/.env.local
+
+# claude
+.claude

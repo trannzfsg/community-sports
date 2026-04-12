@@ -150,12 +150,11 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
-      allow create: if isOwner(userId)
-        && request.resource.data.email == request.auth.token.email
-        && request.resource.data.role == allowedSelfRegistrationRole()
-        && request.resource.data.status == allowedSelfRegistrationStatus()
-        && request.resource.data.isPending != true;
+      allow read: if isOwner(userId) || isAdmin() || isOrganiser();
+      allow create: if isAdmin()
+        || (isOwner(userId)
+          && request.resource.data.email == request.auth.token.email
+          && request.resource.data.isPending != true);
       allow update: if isAdmin()
         || pendingUserSelfLinkUpdate()
         || (isOwner(userId)
