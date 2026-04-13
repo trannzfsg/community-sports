@@ -19,7 +19,6 @@ import { auth, db } from "@/lib/firebase";
 import {
   createManualPlayer,
   normalizePlayerEmail,
-  updateManualPlayerSkillLevel,
 } from "@/lib/players";
 import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
@@ -51,6 +50,7 @@ export default function OrganiserPlayersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editEmail, setEditEmail] = useState("");
   const [editDisplayName, setEditDisplayName] = useState("");
+  const [editSkillLevel, setEditSkillLevel] = useState<SkillLevel | "">("");
 
   function getTodayInBrisbane() {
     return new Intl.DateTimeFormat("en-CA", {
@@ -124,6 +124,7 @@ export default function OrganiserPlayersPage() {
     setEditingId(player.key);
     setEditDisplayName(player.displayName);
     setEditEmail(player.email);
+    setEditSkillLevel(player.skillLevel || "");
     setError("");
   }
 
@@ -131,6 +132,7 @@ export default function OrganiserPlayersPage() {
     setEditingId(null);
     setEditDisplayName("");
     setEditEmail("");
+    setEditSkillLevel("");
   }
 
   async function handleUpdate(player: OrganiserVisiblePlayerRecord) {
@@ -152,6 +154,7 @@ export default function OrganiserPlayersPage() {
       await setDoc(doc(db, "players", player.playerId), {
         displayName: trimmedName,
         email: normalizedEmail,
+        skillLevel: editSkillLevel || null,
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
@@ -177,16 +180,6 @@ export default function OrganiserPlayersPage() {
       await loadPlayers(organiserId);
     } catch (updateError) {
       setError(updateError instanceof Error ? updateError.message : "Failed to update player.");
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function handleSkillLevelChange(playerId: string, skillLevel: SkillLevel | "") {
-    setBusyKey(playerId);
-    try {
-      await updateManualPlayerSkillLevel(db, playerId, skillLevel || null);
-      setPrivatePlayers((current) => current.map((player) => player.playerId === playerId ? { ...player, skillLevel: skillLevel || null } : player));
     } finally {
       setBusyKey(null);
     }
@@ -323,6 +316,20 @@ export default function OrganiserPlayersPage() {
                         />
                       </label>
 
+                      <label className="block">
+                        <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-zinc-600">Skill level</span>
+                        <select
+                          value={editSkillLevel}
+                          onChange={(event) => setEditSkillLevel(event.target.value as SkillLevel | "")}
+                          className="w-full rounded-xl border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                        >
+                          <option value="">Not set</option>
+                          {SKILL_LEVEL_OPTIONS.map((level) => (
+                            <option key={level} value={level}>{level}</option>
+                          ))}
+                        </select>
+                      </label>
+
                       <div className="flex flex-wrap gap-2">
                         <button
                           type="submit"
@@ -365,17 +372,6 @@ export default function OrganiserPlayersPage() {
                         >
                           Edit
                         </button>
-                        <select
-                          value={player.skillLevel || ""}
-                          onChange={(event) => player.playerId ? handleSkillLevelChange(player.playerId, event.target.value as SkillLevel | "") : undefined}
-                          disabled={busyKey === player.playerId || !player.playerId}
-                          className="rounded-full border border-zinc-300 px-3 py-2 text-xs font-medium bg-white"
-                        >
-                          <option value="">Skill level</option>
-                          {SKILL_LEVEL_OPTIONS.map((level) => (
-                            <option key={level} value={level}>{level}</option>
-                          ))}
-                        </select>
                         <button
                           type="button"
                           onClick={() => void handleRemovePrivatePlayer(player)}
