@@ -467,30 +467,44 @@ export default function DashboardPage() {
       status: capacityState.nextRegistrationStatus,
     };
 
-    console.log("[addPlayerToEvent] writing registration", { registrationId: registration.id, eventId: eventItem.id, playerKey, organiserId: eventItem.organiserId });
+    const currentUid = auth.currentUser?.uid ?? null;
+    // Fetch the event from Firestore to confirm it exists and has the right organiserId
+    const eventSnap = await getDoc(doc(db, "sessionEvents", eventItem.id));
+    const firestoreOrganiserId = eventSnap.exists() ? eventSnap.data()?.organiserId : undefined;
+    console.log("[addPlayerToEvent] pre-flight check", {
+      currentUid,
+      eventExists: eventSnap.exists(),
+      eventOrganiserId: firestoreOrganiserId,
+      eventItemOrganiserId: eventItem.organiserId,
+      match: firestoreOrganiserId === currentUid,
+      registrationId: registration.id,
+    });
     try {
       await setDoc(doc(db, "registrations", registration.id), {
         ...registration,
         createdAt: serverTimestamp(),
       });
-    } catch (err) {
-      console.error("[addPlayerToEvent] FAILED writing registrations/" + registration.id, { registration, err });
+    } catch (err: unknown) {
+      const firebaseErr = err as { message?: string; code?: string };
+      console.error("[addPlayerToEvent] FAILED writing registrations/" + registration.id, "code:", firebaseErr?.code, "message:", firebaseErr?.message);
       throw err;
     }
 
     console.log("[addPlayerToEvent] syncing payment for registration", registration.id);
     try {
       await syncPaymentRecordForRegistration(db, series, eventItem, registration);
-    } catch (err) {
-      console.error("[addPlayerToEvent] FAILED syncing payment for registrations/" + registration.id, { err });
+    } catch (err: unknown) {
+      const firebaseErr = err as { message?: string; code?: string };
+      console.error("[addPlayerToEvent] FAILED syncing payment", "code:", firebaseErr?.code, "message:", firebaseErr?.message);
       throw err;
     }
 
     console.log("[addPlayerToEvent] rebalancing event", eventItem.id);
     try {
       await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
-    } catch (err) {
-      console.error("[addPlayerToEvent] FAILED rebalancing sessionEvents/" + eventItem.id, { capacity: eventItem.capacity, err });
+    } catch (err: unknown) {
+      const firebaseErr = err as { message?: string; code?: string };
+      console.error("[addPlayerToEvent] FAILED rebalancing sessionEvents/" + eventItem.id, "code:", firebaseErr?.code, "message:", firebaseErr?.message);
       throw err;
     }
   }
@@ -504,13 +518,9 @@ export default function DashboardPage() {
     try {
       await addPlayerToEvent(series, eventItem, selection.player);
       await refreshSeriesData(series.id);
-    } catch (err) {
-      console.error("[handleSelectOrCreatePlayer] failed adding player to event", {
-        eventId: eventItem.id,
-        playerId: selection.player.id,
-        playerUserId: selection.player.userId,
-        err,
-      });
+    } catch (err: unknown) {
+      const firebaseErr = err as { message?: string; code?: string };
+      console.error("[handleSelectOrCreatePlayer] failed:", "code:", firebaseErr?.code, "message:", firebaseErr?.message, "eventId:", eventItem.id, "playerId:", selection.player.id);
     } finally {
       setBusyKey(null);
     }
