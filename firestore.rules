@@ -235,8 +235,10 @@ service cloud.firestore {
       allow read: if isAdmin()
         || isPlayer()
         || (isOrganiser() && (eventOwnedByCurrentOrganiser() || eventBelongsToCurrentOrganiserBySeries()));
-      allow create, update, delete: if isAdmin()
+      allow create: if isAdmin()
         || (isOrganiser() && newEventOwnedByCurrentOrganiser());
+      allow update, delete: if isAdmin()
+        || (isOrganiser() && eventOwnedByCurrentOrganiser());
     }
 
     match /registrations/{registrationId} {

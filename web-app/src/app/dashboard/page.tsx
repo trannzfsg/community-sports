@@ -467,13 +467,32 @@ export default function DashboardPage() {
       status: capacityState.nextRegistrationStatus,
     };
 
-    await setDoc(doc(db, "registrations", registration.id), {
-      ...registration,
-      createdAt: serverTimestamp(),
-    });
+    console.log("[addPlayerToEvent] writing registration", { registrationId: registration.id, eventId: eventItem.id, playerKey, organiserId: eventItem.organiserId });
+    try {
+      await setDoc(doc(db, "registrations", registration.id), {
+        ...registration,
+        createdAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("[addPlayerToEvent] FAILED writing registrations/" + registration.id, { registration, err });
+      throw err;
+    }
 
-    await syncPaymentRecordForRegistration(db, series, eventItem, registration);
-    await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+    console.log("[addPlayerToEvent] syncing payment for registration", registration.id);
+    try {
+      await syncPaymentRecordForRegistration(db, series, eventItem, registration);
+    } catch (err) {
+      console.error("[addPlayerToEvent] FAILED syncing payment for registrations/" + registration.id, { err });
+      throw err;
+    }
+
+    console.log("[addPlayerToEvent] rebalancing event", eventItem.id);
+    try {
+      await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+    } catch (err) {
+      console.error("[addPlayerToEvent] FAILED rebalancing sessionEvents/" + eventItem.id, { capacity: eventItem.capacity, err });
+      throw err;
+    }
   }
 
   async function handleSelectOrCreatePlayer(
@@ -485,6 +504,13 @@ export default function DashboardPage() {
     try {
       await addPlayerToEvent(series, eventItem, selection.player);
       await refreshSeriesData(series.id);
+    } catch (err) {
+      console.error("[handleSelectOrCreatePlayer] failed adding player to event", {
+        eventId: eventItem.id,
+        playerId: selection.player.id,
+        playerUserId: selection.player.userId,
+        err,
+      });
     } finally {
       setBusyKey(null);
     }
