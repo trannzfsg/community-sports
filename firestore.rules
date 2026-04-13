@@ -179,14 +179,17 @@ service cloud.firestore {
       // A user can create their own profile doc (userId == their uid).
       // We use get('isPending', false) to safely handle the case where isPending is not written
       // (null != true is unreliable in Firestore rules; get() with default is explicit).
+      // An organiser can create pending player docs to pre-register players.
       allow create: if isAdmin()
         || (isOwner(userId)
-          && request.resource.data.get('isPending', false) != true);
+          && request.resource.data.get('isPending', false) != true)
+        || (isOrganiser() && request.resource.data.get('isPending', false) == true && request.resource.data.role == 'player');
 
       // A user can update their own profile doc:
       //   - Role and email must stay the same (prevents self-promotion), OR
       //   - There is a valid pending user doc that grants them a specific role (first-login fix).
       // pendingUserSelfLinkUpdate() handles writing userId back to the email-keyed pending doc.
+      // An organiser can update pending player docs they created.
       allow update: if isAdmin()
         || pendingUserSelfLinkUpdate()
         || (isOwner(userId)
@@ -196,7 +199,8 @@ service cloud.firestore {
         || (isOwner(userId)
           && request.resource.data.get('isPending', false) != true
           && hasPendingUserForSignedInEmail()
-          && request.resource.data.role == allowedSelfRegistrationRole());
+          && request.resource.data.role == allowedSelfRegistrationRole())
+        || (isOrganiser() && resource.data.get('isPending', false) == true && request.resource.data.get('isPending', false) == true && resource.data.role == 'player' && request.resource.data.role == 'player');
 
       allow delete: if isAdmin();
     }
@@ -204,7 +208,8 @@ service cloud.firestore {
     match /players/{playerId} {
       allow read: if isAdmin()
         || isPlayer()
-        || (isOrganiser() && (resource.data.ownerOrganiserId == request.auth.uid || resource.data.ownerOrganiserId == null));
+        || (isOrganiser() && (resource == null || resource.data.ownerOrganiserId == request.auth.uid || resource.data.ownerOrganiserId == null))
+        || (isSignedIn() && resource != null && resource.data.userId == request.auth.uid);
       allow create: if isAdmin()
         || (isOrganiser() && request.resource.data.ownerOrganiserId == request.auth.uid)
         || (isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.ownerOrganiserId == null);

@@ -55,6 +55,11 @@
 - [x] Remove text on login screen: "Email/password only for MVP. Roles are assigned automatically by email: player, organiser, or admin."
 - [x] Remove "Role preview for this email: player".
 - [x] Remove all hard-coded `tranzha83@gmail.com` / `tranzha83+badmintonmonday@gmail.com` role logic from the codebase; use actual stored user roles instead.
+
+- [x] **Organiser (john@example.com) login bugs**
+  - [x] Click "profile" button show loading profile... forever. Console error - FirebaseError: Missing or insufficient permissions.
+  - [x] Manage player screen, after enter details and click "create player" button, it errors out. Console error - FirebaseError: Missing or insufficient permissions.
+  - [x] Session series, next event section. After selecting a player from the drop down, it doesn't add it to the registration list. Console error - FirebaseError: Missing or insufficient permissions
 - [x] Add human test scenarios in `community_sports/HUMAN_TEST_SCENARIOS.md`.
 - [x] Build a lightweight automated test suite for registration/waiting-list logic.
 - [x] Run the current automated test suite successfully.
