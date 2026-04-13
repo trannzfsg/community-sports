@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Organiser user login, manage players screen - the private players are still displaying in "registered players" section (they're also displaying in "your private players" section), that's duplicated and should be removed from "registered players" section.
 - [x] Self-registration now uses Firebase built-in email verification links before account setup is completed.
 - [x] Merge registered player and organiser private player. The process should be: if organiser created a player, and this player registers through self-registration using the same email address, it should convert this player entry from an organiser private player into a registered player, while maintaining all the past games the player has registered.
 - [x] Organiser login, manage players screen, registered players has duplications of private players. Remove the duplication. There are a couple of duplicated entries in fire store too. Keep the registered ones (linked to auth) and remove the duplicates (when same email).

@@ -9,6 +9,7 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
+import { splitOrganiserVisiblePlayers } from "./organiser-visible-players";
 import { normalizePlayerEmail, type PlayerDirectoryEntry } from "@/lib/players";
 import type { RegistrationItem, SessionEvent } from "@/lib/session-series";
 
@@ -264,8 +265,5 @@ export async function getVisiblePlayersForOrganiserManagement(
     return a.email.localeCompare(b.email);
   });
 
-  return {
-    privatePlayers: items.filter((player) => player.isEditablePrivatePlayer),
-    registeredPlayers: items.filter((player) => player.hasRegisteredForOrganiser || player.ownerOrganiserId === organiserId),
-  };
+  return splitOrganiserVisiblePlayers(items);
 }
