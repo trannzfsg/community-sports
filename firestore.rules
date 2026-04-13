@@ -103,7 +103,13 @@ service cloud.firestore {
     function newRegistrationForOrganiserEvent() {
       return isOrganiser()
         && exists(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId))
-        && get(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId)).data.organiserId == request.auth.uid;
+        && (
+          get(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId)).data.organiserId == request.auth.uid
+          || (
+            exists(/databases/$(database)/documents/sessions/$(get(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId)).data.sessionSeriesId))
+            && get(/databases/$(database)/documents/sessions/$(get(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId)).data.sessionSeriesId)).data.organiserId == request.auth.uid
+          )
+        );
     }
 
     function paymentHasOwnedRegistration() {

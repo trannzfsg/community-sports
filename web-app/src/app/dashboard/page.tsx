@@ -467,17 +467,13 @@ export default function DashboardPage() {
       status: capacityState.nextRegistrationStatus,
     };
 
-    const currentUid = auth.currentUser?.uid ?? null;
-    // Fetch the event from Firestore to confirm it exists and has the right organiserId
-    const eventSnap = await getDoc(doc(db, "sessionEvents", eventItem.id));
-    const firestoreOrganiserId = eventSnap.exists() ? eventSnap.data()?.organiserId : undefined;
-    console.log("[addPlayerToEvent] pre-flight check", {
-      currentUid,
-      eventExists: eventSnap.exists(),
-      eventOrganiserId: firestoreOrganiserId,
-      eventItemOrganiserId: eventItem.organiserId,
-      match: firestoreOrganiserId === currentUid,
+    console.log("[addPlayerToEvent] writing registration", {
       registrationId: registration.id,
+      eventId: eventItem.id,
+      currentUid: auth.currentUser?.uid,
+      eventOrganiserId: eventItem.organiserId,
+      playerKey,
+      eventLocked: eventItem.locked,
     });
     try {
       await setDoc(doc(db, "registrations", registration.id), {
@@ -656,7 +652,7 @@ export default function DashboardPage() {
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
                         <p className="mt-1 text-sm text-zinc-700">{nextEvent ? `${nextEvent.eventDate} • ${bookedCount}/${nextEvent.capacity} registered • ${waitingCount}/${waitingListCapacity} waiting` : "No event created yet"}</p>
-                        {nextEvent ? <p className="mt-1 text-xs text-zinc-500">Status: {nextEvent.status || "active"}</p> : null}
+                        {nextEvent ? <p className="mt-1 text-xs text-zinc-500">Status: {nextEvent.status || "active"}{nextEvent.locked ? " • locked" : ""}</p> : null}
                         {nextEvent ? <p className="mt-1 text-sm text-zinc-500">Organiser: {nextEvent.organiserName || series.organiserName || "Organiser"}</p> : null}
                       </div>
                       <div className="flex items-center gap-2">
@@ -689,7 +685,7 @@ export default function DashboardPage() {
                             <SearchablePlayerSelect
                               players={visiblePlayersForSeries}
                               allowCreate={false}
-                              disabled={busyKey === nextEvent.id || !playerCanJoin}
+                              disabled={busyKey === nextEvent.id || !playerCanJoin || !!nextEvent.locked}
                               onSelectOrCreate={async (selection) => {
                                 if (selection.type === "create") return;
                                 await handleSelectOrCreatePlayer(series, nextEvent, selection);
