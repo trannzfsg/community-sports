@@ -108,4 +108,4 @@ The frontend requires `web-app/.env.local` with Firebase API keys. See `web-app/
 
 Unit tests live in `web-app/tests/` and use the Node.js native test runner with `--experimental-strip-types` (no transpile step). Manual test scenarios are documented in `TESTING.md` and `HUMAN_TEST_SCENARIOS.md`. 
 
-Test credentials to use: Organiser - john@example.com/testtest1234; Player - tranp1@example.com/testtest1234
+Test credentials to use is in .evn.test.local file
