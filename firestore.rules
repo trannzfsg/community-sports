@@ -112,6 +112,20 @@ service cloud.firestore {
         );
     }
 
+    // Simpler check: verify registration's sessionSeriesId belongs to organiser.
+    // Used as fallback when event-based checks fail (e.g. missing organiserId on event doc).
+    function newRegistrationForOrganiserSeries() {
+      return isOrganiser()
+        && exists(/databases/$(database)/documents/sessions/$(request.resource.data.sessionSeriesId))
+        && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionSeriesId)).data.organiserId == request.auth.uid;
+    }
+
+    function registrationForOrganiserSeries() {
+      return isOrganiser()
+        && exists(/databases/$(database)/documents/sessions/$(resource.data.sessionSeriesId))
+        && get(/databases/$(database)/documents/sessions/$(resource.data.sessionSeriesId)).data.organiserId == request.auth.uid;
+    }
+
     function paymentHasOwnedRegistration() {
       return isSignedIn()
         && exists(/databases/$(database)/documents/registrations/$(resource.data.registrationId))
@@ -251,10 +265,11 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if (isAdmin()
           || newRegistrationForOrganiserEvent()
+          || newRegistrationForOrganiserSeries()
           || (isSignedIn() && request.resource.data.userId == request.auth.uid))
         && !newRegistrationEventIsLocked();
       allow update: if isAdmin()
-        || (registrationForOrganiserEvent() && !registrationEventIsLocked())
+        || ((registrationForOrganiserEvent() || registrationForOrganiserSeries()) && !registrationEventIsLocked())
         || (registrationOwnedByCurrentUser()
           && !registrationEventIsLocked()
           && request.resource.data.userId == resource.data.userId
