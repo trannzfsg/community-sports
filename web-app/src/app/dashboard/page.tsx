@@ -25,13 +25,11 @@ import { getManagedUserByEmail } from "@/lib/managed-users";
 import {
   ensureSelfRegisteredPlayers,
   getVisiblePlayersForOrganiser,
-  updateManualPlayerSkillLevel,
   type PlayerDirectoryEntry,
 } from "@/lib/players";
 import type { AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
 import { getDashboardEventPresentation } from "@/lib/dashboard-event-state";
-import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import {
   buildRegistrationId,
   createSessionEventForSeries,
@@ -522,16 +520,6 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleManualPlayerSkillChange(playerId: string, skillLevel: SkillLevel | "") {
-    setBusyKey(playerId);
-    try {
-      await updateManualPlayerSkillLevel(db, playerId, skillLevel || null);
-      setPlayerDirectory((current) => current.map((player) => player.id === playerId ? { ...player, skillLevel: skillLevel || null } : player));
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
   if (loading) {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
@@ -700,16 +688,21 @@ export default function DashboardPage() {
                               const isOwnRegistration = registration.userId === user?.uid;
                               const playerRecord = visiblePlayersForSeries.find((player) => (player.userId || player.id) === registration.userId);
                               const isWaiting = registration.status === "waiting";
+                              const showCompactPlayerRow = !canManageSessions && !isOwnRegistration;
                               return (
                                 <div key={registration.id} className={`rounded-xl bg-white p-3 ring-1 ${isOwnRegistration ? "ring-blue-300 bg-blue-50/30" : "ring-zinc-200"}`}>
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                    <div>
-                                      <div className="font-medium text-zinc-900">{registration.playerName}{isOwnRegistration ? " (you)" : ""}</div>
-                                      <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
-                                      <div className="mt-1 text-xs text-zinc-500">Status: {isWaiting ? "Waiting list" : "Registered"}</div>
-                                      {canManageSessions ? <div className="mt-1 text-xs text-zinc-500">Skill level: {playerRecord?.skillLevel || "Not set"}</div> : null}
-                                      {canManageSessions && registration.paymentReference ? <div className="mt-1 text-xs text-zinc-500">Payment ref: <span className="font-medium text-zinc-700">{registration.paymentReference}</span></div> : null}
-                                    </div>
+                                    {showCompactPlayerRow ? (
+                                      <div className="font-medium text-zinc-900">{registration.playerName}</div>
+                                    ) : (
+                                      <div>
+                                        <div className="font-medium text-zinc-900">{registration.playerName}{isOwnRegistration ? " (you)" : ""}</div>
+                                        <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
+                                        <div className="mt-1 text-xs text-zinc-500">Status: {isWaiting ? "Waiting list" : "Registered"}</div>
+                                        {canManageSessions ? <div className="mt-1 text-xs text-zinc-500">Skill level: {playerRecord?.skillLevel || "Not set"}</div> : null}
+                                        {canManageSessions && registration.paymentReference ? <div className="mt-1 text-xs text-zinc-500">Payment ref: <span className="font-medium text-zinc-700">{registration.paymentReference}</span></div> : null}
+                                      </div>
+                                    )}
                                     <div className="flex flex-wrap gap-2 text-xs">
                                       <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.playerPaid ? "Paid" : "Not paid"}</span>
                                       <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.organiserPaid ? "Confirmed" : "Not confirmed"}</span>
@@ -739,12 +732,6 @@ export default function DashboardPage() {
                                     ) : null}
                                     {canManageSessions && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? "Not confirmed" : "Confirmed"}</button> : null}
                                     {(isOwnRegistration || canManageSessions) ? <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button> : null}
-                                    {canManageSessions && playerRecord?.ownerOrganiserId === series.organiserId ? (
-                                      <select value={playerRecord?.skillLevel || ""} onChange={(e) => handleManualPlayerSkillChange(playerRecord.id, e.target.value as SkillLevel | "")} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium bg-white">
-                                        <option value="">Skill level</option>
-                                        {SKILL_LEVEL_OPTIONS.map((level) => <option key={level} value={level}>{level}</option>)}
-                                      </select>
-                                    ) : null}
                                   </div>
                                 </div>
                               );

@@ -4,17 +4,32 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import {
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  serverTimestamp,
+  setDoc,
+  where,
+} from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import {
   createManualPlayer,
-  getVisiblePlayersForOrganiser,
   normalizePlayerEmail,
   updateManualPlayerSkillLevel,
-  type PlayerDirectoryEntry,
 } from "@/lib/players";
 import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
+import { deletePaymentRecord } from "@/lib/payments";
+import { shouldRemoveRegistrationForInactivatedPlayer } from "@/lib/admin-player-flows";
+import { rebalanceEventRegistrations, type SessionEvent } from "@/lib/session-series";
+import {
+  getVisiblePlayersForOrganiserManagement,
+  type OrganiserVisiblePlayerRecord,
+} from "@/lib/player-stats";
 
 type UserProfile = {
   displayName?: string;
@@ -28,7 +43,8 @@ export default function OrganiserPlayersPage() {
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [players, setPlayers] = useState<PlayerDirectoryEntry[]>([]);
+  const [privatePlayers, setPrivatePlayers] = useState<OrganiserVisiblePlayerRecord[]>([]);
+  const [registeredPlayers, setRegisteredPlayers] = useState<OrganiserVisiblePlayerRecord[]>([]);
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [organiserId, setOrganiserId] = useState("");
@@ -36,9 +52,19 @@ export default function OrganiserPlayersPage() {
   const [editEmail, setEditEmail] = useState("");
   const [editDisplayName, setEditDisplayName] = useState("");
 
+  function getTodayInBrisbane() {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Australia/Brisbane",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  }
+
   async function loadPlayers(ownerOrganiserId: string) {
-    const items = await getVisiblePlayersForOrganiser(db, ownerOrganiserId);
-    setPlayers(items.filter((item) => item.ownerOrganiserId === ownerOrganiserId));
+    const items = await getVisiblePlayersForOrganiserManagement(db, ownerOrganiserId);
+    setPrivatePlayers(items.privatePlayers);
+    setRegisteredPlayers(items.registeredPlayers);
   }
 
   useEffect(() => {
@@ -94,8 +120,8 @@ export default function OrganiserPlayersPage() {
     }
   }
 
-  function startEdit(player: PlayerDirectoryEntry) {
-    setEditingId(player.id);
+  function startEdit(player: OrganiserVisiblePlayerRecord) {
+    setEditingId(player.key);
     setEditDisplayName(player.displayName);
     setEditEmail(player.email);
     setError("");
@@ -107,8 +133,13 @@ export default function OrganiserPlayersPage() {
     setEditEmail("");
   }
 
-  async function handleUpdate(player: PlayerDirectoryEntry) {
-    setBusyKey(`edit-${player.id}`);
+  async function handleUpdate(player: OrganiserVisiblePlayerRecord) {
+    if (!player.playerId) {
+      setError("This player can no longer be edited here.");
+      return;
+    }
+
+    setBusyKey(`edit-${player.key}`);
     setError("");
 
     try {
@@ -118,7 +149,7 @@ export default function OrganiserPlayersPage() {
         throw new Error("Display name and email are required.");
       }
 
-      await setDoc(doc(db, "players", player.id), {
+      await setDoc(doc(db, "players", player.playerId), {
         displayName: trimmedName,
         email: normalizedEmail,
         updatedAt: serverTimestamp(),
@@ -155,7 +186,57 @@ export default function OrganiserPlayersPage() {
     setBusyKey(playerId);
     try {
       await updateManualPlayerSkillLevel(db, playerId, skillLevel || null);
-      setPlayers((current) => current.map((player) => player.id === playerId ? { ...player, skillLevel: skillLevel || null } : player));
+      setPrivatePlayers((current) => current.map((player) => player.playerId === playerId ? { ...player, skillLevel: skillLevel || null } : player));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleRemovePrivatePlayer(player: OrganiserVisiblePlayerRecord) {
+    if (!player.playerId || player.userId) {
+      setError("Self-registered players can no longer be removed here.");
+      return;
+    }
+
+    setBusyKey(`remove-${player.key}`);
+    setError("");
+
+    try {
+      const registrationsSnapshot = await getDocs(
+        query(collection(db, "registrations"), where("userId", "==", player.playerId)),
+      );
+
+      const today = getTodayInBrisbane();
+      const affectedEventCapacities = new Map<string, number>();
+
+      for (const registrationDoc of registrationsSnapshot.docs) {
+        const registration = registrationDoc.data() as {
+          sessionEventId: string;
+        };
+
+        const eventSnapshot = await getDoc(doc(db, "sessionEvents", registration.sessionEventId));
+        if (!eventSnapshot.exists()) {
+          continue;
+        }
+
+        const event = eventSnapshot.data() as SessionEvent;
+        if (!shouldRemoveRegistrationForInactivatedPlayer({ eventDate: event.eventDate, today })) {
+          continue;
+        }
+
+        await deletePaymentRecord(db, registrationDoc.id);
+        await deleteDoc(registrationDoc.ref);
+        affectedEventCapacities.set(registration.sessionEventId, event.capacity);
+      }
+
+      for (const [sessionEventId, capacity] of affectedEventCapacities) {
+        await rebalanceEventRegistrations(db, sessionEventId, capacity);
+      }
+
+      await deleteDoc(doc(db, "players", player.playerId));
+      await loadPlayers(organiserId);
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : "Failed to remove player.");
     } finally {
       setBusyKey(null);
     }
@@ -177,7 +258,7 @@ export default function OrganiserPlayersPage() {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Organiser</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">Players</h1>
-              <p className="mt-3 text-zinc-600">Manage your organiser-private manual players. Self-registered players are shared globally and not edited here.</p>
+              <p className="mt-3 text-zinc-600">Manage your organiser-private manual players, and review everyone who has registered for your events.</p>
             </div>
             <Link href="/dashboard" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Back</Link>
           </div>
@@ -205,13 +286,14 @@ export default function OrganiserPlayersPage() {
 
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
           <h2 className="text-xl font-semibold">Your private players</h2>
+          <p className="mt-2 text-sm text-zinc-500">Only organiser-created players who have not self-registered yet can be edited or removed here.</p>
           <div className="mt-6 space-y-3">
-            {players.length ? players.map((player) => {
-              const isEditing = editingId === player.id;
-              const isSaving = busyKey === `edit-${player.id}`;
+            {privatePlayers.length ? privatePlayers.map((player) => {
+              const isEditing = editingId === player.key;
+              const isSaving = busyKey === `edit-${player.key}`;
 
               return (
-                <div key={player.id} className="rounded-2xl border border-zinc-200 p-4">
+                <div key={player.key} className="rounded-2xl border border-zinc-200 p-4">
                   {isEditing ? (
                     <form
                       className="space-y-3"
@@ -257,6 +339,14 @@ export default function OrganiserPlayersPage() {
                         >
                           Cancel
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRemovePrivatePlayer(player)}
+                          disabled={busyKey === `remove-${player.key}` || isSaving}
+                          className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {busyKey === `remove-${player.key}` ? "Removing..." : "Remove player"}
+                        </button>
                       </div>
                     </form>
                   ) : (
@@ -265,6 +355,7 @@ export default function OrganiserPlayersPage() {
                         <div className="font-medium text-zinc-900">{player.displayName}</div>
                         <div className="text-sm text-zinc-500">{player.email}</div>
                         <div className="mt-1 text-xs text-zinc-500">Skill level: {player.skillLevel || "Not set"}</div>
+                        <div className="mt-1 text-xs text-zinc-500">Games played with you: {player.gamesPlayed}</div>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         <button
@@ -276,8 +367,8 @@ export default function OrganiserPlayersPage() {
                         </button>
                         <select
                           value={player.skillLevel || ""}
-                          onChange={(event) => handleSkillLevelChange(player.id, event.target.value as SkillLevel | "")}
-                          disabled={busyKey === player.id}
+                          onChange={(event) => player.playerId ? handleSkillLevelChange(player.playerId, event.target.value as SkillLevel | "") : undefined}
+                          disabled={busyKey === player.playerId || !player.playerId}
                           className="rounded-full border border-zinc-300 px-3 py-2 text-xs font-medium bg-white"
                         >
                           <option value="">Skill level</option>
@@ -285,12 +376,42 @@ export default function OrganiserPlayersPage() {
                             <option key={level} value={level}>{level}</option>
                           ))}
                         </select>
+                        <button
+                          type="button"
+                          onClick={() => void handleRemovePrivatePlayer(player)}
+                          disabled={busyKey === `remove-${player.key}`}
+                          className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {busyKey === `remove-${player.key}` ? "Removing..." : "Remove player"}
+                        </button>
                       </div>
                     </div>
                   )}
                 </div>
               );
-            }) : <div className="text-sm text-zinc-500">No private players yet.</div>}
+            }) : <div className="text-sm text-zinc-500">No editable private players yet.</div>}
+          </div>
+        </div>
+
+        <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+          <h2 className="text-xl font-semibold">Registered players</h2>
+          <p className="mt-2 text-sm text-zinc-500">Readonly history for players who have appeared in at least one of your events, including self-registered and private players.</p>
+          <div className="mt-6 space-y-3">
+            {registeredPlayers.length ? registeredPlayers.map((player) => (
+              <div key={player.key} className="rounded-2xl border border-zinc-200 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-medium text-zinc-900">{player.displayName}</div>
+                    <div className="text-sm text-zinc-500">{player.email || "No email recorded"}</div>
+                    <div className="mt-1 text-xs text-zinc-500">Skill level: {player.skillLevel || "Not set"}</div>
+                    <div className="mt-1 text-xs text-zinc-500">Games played with you: {player.gamesPlayed}</div>
+                  </div>
+                  <div className="text-xs text-zinc-500">
+                    {player.isSelfRegistered ? "Self-registered or linked account" : "Private player"}
+                  </div>
+                </div>
+              </div>
+            )) : <div className="text-sm text-zinc-500">No registered players yet.</div>}
           </div>
         </div>
       </div>

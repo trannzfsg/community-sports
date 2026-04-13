@@ -7,6 +7,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { getManagedUserByEmail, normalizeEmail, upsertManagedUser } from "@/lib/managed-users";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
+import { getGamesPlayedByOrganiserForPlayer, type OrganiserGameCount } from "@/lib/player-stats";
 
 type UserProfile = {
   displayName?: string;
@@ -23,6 +24,7 @@ export default function ProfilePage() {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserProfile["role"]>("player");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
+  const [gamesPlayedByOrganiser, setGamesPlayedByOrganiser] = useState<OrganiserGameCount[]>([]);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -99,6 +101,11 @@ export default function ProfilePage() {
         setEmail(userData.email || user.email || "");
         setRole(userData.role);
         setSkillLevel((playerSnapshot.data()?.skillLevel as SkillLevel | undefined) || "");
+        setGamesPlayedByOrganiser(
+          userData.role === "player"
+            ? await getGamesPlayedByOrganiserForPlayer(db, user.uid)
+            : [],
+        );
 
         console.log("[profile] load success", {
           uid: user.uid,
@@ -245,15 +252,44 @@ export default function ProfilePage() {
           </label>
 
           {role === "player" ? (
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium text-zinc-700">Skill level</span>
-              <select value={skillLevel} onChange={(event) => setSkillLevel(event.target.value as SkillLevel | "")} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
-                <option value="">Not set</option>
-                {SKILL_LEVEL_OPTIONS.map((level) => (
-                  <option key={level} value={level}>{level}</option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-zinc-700">Skill level</span>
+                <select value={skillLevel} onChange={(event) => setSkillLevel(event.target.value as SkillLevel | "")} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
+                  <option value="">Not set</option>
+                  {SKILL_LEVEL_OPTIONS.map((level) => (
+                    <option key={level} value={level}>{level}</option>
+                  ))}
+                </select>
+              </label>
+
+              <div className="rounded-2xl border border-zinc-200 p-4">
+                <h2 className="text-base font-semibold text-zinc-900">Games played by organiser</h2>
+                <p className="mt-1 text-sm text-zinc-500">Counts include confirmed, non-waiting registrations only.</p>
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead className="text-zinc-500">
+                      <tr>
+                        <th className="pb-2 pr-4 font-medium">Organiser</th>
+                        <th className="pb-2 font-medium">Games played</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {gamesPlayedByOrganiser.length ? gamesPlayedByOrganiser.map((entry) => (
+                        <tr key={entry.organiserId} className="border-t border-zinc-100">
+                          <td className="py-2 pr-4 text-zinc-900">{entry.organiserName}</td>
+                          <td className="py-2 text-zinc-700">{entry.gamesPlayed}</td>
+                        </tr>
+                      )) : (
+                        <tr>
+                          <td colSpan={2} className="py-2 text-zinc-500">No confirmed games yet.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           ) : null}
 
           {message ? <div className="rounded-2xl bg-zinc-100 px-4 py-3 text-sm text-zinc-700">{message}</div> : null}

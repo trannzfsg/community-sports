@@ -201,6 +201,21 @@ service cloud.firestore {
         && request.resource.data.isPending == true;
     }
 
+    function manualPlayerSelfLinkUpdate() {
+      return isSignedIn()
+        && resource.data.ownerOrganiserId != null
+        && resource.data.userId == null
+        && resource.data.email is string
+        && signedInEmail() != null
+        && resource.data.email == signedInEmail()
+        && request.resource.data.ownerOrganiserId == resource.data.ownerOrganiserId
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.displayName == resource.data.displayName
+        && request.resource.data.email == resource.data.email
+        && request.resource.data.source == resource.data.source
+        && request.resource.data.skillLevel == resource.data.skillLevel;
+    }
+
     match /users/{userId} {
       // Allow a signed-in user to read their own email-keyed pending doc (userId == their email).
       // This is needed on first login: the user has no users/{uid} yet so isOrganiser/isAdmin
@@ -246,9 +261,14 @@ service cloud.firestore {
         || (isOrganiser() && request.resource.data.ownerOrganiserId == request.auth.uid)
         || (isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.ownerOrganiserId == null);
       allow update: if isAdmin()
-        || (isOrganiser() && resource.data.ownerOrganiserId == request.auth.uid)
+        || manualPlayerSelfLinkUpdate()
+        || (isOrganiser()
+          && resource.data.ownerOrganiserId == request.auth.uid
+          && resource.data.userId == null
+          && request.resource.data.userId == null)
         || (isSignedIn() && resource.data.userId == request.auth.uid && resource.data.ownerOrganiserId == null);
-      allow delete: if isAdmin() || (isOrganiser() && resource.data.ownerOrganiserId == request.auth.uid);
+      allow delete: if isAdmin()
+        || (isOrganiser() && resource.data.ownerOrganiserId == request.auth.uid && resource.data.userId == null);
     }
 
     match /sessions/{sessionId} {

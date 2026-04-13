@@ -13,6 +13,7 @@ import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { resolveAuthProfile } from "@/lib/auth-profile";
 import { promoteManualPlayerToSelfRegistered } from "@/lib/players";
+import { linkManualPlayersToSelfRegisteredUser } from "@/lib/player-stats";
 
 type AppUserRole = "player" | "organiser" | "admin";
 
@@ -80,6 +81,7 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   }
 
   if (resolved.role === "player") {
+    await linkManualPlayersToSelfRegisteredUser(db, user.uid, resolved.email);
     await promoteManualPlayerToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
     await upsertPlayerDirectoryEntry(user.uid, resolved.displayName, resolved.email);
     console.log("[auth] player directory updated");
@@ -158,6 +160,11 @@ export default function LoginPage() {
         <h1 className="text-3xl font-semibold tracking-tight">
           {mode === "login" ? "Welcome back" : "Create your account"}
         </h1>
+        {mode === "register" ? (
+          <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
+            All self-registrations will be created as <strong>player</strong>. If you want to register as organiser, please contact tranzha83@gmail.com.
+          </div>
+        ) : null}
 
         <form className="mt-8 space-y-4" onSubmit={handleSubmit}>
           {mode === "register" ? (
