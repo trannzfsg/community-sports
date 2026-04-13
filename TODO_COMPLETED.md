@@ -1,5 +1,8 @@
 # To-Do List - Completed tasks
 
+- [x] Self-registration now uses Firebase built-in email verification links before account setup is completed.
+- [x] Merge registered player and organiser private player. The process should be: if organiser created a player, and this player registers through self-registration using the same email address, it should convert this player entry from an organiser private player into a registered player, while maintaining all the past games the player has registered.
+- [x] Organiser login, manage players screen, registered players has duplications of private players. Remove the duplication. There are a couple of duplicated entries in fire store too. Keep the registered ones (linked to auth) and remove the duplicates (when same email).
 - [x] Organiser login, players screen: all players regardless of self-registered or not, as long as the player is created by organiser, or registered at least once to 1 of the organiser's events, they're visible to organiser with readonly access (different section - registered players). Organiser created players that are not self-registered, organiser has full edit/remove access (current section - your private players).
 - [x] After self-registration with the same email address, organiser should no longer be able to modify a player's details, including name, email or skill level. They can only manage those before self-registration.
 - [x] Remove skill level drop downs in event registration form. It should only be managed in player profile screen, or organiser's players management screen if not self-registered yet.

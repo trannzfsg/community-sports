@@ -4,16 +4,18 @@ import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   signInWithEmailAndPassword,
+  signOut,
   signInWithPopup,
+  reload,
   type User,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { resolveAuthProfile } from "@/lib/auth-profile";
-import { promoteManualPlayerToSelfRegistered } from "@/lib/players";
-import { linkManualPlayersToSelfRegisteredUser } from "@/lib/player-stats";
+import { migrateManualPlayersToSelfRegistered, promoteManualPlayerToSelfRegistered } from "@/lib/players";
 
 type AppUserRole = "player" | "organiser" | "admin";
 
@@ -32,6 +34,27 @@ async function upsertPlayerDirectoryEntry(userId: string, name: string, userEmai
     source: "self-registered",
     updatedAt: serverTimestamp(),
   }, { merge: true });
+}
+
+function requiresVerifiedEmail(user: User) {
+  return user.providerData.some((provider) => provider.providerId === "password");
+}
+
+function buildVerificationSendKey(email: string) {
+  return `verification-email-sent:${email.trim().toLowerCase()}`;
+}
+
+function rememberVerificationEmailSent(email: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(buildVerificationSendKey(email), String(Date.now()));
+}
+
+function sentVerificationRecently(email: string) {
+  if (typeof window === "undefined") return false;
+  const value = window.localStorage.getItem(buildVerificationSendKey(email));
+  if (!value) return false;
+  const lastSent = Number(value);
+  return Number.isFinite(lastSent) && Date.now() - lastSent < 60_000;
 }
 
 async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: string) {
@@ -81,7 +104,7 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   }
 
   if (resolved.role === "player") {
-    await linkManualPlayersToSelfRegisteredUser(db, user.uid, resolved.email);
+    await migrateManualPlayersToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
     await promoteManualPlayerToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
     await upsertPlayerDirectoryEntry(user.uid, resolved.displayName, resolved.email);
     console.log("[auth] player directory updated");
@@ -98,12 +121,14 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
     setError("");
+    setNotice("");
 
     try {
       if (mode === "register") {
@@ -113,14 +138,32 @@ export default function LoginPage() {
           password,
         );
 
-        const name = displayName.trim() || credentials.user.email || "Player";
-        await ensureUserProfileForAuthUser(credentials.user, name);
+        await sendEmailVerification(credentials.user);
+        rememberVerificationEmailSent(credentials.user.email || email);
+        await signOut(auth);
+        setMode("login");
+        setDisplayName("");
+        setEmail("");
+        setPassword("");
+        setNotice("Verification email sent. Open the link in your inbox, then sign in to finish setup.");
       } else {
         const credentials = await signInWithEmailAndPassword(auth, email, password);
+        await reload(credentials.user);
+        const existingProfileSnapshot = await getDoc(doc(db, "users", credentials.user.uid));
+        if (requiresVerifiedEmail(credentials.user) && !credentials.user.emailVerified && !existingProfileSnapshot.exists()) {
+          if (!sentVerificationRecently(credentials.user.email || email)) {
+            await sendEmailVerification(credentials.user);
+            rememberVerificationEmailSent(credentials.user.email || email);
+          }
+          await signOut(auth);
+          setNotice("Please verify your email before signing in. Check your inbox for the verification link we already sent.");
+          return;
+        }
         await ensureUserProfileForAuthUser(credentials.user);
+        setNotice("");
+        router.push("/dashboard");
+        return;
       }
-
-      router.push("/dashboard");
     } catch (submitError) {
       if (submitError instanceof Error) {
         setError(submitError.message);
@@ -135,6 +178,7 @@ export default function LoginPage() {
   async function handleGoogleSignIn() {
     setBusy(true);
     setError("");
+    setNotice("");
 
     try {
       const credentials = await signInWithPopup(auth, googleProvider);
@@ -211,6 +255,12 @@ export default function LoginPage() {
           {error ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {error}
+            </div>
+          ) : null}
+
+          {notice ? (
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              {notice}
             </div>
           ) : null}
 

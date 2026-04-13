@@ -17,7 +17,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { onAuthStateChanged, User } from "firebase/auth";
+import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
 import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
@@ -45,6 +45,10 @@ type UserProfile = {
   email?: string;
   role: AppRole;
 };
+
+function requiresVerifiedEmail(user: User) {
+  return user.providerData.some((provider) => provider.providerId === "password");
+}
 
 function sortRegistrations(
   registrations: RegistrationItem[],
@@ -108,6 +112,12 @@ export default function DashboardPage() {
         const userRef = doc(db, "users", currentUser.uid);
         const profileSnapshot = await getDoc(userRef);
         console.log("[dashboard] profile doc exists:", profileSnapshot.exists(), "role:", profileSnapshot.data()?.role);
+
+        if (requiresVerifiedEmail(currentUser) && !currentUser.emailVerified && !profileSnapshot.exists()) {
+          await signOut(auth);
+          router.push("/login");
+          return;
+        }
 
         let profileData: UserProfile;
         if (!profileSnapshot.exists()) {

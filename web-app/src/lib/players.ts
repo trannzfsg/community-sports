@@ -1,6 +1,8 @@
 import {
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -10,6 +12,8 @@ import {
 } from "firebase/firestore";
 import { getUsersByRole } from "@/lib/users";
 import type { SkillLevel } from "@/lib/skill-levels";
+import { buildPaymentId } from "@/lib/payments";
+import { buildRegistrationId, type RegistrationItem, type SessionEvent, type SessionSeries } from "@/lib/session-series";
 
 export type PlayerDirectoryEntry = {
   id: string;
@@ -157,6 +161,151 @@ export async function promoteManualPlayerToSelfRegistered(
     },
     { merge: true },
   );
+}
+
+export async function migrateManualPlayersToSelfRegistered(
+  db: Firestore,
+  userId: string,
+  email: string,
+  displayName: string,
+) {
+  const normalizedEmail = normalizePlayerEmail(email);
+  if (!normalizedEmail) return;
+
+  const matchingPlayersSnapshot = await getDocs(
+    query(collection(db, "players"), where("email", "==", normalizedEmail)),
+  );
+
+  const manualPlayers = matchingPlayersSnapshot.docs
+    .map((playerDoc) => ({
+      id: playerDoc.id,
+      ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
+    }))
+    .filter((player) => player.ownerOrganiserId != null);
+
+  if (!manualPlayers.length) {
+    return;
+  }
+
+  const existingSelfSnapshot = await getDoc(doc(db, "players", userId));
+  const fallbackSkillLevel = manualPlayers.find((player) => player.skillLevel)?.skillLevel ?? null;
+
+  await setDoc(doc(db, "players", userId), {
+    ownerOrganiserId: null,
+    userId,
+    displayName: displayName.trim(),
+    email: normalizedEmail,
+    source: "self-registered",
+    skillLevel: existingSelfSnapshot.data()?.skillLevel ?? fallbackSkillLevel,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+
+  for (const manualPlayer of manualPlayers) {
+    const registrationsSnapshot = await getDocs(
+      query(collection(db, "registrations"), where("userId", "==", manualPlayer.id)),
+    );
+
+    for (const registrationDoc of registrationsSnapshot.docs) {
+      const registration = {
+        id: registrationDoc.id,
+        ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+      };
+
+      const nextRegistrationId = buildRegistrationId(registration.sessionEventId, userId);
+      const nextRegistrationRef = doc(db, "registrations", nextRegistrationId);
+      const existingRegistrationSnapshot = await getDoc(nextRegistrationRef);
+      const paymentSnapshot = await getDoc(doc(db, "payments", buildPaymentId(registration.id)));
+      const paymentData = paymentSnapshot.exists()
+        ? paymentSnapshot.data() as {
+            organiserId?: string;
+            amount?: number;
+            playerPaid?: boolean;
+            organiserPaid?: boolean;
+            paymentReference?: string | null;
+            effectivePaid?: boolean;
+            status?: "pending" | "paid";
+          }
+        : null;
+      const seriesSnapshot = await getDoc(doc(db, "sessions", registration.sessionSeriesId));
+      const eventSnapshot = await getDoc(doc(db, "sessionEvents", registration.sessionEventId));
+      const seriesData = seriesSnapshot.exists()
+        ? { id: seriesSnapshot.id, ...(seriesSnapshot.data() as Omit<SessionSeries, "id">) }
+        : null;
+      const eventData = eventSnapshot.exists()
+        ? { id: eventSnapshot.id, ...(eventSnapshot.data() as Omit<SessionEvent, "id">) }
+        : null;
+
+      if (existingRegistrationSnapshot.exists()) {
+        const existingRegistration = existingRegistrationSnapshot.data() as Omit<RegistrationItem, "id">;
+        await setDoc(nextRegistrationRef, {
+          ...existingRegistration,
+          playerName: displayName.trim(),
+          playerEmail: normalizedEmail,
+          userId,
+          playerPaid: existingRegistration.playerPaid || registration.playerPaid,
+          organiserPaid: existingRegistration.organiserPaid || registration.organiserPaid,
+          paymentReference: existingRegistration.paymentReference ?? registration.paymentReference ?? null,
+          status: existingRegistration.status || registration.status || "registered",
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+
+        if (seriesData && eventData) {
+          await setDoc(doc(db, "payments", buildPaymentId(nextRegistrationId)), {
+            sessionSeriesId: registration.sessionSeriesId,
+            sessionEventId: registration.sessionEventId,
+            registrationId: nextRegistrationId,
+            organiserId: paymentData?.organiserId || eventData.organiserId || seriesData.organiserId,
+            userId,
+            playerName: displayName.trim(),
+            playerEmail: normalizedEmail,
+            amount: paymentData?.amount ?? eventData.defaultPriceCasual ?? seriesData.defaultPriceCasual,
+            playerPaid: (paymentData?.playerPaid ?? false) || existingRegistration.playerPaid || registration.playerPaid,
+            organiserPaid: (paymentData?.organiserPaid ?? false) || existingRegistration.organiserPaid || registration.organiserPaid,
+            paymentReference: existingRegistration.paymentReference ?? paymentData?.paymentReference ?? registration.paymentReference ?? null,
+            effectivePaid: (paymentData?.effectivePaid ?? false) || !!(existingRegistration.playerPaid || existingRegistration.organiserPaid || registration.playerPaid || registration.organiserPaid),
+            status: ((paymentData?.effectivePaid ?? false) || existingRegistration.playerPaid || existingRegistration.organiserPaid || registration.playerPaid || registration.organiserPaid) ? "paid" : "pending",
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        }
+
+        await deleteDoc(doc(db, "payments", buildPaymentId(registration.id)));
+        await deleteDoc(registrationDoc.ref);
+        continue;
+      }
+
+      await setDoc(nextRegistrationRef, {
+        ...registration,
+        userId,
+        playerName: displayName.trim(),
+        playerEmail: normalizedEmail,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
+      if (seriesData && eventData) {
+        await setDoc(doc(db, "payments", buildPaymentId(nextRegistrationId)), {
+          sessionSeriesId: registration.sessionSeriesId,
+          sessionEventId: registration.sessionEventId,
+          registrationId: nextRegistrationId,
+          organiserId: paymentData?.organiserId || eventData.organiserId || seriesData.organiserId,
+          userId,
+          playerName: displayName.trim(),
+          playerEmail: normalizedEmail,
+          amount: paymentData?.amount ?? eventData.defaultPriceCasual ?? seriesData.defaultPriceCasual,
+          playerPaid: paymentData?.playerPaid ?? !!registration.playerPaid,
+          organiserPaid: paymentData?.organiserPaid ?? !!registration.organiserPaid,
+          paymentReference: paymentData?.paymentReference ?? registration.paymentReference ?? null,
+          effectivePaid: paymentData?.effectivePaid ?? !!(registration.playerPaid || registration.organiserPaid),
+          status: paymentData?.status ?? ((registration.playerPaid || registration.organiserPaid) ? "paid" : "pending"),
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      }
+
+      await deleteDoc(doc(db, "payments", buildPaymentId(registration.id)));
+      await deleteDoc(registrationDoc.ref);
+    }
+
+    await deleteDoc(doc(db, "players", manualPlayer.id));
+  }
 }
 
 export async function updateManualPlayerSkillLevel(

@@ -41,6 +41,13 @@ function buildFallbackPlayerKey(registration: RegistrationItem) {
   return normalizedEmail || registration.userId || registration.id;
 }
 
+function buildVisiblePlayerKey(input: {
+  email?: string | null;
+  fallback: string;
+}) {
+  return normalizePlayerEmail(input.email || "") || input.fallback;
+}
+
 export async function linkManualPlayersToSelfRegisteredUser(
   db: Firestore,
   userId: string,
@@ -172,8 +179,10 @@ export async function getVisiblePlayersForOrganiserManagement(
   const visiblePlayers = new Map<string, OrganiserVisiblePlayerRecord>();
 
   for (const player of ownedPlayers) {
-    visiblePlayers.set(player.id, {
-      key: player.id,
+    const key = buildVisiblePlayerKey({ email: player.email, fallback: player.id });
+    const existing = visiblePlayers.get(key);
+    const nextRecord: OrganiserVisiblePlayerRecord = {
+      key,
       displayName: player.displayName,
       email: player.email,
       skillLevel: player.skillLevel || null,
@@ -184,12 +193,33 @@ export async function getVisiblePlayersForOrganiserManagement(
       isSelfRegistered: player.ownerOrganiserId == null && !!player.userId,
       isEditablePrivatePlayer: player.ownerOrganiserId === organiserId && !player.userId,
       hasRegisteredForOrganiser: false,
+    };
+
+    if (!existing) {
+      visiblePlayers.set(key, nextRecord);
+      continue;
+    }
+
+    const nextIsPreferred = nextRecord.isSelfRegistered && !existing.isSelfRegistered;
+    visiblePlayers.set(key, nextIsPreferred ? {
+      ...nextRecord,
+      gamesPlayed: existing.gamesPlayed,
+      hasRegisteredForOrganiser: existing.hasRegisteredForOrganiser,
+    } : {
+      ...existing,
+      skillLevel: existing.skillLevel || nextRecord.skillLevel,
+      playerId: existing.playerId || nextRecord.playerId,
+      userId: existing.userId || nextRecord.userId,
+      ownerOrganiserId: existing.ownerOrganiserId ?? nextRecord.ownerOrganiserId,
     });
   }
 
   for (const registration of registeredEntries) {
     const storedPlayer = playersById.get(registration.userId);
-    const key = storedPlayer?.id || buildFallbackPlayerKey(registration);
+    const key = buildVisiblePlayerKey({
+      email: storedPlayer?.email || registration.playerEmail,
+      fallback: storedPlayer?.id || buildFallbackPlayerKey(registration),
+    });
     const existing = visiblePlayers.get(key);
     const gamesPlayedIncrement = isPlayedRegistration(registration) ? 1 : 0;
     const displayName = storedPlayer?.displayName || registration.playerName || "Player";
