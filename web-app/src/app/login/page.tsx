@@ -15,7 +15,8 @@ import {
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getDataPartitionForEmail, shouldBypassEmailVerification } from "@/lib/data-partition";
-import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
+import { getManagedUserByEmail } from "@/lib/managed-users";
+import { linkRegisteredUserData } from "@/lib/account-link";
 import { resolveAuthProfile } from "@/lib/auth-profile";
 import { lookupPendingUserProfile } from "@/lib/pending-user-lookup";
 import { lookupPasswordResetEligibility } from "@/lib/password-reset";
@@ -85,6 +86,20 @@ function clearRegisterNotice() {
 async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: string) {
   console.log("[auth] ensureUserProfileForAuthUser start", { uid: user.uid, email: user.email });
 
+  try {
+    const idToken = await user.getIdToken(true);
+    const linked = await linkRegisteredUserData(idToken);
+    console.log("[auth] linkRegisteredUserData result", {
+      uid: linked.uid,
+      email: linked.email,
+      role: linked.role,
+      status: linked.status,
+    });
+    await user.reload();
+  } catch (linkError) {
+    console.warn("[auth] linkRegisteredUserData failed", linkError);
+  }
+
   const userRef = doc(db, "users", user.uid);
   const snapshot = await getDoc(userRef);
   const existing = snapshot.data() as UserProfile | undefined;
@@ -146,24 +161,6 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
     updatedAt: serverTimestamp(),
   }, { merge: true });
   console.log("[auth] users/{uid} written with role:", resolved.role);
-
-  // Keep managed user record as fallback metadata only; canonical auth profile is users/{uid}.
-  if (
-    (resolved.role === "player" || resolved.role === "organiser")
-    && managedUser
-    && (!managedUser.userId || managedUser.userId === user.uid)
-    && managedUser.id === resolved.email
-  ) {
-    await upsertManagedUser(db, {
-      id: managedUser?.id,
-      email: managedUser.email,
-      displayName: managedUser.displayName || resolved.displayName,
-      role: resolved.role,
-      status: managedUser.status || resolved.status,
-      userId: user.uid,
-    });
-    console.log("[auth] upsertManagedUser done for role:", resolved.role);
-  }
 
   if (resolved.role === "player") {
     await migrateManualPlayersToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);

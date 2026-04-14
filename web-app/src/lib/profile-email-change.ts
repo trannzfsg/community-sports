@@ -10,12 +10,6 @@ const DEFAULT_FUNCTION_REGION = "us-central1";
 const DEFAULT_FUNCTION_NAME = "syncUserEmailChange";
 const DEFAULT_DIRECT_EXAMPLE_FUNCTION_NAME = "changeExampleUserEmail";
 const PENDING_EMAIL_CHANGE_KEY = "pending-profile-email-change";
-const DEFAULT_FUNCTION_URLS: Record<string, string> = {
-  "community-sports-6584e": "https://syncuseremailchange-cyz7zlp3oq-uc.a.run.app",
-};
-const DEFAULT_DIRECT_EXAMPLE_FUNCTION_URLS: Record<string, string> = {
-  "community-sports-6584e": "https://changeexampleuseremail-cyz7zlp3oq-uc.a.run.app",
-};
 
 export type PendingEmailChange = {
   previousEmail: string;
@@ -33,10 +27,6 @@ function getSyncUserEmailChangeUrl() {
     throw new Error("Missing Firebase project configuration.");
   }
 
-  if (DEFAULT_FUNCTION_URLS[projectId]) {
-    return DEFAULT_FUNCTION_URLS[projectId];
-  }
-
   return `https://${DEFAULT_FUNCTION_REGION}-${projectId}.cloudfunctions.net/${DEFAULT_FUNCTION_NAME}`;
 }
 
@@ -49,10 +39,6 @@ function getDirectExampleUserEmailChangeUrl() {
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   if (!projectId) {
     throw new Error("Missing Firebase project configuration.");
-  }
-
-  if (DEFAULT_DIRECT_EXAMPLE_FUNCTION_URLS[projectId]) {
-    return DEFAULT_DIRECT_EXAMPLE_FUNCTION_URLS[projectId];
   }
 
   return `https://${DEFAULT_FUNCTION_REGION}-${projectId}.cloudfunctions.net/${DEFAULT_DIRECT_EXAMPLE_FUNCTION_NAME}`;

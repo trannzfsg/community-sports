@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Unify managed + registered identities into a single canonical account path: add server-side login linker to merge legacy email-keyed records into `users/{uid}` and migrate linked data (sessions/events/registrations/payments/players), stop recreating managed docs for registered users, and validate with `@example.com` sign-ins.
 - [x] Organiser dashboard: when add-player select has no available players, show guidance to use "Manage players" first.
 - [x] Refactor identity storage so registered auth profiles stay in `users/{uid}` only, managed/pending records move to `managedUsers/{email}`, and auth/profile logic always prefers registered user docs over managed fallbacks.
 - [x] Remove tracked debug artifacts that hardcoded Firebase API keys in source (`web-app/tmp-live-sdk-check.mjs`).

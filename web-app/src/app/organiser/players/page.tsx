@@ -21,7 +21,6 @@ import {
   createManualPlayer,
   normalizePlayerEmail,
 } from "@/lib/players";
-import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import { deletePaymentRecord } from "@/lib/payments";
 import { shouldRemoveRegistrationForInactivatedPlayer } from "@/lib/admin-player-flows";
@@ -109,12 +108,6 @@ export default function OrganiserPlayersPage() {
       }
 
       await createManualPlayer(db, organiserId, trimmedName, normalizedEmail);
-      await upsertManagedUser(db, {
-        email: normalizedEmail,
-        displayName: trimmedName,
-        role: "player",
-        status: "active",
-      });
       setEmail("");
       setDisplayName("");
       await loadPlayers(organiserId);
@@ -162,16 +155,6 @@ export default function OrganiserPlayersPage() {
         skillLevel: editSkillLevel || null,
         updatedAt: serverTimestamp(),
       }, { merge: true });
-
-      const existingManaged = await getManagedUserByEmail(db, normalizedEmail);
-      await upsertManagedUser(db, {
-        id: existingManaged?.id,
-        email: normalizedEmail,
-        displayName: trimmedName,
-        role: "player",
-        status: "active",
-        userId: existingManaged?.userId ?? null,
-      });
 
       if (player.userId) {
         await setDoc(doc(db, "users", player.userId), {
@@ -235,18 +218,6 @@ export default function OrganiserPlayersPage() {
         status: "inactive",
         updatedAt: serverTimestamp(),
       }, { merge: true });
-
-      const existingManaged = await getManagedUserByEmail(db, player.email);
-      if (existingManaged) {
-        await upsertManagedUser(db, {
-          id: existingManaged.id,
-          email: player.email,
-          displayName: player.displayName,
-          role: "player",
-          status: "inactive",
-          userId: existingManaged.userId ?? null,
-        });
-      }
 
       await loadPlayers(organiserId);
     } catch (removeError) {

@@ -163,13 +163,6 @@ export async function getVisiblePlayersForOrganiserManagement(
     return null;
   });
 
-  const managedUsersSnapshot = await getDocs(
-    query(collection(db, "managedUsers"), where("dataPartition", "==", partition), where("role", "==", "player")),
-  ).catch((error) => {
-    console.warn("[organiser players] managedUsers query fallback", error);
-    return null;
-  });
-
   const ownedPlayers = ownedPlayersSnapshot.docs.map((playerDoc) => ({
     id: playerDoc.id,
     ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
@@ -184,21 +177,6 @@ export async function getVisiblePlayersForOrganiserManagement(
     }),
   }));
   const usersById = new Map(users.map((user) => [user.id, user]));
-  const managedUsersByEmail = new Map(
-    (managedUsersSnapshot?.docs || [])
-      .map((managedDoc) => ({
-        id: managedDoc.id,
-        ...(managedDoc.data() as {
-          email?: string;
-          status?: "active" | "inactive";
-          userId?: string | null;
-          displayName?: string;
-        }),
-      }))
-      .filter((user) => user.email)
-      .map((user) => [normalizePlayerEmail(user.email || ""), user]),
-  );
-
   const ownedSessionIds = new Set(sessionsSnapshot.docs.map((sessionDoc) => sessionDoc.id));
   const registrationsSnapshot = await getDocs(
     query(collection(db, "registrations"), where("dataPartition", "==", partition)),
@@ -227,8 +205,7 @@ export async function getVisiblePlayersForOrganiserManagement(
     const key = buildVisiblePlayerKey({ email: player.email, fallback: player.id });
     const existing = visiblePlayers.get(key);
     const linkedUser = player.userId ? usersById.get(player.userId) : null;
-    const managedUser = managedUsersByEmail.get(normalizePlayerEmail(player.email));
-    const status = linkedUser?.status || managedUser?.status || player.status || "active";
+    const status = linkedUser?.status || player.status || "active";
     const nextRecord: OrganiserVisiblePlayerRecord = {
       key,
       displayName: player.displayName,
@@ -280,8 +257,7 @@ export async function getVisiblePlayersForOrganiserManagement(
     const ownerOrganiserId = storedPlayer?.ownerOrganiserId ?? null;
     const userId = storedPlayer?.userId || (registration.userId.startsWith("manual-player__") ? null : registration.userId);
     const linkedUser = userId ? usersById.get(userId) : null;
-    const managedUser = email ? managedUsersByEmail.get(normalizePlayerEmail(email)) : null;
-    const status = linkedUser?.status || managedUser?.status || storedPlayer?.status || "active";
+    const status = linkedUser?.status || storedPlayer?.status || "active";
     const isOwnedPrivatePlayer = ownerOrganiserId === organiserId && !userId;
 
     if (existing) {

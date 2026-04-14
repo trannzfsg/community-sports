@@ -14,6 +14,7 @@ const allowedOrigins = new Set([
   "http://localhost:3000",
   "https://community-sports-6584e.web.app",
   "https://community-sports-6584e.firebaseapp.com",
+  "https://sports.tranzha.com",
 ]);
 
 /**
@@ -38,6 +39,30 @@ function applyCors(request: Request, response: Response) {
  */
 function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
+}
+
+/**
+ * Builds the canonical registration document id for event/user.
+ * Must stay in sync with web-app/src/lib/session-series.ts.
+ * @param {string} eventId
+ * @param {string} userId
+ * @return {string}
+ */
+function buildRegistrationId(eventId: string, userId: string) {
+  const encodedUserId = encodeURIComponent(userId).replace(/%/g, "_");
+  return `${eventId}__${encodedUserId}`;
+}
+
+/**
+ * Returns role priority for canonical role resolution.
+ * @param {unknown} role
+ * @return {number}
+ */
+function roleRank(role: unknown) {
+  if (role === "admin") return 3;
+  if (role === "organiser") return 2;
+  if (role === "player") return 1;
+  return 0;
 }
 
 /**
@@ -180,14 +205,6 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
     const previousEmail = typeof request.body?.previousEmail === "string" ?
       request.body.previousEmail.trim().toLowerCase() :
       storedEmail;
-    const displayName =
-      typeof userData.displayName === "string" && userData.displayName.trim() ?
-        userData.displayName.trim() :
-        nextEmail;
-    const status =
-      typeof userData.status === "string" && userData.status.trim() ?
-        userData.status.trim() :
-        "active";
     const nextPartition = getDataPartitionForEmail(nextEmail);
 
     const batch = firestore.batch();
@@ -201,20 +218,6 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
       batch.set(firestore.doc(`players/${uid}`), {
         email: nextEmail,
         dataPartition: nextPartition,
-        updatedAt: FieldValue.serverTimestamp(),
-      }, {merge: true});
-    }
-
-    if (role === "player" || role === "organiser") {
-      const nextPendingRef = firestore.doc(`managedUsers/${nextEmail}`);
-      batch.set(nextPendingRef, {
-        displayName,
-        email: nextEmail,
-        role,
-        status,
-        dataPartition: nextPartition,
-        userId: uid,
-        isPending: true,
         updatedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
     }
@@ -326,15 +329,6 @@ export const changeExampleUserEmail = onRequest(async (request, response) => {
 
     const userData = userSnapshot.data() || {};
     const role = userData.role;
-    const displayName =
-      typeof userData.displayName === "string" && userData.displayName.trim() ?
-        userData.displayName.trim() :
-        nextEmail;
-    const status =
-      typeof userData.status === "string" && userData.status.trim() ?
-        userData.status.trim() :
-        "active";
-
     await getAuth(adminApp).updateUser(uid, {email: nextEmail});
 
     const batch = firestore.batch();
@@ -348,19 +342,6 @@ export const changeExampleUserEmail = onRequest(async (request, response) => {
       batch.set(firestore.doc(`players/${uid}`), {
         email: nextEmail,
         dataPartition: "test",
-        updatedAt: FieldValue.serverTimestamp(),
-      }, {merge: true});
-    }
-
-    if (role === "player" || role === "organiser") {
-      batch.set(firestore.doc(`managedUsers/${nextEmail}`), {
-        displayName,
-        email: nextEmail,
-        role,
-        status,
-        dataPartition: "test",
-        userId: uid,
-        isPending: true,
         updatedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
     }
@@ -415,6 +396,314 @@ export const changeExampleUserEmail = onRequest(async (request, response) => {
       error: error instanceof Error ? error.message : String(error),
     });
     response.status(500).json({error: "Failed to change example user email."});
+  }
+});
+
+export const linkRegisteredUserData = onRequest(async (request, response) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const signedInEmail = typeof decodedToken.email === "string" ?
+      normalizeEmail(decodedToken.email) :
+      "";
+    if (!signedInEmail) {
+      response.status(400).json({error: "Authenticated email is required."});
+      return;
+    }
+
+    const partition = getDataPartitionForEmail(signedInEmail);
+    const userRef = firestore.doc(`users/${uid}`);
+    const userSnapshot = await userRef.get();
+    if (!userSnapshot.exists) {
+      response.status(404).json({error: "Registered user profile not found."});
+      return;
+    }
+
+    const userData = userSnapshot.data() || {};
+    const displayName = typeof userData.displayName === "string" &&
+      userData.displayName.trim() ?
+      userData.displayName.trim() :
+      signedInEmail;
+
+    const roleCandidates = [userData.role];
+    const statusCandidates = [userData.status];
+
+    const legacyUserIds = new Set<string>();
+    legacyUserIds.add(signedInEmail);
+
+    const sameEmailUsersSnapshot = await firestore.collection("users")
+      .where("email", "==", signedInEmail)
+      .where("dataPartition", "==", partition)
+      .get();
+
+    sameEmailUsersSnapshot.docs.forEach((legacyDoc) => {
+      if (legacyDoc.id === uid) return;
+      const legacyData = legacyDoc.data();
+      roleCandidates.push(legacyData.role);
+      statusCandidates.push(legacyData.status);
+      legacyUserIds.add(legacyDoc.id);
+    });
+
+    const managedRef = firestore.doc(`managedUsers/${signedInEmail}`);
+    const managedSnapshot = await managedRef.get();
+    if (managedSnapshot.exists) {
+      const managedData = managedSnapshot.data() || {};
+      roleCandidates.push(managedData.role);
+      statusCandidates.push(managedData.status);
+      if (typeof managedData.userId === "string" &&
+        managedData.userId &&
+        managedData.userId !== uid) {
+        legacyUserIds.add(managedData.userId);
+      }
+    }
+
+    const preferredRole = roleCandidates
+      .filter((value): value is string => typeof value === "string")
+      .sort((a, b) => roleRank(b) - roleRank(a))[0] || "player";
+
+    const mergedStatus = statusCandidates.includes("inactive") ?
+      "inactive" :
+      "active";
+
+    await userRef.set({
+      displayName,
+      email: signedInEmail,
+      role: preferredRole,
+      status: mergedStatus,
+      dataPartition: partition,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    const legacyIds = Array.from(legacyUserIds)
+      .filter((value) => value !== uid);
+    const movedStats = {
+      sessions: 0,
+      events: 0,
+      registrations: 0,
+      payments: 0,
+      players: 0,
+      deletedUsers: 0,
+      deletedManagedUsers: 0,
+    };
+
+    for (const legacyId of legacyIds) {
+      const seriesSnapshot = await firestore.collection("sessions")
+        .where("organiserId", "==", legacyId)
+        .where("dataPartition", "==", partition)
+        .get();
+      for (const seriesDoc of seriesSnapshot.docs) {
+        await seriesDoc.ref.set({
+          organiserId: uid,
+          organiserName: displayName,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true});
+        movedStats.sessions += 1;
+      }
+
+      const eventSnapshot = await firestore.collection("sessionEvents")
+        .where("organiserId", "==", legacyId)
+        .where("dataPartition", "==", partition)
+        .get();
+      for (const eventDoc of eventSnapshot.docs) {
+        await eventDoc.ref.set({
+          organiserId: uid,
+          organiserName: displayName,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true});
+        movedStats.events += 1;
+      }
+
+      const registrationSnapshot = await firestore.collection("registrations")
+        .where("userId", "==", legacyId)
+        .where("dataPartition", "==", partition)
+        .get();
+      for (const registrationDoc of registrationSnapshot.docs) {
+        const registration = registrationDoc.data() || {};
+        const eventId = typeof registration.sessionEventId === "string" ?
+          registration.sessionEventId :
+          "";
+        if (!eventId) continue;
+
+        const canonicalId = buildRegistrationId(eventId, uid);
+        const canonicalRef = firestore.doc(`registrations/${canonicalId}`);
+        if (canonicalId !== registrationDoc.id) {
+          const canonicalSnapshot = await canonicalRef.get();
+          if (canonicalSnapshot.exists) {
+            const canonical = canonicalSnapshot.data() || {};
+            await canonicalRef.set({
+              playerName: canonical.playerName || displayName,
+              playerEmail: signedInEmail,
+              userId: uid,
+              playerPaid: !!canonical.playerPaid || !!registration.playerPaid,
+              organiserPaid:
+                !!canonical.organiserPaid || !!registration.organiserPaid,
+              status: canonical.status || registration.status || "registered",
+              updatedAt: FieldValue.serverTimestamp(),
+            }, {merge: true});
+            await registrationDoc.ref.delete();
+          } else {
+            await canonicalRef.set({
+              ...registration,
+              userId: uid,
+              playerName: displayName,
+              playerEmail: signedInEmail,
+              dataPartition: partition,
+              updatedAt: FieldValue.serverTimestamp(),
+            }, {merge: true});
+            await registrationDoc.ref.delete();
+          }
+        } else {
+          await registrationDoc.ref.set({
+            userId: uid,
+            playerName: displayName,
+            playerEmail: signedInEmail,
+            dataPartition: partition,
+            updatedAt: FieldValue.serverTimestamp(),
+          }, {merge: true});
+        }
+        movedStats.registrations += 1;
+      }
+
+      const paymentsSnapshot = await firestore.collection("payments")
+        .where("userId", "==", legacyId)
+        .where("dataPartition", "==", partition)
+        .get();
+      for (const paymentDoc of paymentsSnapshot.docs) {
+        await paymentDoc.ref.set({
+          userId: uid,
+          playerName: displayName,
+          playerEmail: signedInEmail,
+          dataPartition: partition,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true});
+        movedStats.payments += 1;
+      }
+    }
+
+    const sameEmailPlayersSnapshot = await firestore.collection("players")
+      .where("email", "==", signedInEmail)
+      .where("dataPartition", "==", partition)
+      .get();
+
+    let inheritedSkillLevel: string | null = null;
+    let inheritedStatus = "active";
+    for (const playerDoc of sameEmailPlayersSnapshot.docs) {
+      const player = playerDoc.data() || {};
+      if (!inheritedSkillLevel && typeof player.skillLevel === "string") {
+        inheritedSkillLevel = player.skillLevel;
+      }
+      if (player.status === "inactive") {
+        inheritedStatus = "inactive";
+      }
+
+      if (playerDoc.id === uid) {
+        await playerDoc.ref.set({
+          ownerOrganiserId: null,
+          userId: uid,
+          displayName,
+          email: signedInEmail,
+          dataPartition: partition,
+          source: "self-registered",
+          status: inheritedStatus,
+          skillLevel: inheritedSkillLevel,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true});
+        continue;
+      }
+
+      const legacyPlayerId = playerDoc.id;
+      const registrationsSnapshot = await firestore.collection("registrations")
+        .where("userId", "==", legacyPlayerId)
+        .where("dataPartition", "==", partition)
+        .get();
+      for (const registrationDoc of registrationsSnapshot.docs) {
+        await registrationDoc.ref.set({
+          userId: uid,
+          playerName: displayName,
+          playerEmail: signedInEmail,
+          dataPartition: partition,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true});
+      }
+
+      const legacyPaymentsSnapshot = await firestore.collection("payments")
+        .where("userId", "==", legacyPlayerId)
+        .where("dataPartition", "==", partition)
+        .get();
+      for (const paymentDoc of legacyPaymentsSnapshot.docs) {
+        await paymentDoc.ref.set({
+          userId: uid,
+          playerName: displayName,
+          playerEmail: signedInEmail,
+          dataPartition: partition,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, {merge: true});
+      }
+
+      await playerDoc.ref.delete();
+      movedStats.players += 1;
+    }
+
+    await firestore.doc(`players/${uid}`).set({
+      ownerOrganiserId: null,
+      userId: uid,
+      displayName,
+      email: signedInEmail,
+      dataPartition: partition,
+      source: "self-registered",
+      status: inheritedStatus,
+      skillLevel: inheritedSkillLevel,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    for (const legacyId of legacyIds) {
+      const legacyUserRef = firestore.doc(`users/${legacyId}`);
+      const legacyUserSnapshot = await legacyUserRef.get();
+      if (legacyUserSnapshot.exists) {
+        await legacyUserRef.delete();
+        movedStats.deletedUsers += 1;
+      }
+
+      const legacyManagedRef = firestore.doc(`managedUsers/${legacyId}`);
+      const legacyManagedSnapshot = await legacyManagedRef.get();
+      if (legacyManagedSnapshot.exists) {
+        await legacyManagedRef.delete();
+        movedStats.deletedManagedUsers += 1;
+      }
+    }
+
+    const managedByUidSnapshot = await firestore.collection("managedUsers")
+      .where("userId", "==", uid)
+      .get();
+    for (const managedDoc of managedByUidSnapshot.docs) {
+      await managedDoc.ref.delete();
+      movedStats.deletedManagedUsers += 1;
+    }
+
+    response.status(200).json({
+      uid,
+      email: signedInEmail,
+      role: preferredRole,
+      status: mergedStatus,
+      movedStats,
+    });
+  } catch (error) {
+    logger.error("Registered user linking failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({error: "Failed to link registered user data."});
   }
 });
 
