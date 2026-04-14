@@ -14,6 +14,7 @@ type Props = {
   players: PlayerDirectoryEntry[];
   disabled?: boolean;
   allowCreate?: boolean;
+  noOptionsText?: string;
   onSelectOrCreate: (value: { type: "existing"; player: PlayerDirectoryEntry } | { type: "create"; name: string }) => Promise<void> | void;
 };
 
@@ -23,6 +24,7 @@ export default function SearchablePlayerSelect({
   players,
   disabled,
   allowCreate = false,
+  noOptionsText,
   onSelectOrCreate,
 }: Props) {
   const [inputValue, setInputValue] = useState("");
@@ -36,6 +38,7 @@ export default function SearchablePlayerSelect({
     <Autocomplete
       disabled={disabled}
       options={options}
+      noOptionsText={noOptionsText || "No options"}
       fullWidth
       clearOnBlur
       selectOnFocus

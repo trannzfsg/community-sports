@@ -697,6 +697,7 @@ export default function DashboardPage() {
                             <SearchablePlayerSelect
                               players={visiblePlayersForSeries}
                               allowCreate={false}
+                              noOptionsText="No players available. Use Manage players to add players first."
                               disabled={busyKey === nextEvent.id || !playerCanJoin || !!nextEvent.locked}
                               onSelectOrCreate={async (selection) => {
                                 if (selection.type === "create") return;

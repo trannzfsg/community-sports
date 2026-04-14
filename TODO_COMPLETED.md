@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Organiser dashboard: when add-player select has no available players, show guidance to use "Manage players" first.
 - [x] Refactor identity storage so registered auth profiles stay in `users/{uid}` only, managed/pending records move to `managedUsers/{email}`, and auth/profile logic always prefers registered user docs over managed fallbacks.
 - [x] Remove tracked debug artifacts that hardcoded Firebase API keys in source (`web-app/tmp-live-sdk-check.mjs`).
 - [x] Produce an implementation plan for WhatsApp integration (`WHATSAPP_INTEGRATION_PLAN.md`) covering setup, phased delivery, testing, and decision gates.
