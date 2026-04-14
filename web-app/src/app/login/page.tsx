@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   signInWithPopup,
@@ -15,6 +16,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { resolveAuthProfile } from "@/lib/auth-profile";
+import { lookupPasswordResetEligibility } from "@/lib/password-reset";
 import { migrateManualPlayersToSelfRegistered, promoteManualPlayerToSelfRegistered } from "@/lib/players";
 
 type AppUserRole = "player" | "organiser" | "admin";
@@ -195,6 +197,40 @@ export default function LoginPage() {
     }
   }
 
+  async function handleForgotPassword() {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      setError("Enter your email address first so we can send the reset link.");
+      setNotice("");
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const eligibility = await lookupPasswordResetEligibility(normalizedEmail);
+
+      if (!eligibility.canReset) {
+        setError(eligibility.blockMessage || "Password reset is not available for this account.");
+        return;
+      }
+
+      await sendPasswordResetEmail(auth, normalizedEmail);
+      setNotice("If this email uses password sign-in, a password reset link has been sent.");
+    } catch (resetError) {
+      if (resetError instanceof Error) {
+        setError(resetError.message);
+      } else {
+        setError("We couldn't start password reset. Please try again.");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
       <div className="mx-auto w-full max-w-xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
@@ -251,6 +287,19 @@ export default function LoginPage() {
               required
             />
           </label>
+
+          {mode === "login" ? (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void handleForgotPassword()}
+                disabled={busy}
+                className="text-sm font-medium text-zinc-600 underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Forgot password?
+              </button>
+            </div>
+          ) : null}
 
           {error ? (
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

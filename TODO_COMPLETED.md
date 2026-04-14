@@ -1,5 +1,7 @@
 # To-Do List - Completed tasks
 
+- [x] Implement a forget password functionality on login page. Only users with email/password auth can use this. Display proper error message for SSO users. Use firebase native functionalities for this.
+- [x] Add inactive player segments to admin and organiser player management views. Admin can reactivate inactive players; organiser can view inactive players but cannot reactivate them.
 - [x] Remove ability to change email address from Manage players page for all self-registered players and organisers, for all user types.
 - [x] Remove ability to change email address from Profile page for all user types, make it ready only.
 - [x] Admin user should be able to see self-registered players, and organisers' private players. Each organisers' private players should be its own section. Admin has ability to edit everything of players (except emails as per later todos).
