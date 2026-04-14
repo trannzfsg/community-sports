@@ -370,32 +370,32 @@ service cloud.firestore {
     }
 
     match /managedUsers/{managedUserId} {
-      allow read: if (isAdmin() || isOrganiser()) && partitionMatchesRequest(managedPartitionFromData(resource.data))
-        || (isSignedIn() && managedUserId == signedInEmail() && partitionMatchesRequest(managedPartitionFromData(resource.data)));
+      allow read: if (isAdmin() || isOrganiser()) && resource.data.dataPartition == requestPartition()
+        || (isSignedIn() && managedUserId == signedInEmail() && resource.data.dataPartition == requestPartition());
 
       allow create: if (isAdmin()
-          && partitionMatchesRequest(managedPartitionFromData(request.resource.data))
+          && request.resource.data.dataPartition == requestPartition()
           && managedDataMatchesPartition(request.resource.data))
         || (isOrganiser()
           && request.resource.data.role == 'player'
-          && partitionMatchesRequest(managedPartitionFromData(request.resource.data))
+          && request.resource.data.dataPartition == requestPartition()
           && managedDataMatchesPartition(request.resource.data));
 
       allow update: if (isAdmin()
-          && partitionMatchesRequest(managedPartitionFromData(resource.data))
-          && partitionMatchesRequest(managedPartitionFromData(request.resource.data))
+          && resource.data.dataPartition == requestPartition()
+          && request.resource.data.dataPartition == requestPartition()
           && managedDataMatchesPartition(resource.data)
           && managedDataMatchesPartition(request.resource.data))
         || (isOrganiser()
           && resource.data.role == 'player'
           && request.resource.data.role == 'player'
-          && partitionMatchesRequest(managedPartitionFromData(resource.data))
-          && partitionMatchesRequest(managedPartitionFromData(request.resource.data))
+          && resource.data.dataPartition == requestPartition()
+          && request.resource.data.dataPartition == requestPartition()
           && managedDataMatchesPartition(resource.data)
           && managedDataMatchesPartition(request.resource.data));
 
-      allow delete: if (isAdmin() && partitionMatchesRequest(managedPartitionFromData(resource.data)))
-        || (isOrganiser() && resource.data.role == 'player' && partitionMatchesRequest(managedPartitionFromData(resource.data)));
+      allow delete: if (isAdmin() && resource.data.dataPartition == requestPartition())
+        || (isOrganiser() && resource.data.role == 'player' && resource.data.dataPartition == requestPartition());
     }
 
     match /players/{playerId} {
