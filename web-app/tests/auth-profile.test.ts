@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveAuthProfile } from "../src/lib/auth-profile.ts";
 
-test("managed user role overrides existing profile role", () => {
+test("existing registered profile role overrides managed fallback role", () => {
   const result = resolveAuthProfile({
     authEmail: "p@example.com",
     existing: { role: "player", displayName: "Player One" },
@@ -15,7 +15,7 @@ test("managed user role overrides existing profile role", () => {
     },
   });
 
-  assert.equal(result.role, "organiser");
+  assert.equal(result.role, "player");
   assert.equal(result.displayName, "Player One");
   assert.equal(result.email, "p@example.com");
 });

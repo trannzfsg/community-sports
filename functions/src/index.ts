@@ -206,7 +206,7 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
     }
 
     if (role === "player" || role === "organiser") {
-      const nextPendingRef = firestore.doc(`users/${nextEmail}`);
+      const nextPendingRef = firestore.doc(`managedUsers/${nextEmail}`);
       batch.set(nextPendingRef, {
         displayName,
         email: nextEmail,
@@ -226,8 +226,7 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
     ] = await Promise.all([
       firestore.collection("registrations").where("userId", "==", uid).get(),
       firestore.collection("payments").where("userId", "==", uid).get(),
-      firestore.collection("users")
-        .where("isPending", "==", true)
+      firestore.collection("managedUsers")
         .where("userId", "==", uid)
         .get(),
     ]);
@@ -255,7 +254,7 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
     });
 
     if (previousEmail && previousEmail !== nextEmail) {
-      const previousPendingRef = firestore.doc(`users/${previousEmail}`);
+      const previousPendingRef = firestore.doc(`managedUsers/${previousEmail}`);
       const previousPendingSnapshot = await previousPendingRef.get();
       const previousPendingData = previousPendingSnapshot.data();
       const canDeletePreviousPending =
@@ -354,7 +353,7 @@ export const changeExampleUserEmail = onRequest(async (request, response) => {
     }
 
     if (role === "player" || role === "organiser") {
-      batch.set(firestore.doc(`users/${nextEmail}`), {
+      batch.set(firestore.doc(`managedUsers/${nextEmail}`), {
         displayName,
         email: nextEmail,
         role,
@@ -370,8 +369,7 @@ export const changeExampleUserEmail = onRequest(async (request, response) => {
       await Promise.all([
         firestore.collection("registrations").where("userId", "==", uid).get(),
         firestore.collection("payments").where("userId", "==", uid).get(),
-        firestore.collection("users")
-          .where("isPending", "==", true)
+        firestore.collection("managedUsers")
           .where("userId", "==", uid)
           .get(),
       ]);
@@ -399,7 +397,7 @@ export const changeExampleUserEmail = onRequest(async (request, response) => {
     });
 
     if (currentEmail !== nextEmail) {
-      const previousPendingRef = firestore.doc(`users/${currentEmail}`);
+      const previousPendingRef = firestore.doc(`managedUsers/${currentEmail}`);
       const previousPendingSnapshot = await previousPendingRef.get();
       if (
         previousPendingSnapshot.exists &&
@@ -446,7 +444,9 @@ export const lookupPendingUserProfile = onRequest(async (request, response) => {
       return;
     }
 
-    const pendingSnapshot = await firestore.doc(`users/${signedInEmail}`).get();
+    const pendingSnapshot = await firestore
+      .doc(`managedUsers/${signedInEmail}`)
+      .get();
     if (!pendingSnapshot.exists) {
       response.status(200).json({});
       return;

@@ -22,7 +22,12 @@ export type UserRecord = {
   email?: string;
   role: "player" | "organiser" | "admin";
   dataPartition?: DataPartition;
+  isPending?: boolean;
 };
+
+function isRegisteredUserRecord(user: UserRecord) {
+  return user.isPending !== true && !user.id.includes("@");
+}
 
 export async function getUsersByRole(
   db: Firestore,
@@ -36,7 +41,7 @@ export async function getUsersByRole(
   return snapshot.docs.map((userDoc) => ({
     id: userDoc.id,
     ...(userDoc.data() as Omit<UserRecord, "id">),
-  })).filter((user) => user.role === role);
+  })).filter((user) => user.role === role && isRegisteredUserRecord(user));
 }
 
 export async function getUserById(db: Firestore, userId: string) {
@@ -55,7 +60,7 @@ export async function getAllUsers(db: Firestore, dataPartition?: DataPartition) 
   return snapshot.docs.map((userDoc) => ({
     id: userDoc.id,
     ...(userDoc.data() as Omit<UserRecord, "id">),
-  }));
+  })).filter(isRegisteredUserRecord);
 }
 
 export async function backfillSharedPlayerDirectoryFromUsers(db: Firestore) {

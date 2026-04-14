@@ -24,8 +24,9 @@ export function resolveAuthProfile(input: {
     || "Player"
   ).trim();
 
-  const role: AppRole = input.managedUser?.role || input.existing?.role || "player";
-  const status = input.managedUser?.status || "active";
+  // Registered users/{uid} is canonical. Managed user records are fallback-only.
+  const role: AppRole = input.existing?.role || input.managedUser?.role || "player";
+  const status = input.existing ? "active" : (input.managedUser?.status || "active");
 
   return { email, displayName, role, status };
 }

@@ -46,8 +46,6 @@ type DirectoryUserRecord = {
   email?: string;
   role?: "player" | "organiser" | "admin";
   status?: "active" | "inactive";
-  isPending?: boolean;
-  userId?: string | null;
   dataPartition?: DataPartition;
 };
 
@@ -126,12 +124,6 @@ export default function AdminPlayersPage() {
     }));
     const directoryPlayerEmails = new Set(directoryPlayers.map((player) => normalizeEmail(player.email)).filter(Boolean));
 
-    setPendingPlayers(
-      managedItems
-        .filter((item) => !item.userId && !directoryPlayerEmails.has(normalizeEmail(item.email)))
-        .sort((a, b) => a.email.localeCompare(b.email)),
-    );
-
     const organiserNames = new Map(
       organiserUsers.map((organiser) => [
         organiser.id,
@@ -141,12 +133,25 @@ export default function AdminPlayersPage() {
     const userDocs = userSnapshots.docs.map((userDoc) => ({
       id: userDoc.id,
       ...(userDoc.data() as Omit<DirectoryUserRecord, "id">),
-    }));
+    })).filter((user) => !user.id.includes("@"));
     const usersById = new Map(userDocs.map((user) => [user.id, user]));
-    const pendingUsersByEmail = new Map(
+    const registeredUsersByEmail = new Map(
       userDocs
-        .filter((user) => user.isPending && user.email)
+        .filter((user) => user.email)
         .map((user) => [normalizeEmail(user.email || ""), user]),
+    );
+    const managedUsersByEmail = new Map(
+      managedItems.map((user) => [normalizeEmail(user.email || ""), user]),
+    );
+
+    setPendingPlayers(
+      managedItems
+        .filter((item) => {
+          const emailKey = normalizeEmail(item.email);
+          const linkedRegisteredUser = registeredUsersByEmail.get(emailKey);
+          return !linkedRegisteredUser && !directoryPlayerEmails.has(emailKey);
+        })
+        .sort((a, b) => a.email.localeCompare(b.email)),
     );
 
     const nextSelfRegisteredPlayers: AdminDirectoryPlayerRecord[] = [];
@@ -159,17 +164,17 @@ export default function AdminPlayersPage() {
         continue;
       }
 
-      const pendingUser = pendingUsersByEmail.get(emailKey);
-      const status = linkedUser?.status || pendingUser?.status || "active";
+      const managedUser = managedUsersByEmail.get(emailKey);
+      const status = linkedUser?.status || managedUser?.status || "active";
       const directoryRecord: AdminDirectoryPlayerRecord = {
         key: player.id,
         playerId: player.id,
-        displayName: player.displayName || linkedUser?.displayName || pendingUser?.displayName || player.email || "Player",
+        displayName: player.displayName || linkedUser?.displayName || managedUser?.displayName || player.email || "Player",
         email: player.email,
         skillLevel: player.skillLevel || null,
         status,
-        userId: player.userId || linkedUser?.userId || null,
-        managedUserId: pendingUser?.id || null,
+        userId: player.userId || linkedUser?.id || managedUser?.userId || null,
+        managedUserId: managedUser?.id || null,
         ownerOrganiserId: player.ownerOrganiserId,
         ownerOrganiserName: player.ownerOrganiserId ? organiserNames.get(player.ownerOrganiserId) || "Organiser" : null,
         kind: player.ownerOrganiserId ? "organiser-private" : "self-registered",
@@ -343,7 +348,7 @@ export default function AdminPlayersPage() {
     setError("");
 
     try {
-      await updateDoc(doc(db, "users", player.id), {
+      await updateDoc(doc(db, "managedUsers", player.id), {
         status: "inactive",
         updatedAt: serverTimestamp(),
       });
@@ -427,7 +432,7 @@ export default function AdminPlayersPage() {
 
       if (player.managedUserId) {
         if (canEditEmail && player.managedUserId !== normalizedNextEmail) {
-          await deleteDoc(doc(db, "users", player.managedUserId));
+          await deleteDoc(doc(db, "managedUsers", player.managedUserId));
         }
 
         await upsertManagedUser(db, {
@@ -463,7 +468,7 @@ export default function AdminPlayersPage() {
 
     try {
       if (player.managedUserId) {
-        await setDoc(doc(db, "users", player.managedUserId), {
+        await setDoc(doc(db, "managedUsers", player.managedUserId), {
           status: "inactive",
           updatedAt: serverTimestamp(),
         }, { merge: true });
@@ -534,7 +539,7 @@ export default function AdminPlayersPage() {
     setError("");
 
     try {
-      await setDoc(doc(db, "users", player.id), {
+      await setDoc(doc(db, "managedUsers", player.id), {
         status: "active",
         updatedAt: serverTimestamp(),
       }, { merge: true });
@@ -552,7 +557,7 @@ export default function AdminPlayersPage() {
 
     try {
       if (player.managedUserId) {
-        await setDoc(doc(db, "users", player.managedUserId), {
+        await setDoc(doc(db, "managedUsers", player.managedUserId), {
           status: "active",
           updatedAt: serverTimestamp(),
         }, { merge: true });

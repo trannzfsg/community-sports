@@ -14,7 +14,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
-import { getManagedUserByEmail, normalizeEmail, upsertManagedUser } from "@/lib/managed-users";
+import { getManagedUserByEmail, normalizeEmail } from "@/lib/managed-users";
 import {
   changeExampleUserEmailDirectly,
   clearPendingEmailChange,
@@ -296,22 +296,6 @@ export default function ProfilePage() {
           skillLevel: skillLevel || null,
           updatedAt: serverTimestamp(),
         }, { merge: true });
-      }
-
-      const existingManaged = await getManagedUserByEmail(db, normalizedCurrentEmail);
-      const canUpdateExistingManaged =
-        !!existingManaged
-        && (existingManaged.userId == null || existingManaged.userId === user.uid);
-
-      if ((role === "player" || role === "organiser") && canUpdateExistingManaged) {
-        await upsertManagedUser(db, {
-          id: existingManaged?.id,
-          email: normalizedCurrentEmail,
-          displayName: trimmedName,
-          role,
-          status: "active",
-          userId: user.uid,
-        });
       }
 
       setCurrentUser(auth.currentUser);

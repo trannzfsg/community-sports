@@ -147,17 +147,19 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   }, { merge: true });
   console.log("[auth] users/{uid} written with role:", resolved.role);
 
-  // NOTE: The old managedUsers collection was merged into users in a prior refactor.
-  // Writing to managedUsers has no security rules and always fails — that dead write
-  // was the root cause of the recurring organiser/player permission error. Removed.
-
-  if ((resolved.role === "player" || resolved.role === "organiser") && managedUser) {
+  // Keep managed user record as fallback metadata only; canonical auth profile is users/{uid}.
+  if (
+    (resolved.role === "player" || resolved.role === "organiser")
+    && managedUser
+    && (!managedUser.userId || managedUser.userId === user.uid)
+    && managedUser.id === resolved.email
+  ) {
     await upsertManagedUser(db, {
       id: managedUser?.id,
-      email: resolved.email,
-      displayName: resolved.displayName,
+      email: managedUser.email,
+      displayName: managedUser.displayName || resolved.displayName,
       role: resolved.role,
-      status: resolved.status,
+      status: managedUser.status || resolved.status,
       userId: user.uid,
     });
     console.log("[auth] upsertManagedUser done for role:", resolved.role);

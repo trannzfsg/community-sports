@@ -31,8 +31,20 @@ export default function AdminOrganisersPage() {
   const [dataPartition, setDataPartition] = useState<DataPartition>("live");
 
   const loadOrganisers = useCallback(async (partition = dataPartition) => {
-    const items = await getManagedUsersByRole(db, "organiser", partition);
+    const [items, registeredOrganiserUsers] = await Promise.all([
+      getManagedUsersByRole(db, "organiser", partition),
+      getDocs(query(collection(db, "users"), where("role", "==", "organiser"), where("dataPartition", "==", partition))),
+    ]);
     const groupedByEmail = new Map<string, ManagedUserRecord[]>();
+    const registeredByEmail = new Map(
+      registeredOrganiserUsers.docs
+        .map((userDoc) => ({
+          id: userDoc.id,
+          ...(userDoc.data() as { email?: string; displayName?: string; status?: "active" | "inactive" }),
+        }))
+        .filter((user) => user.email)
+        .map((user) => [normalizeEmail(user.email || ""), user]),
+    );
 
     for (const item of items) {
       const emailKey = normalizeEmail(item.email);
@@ -50,14 +62,15 @@ export default function AdminOrganisersPage() {
         || records.find((record) => record.isPending)
         || records[0];
       const linkedRecord = records.find((record) => record.userId) || null;
+      const registeredRecord = registeredByEmail.get(normalizeEmail(primaryManagedRecord.email || linkedRecord?.email || "")) || null;
       const mergedStatus = records.some((record) => record.status === "inactive") ? "inactive" : "active";
 
       return {
         ...primaryManagedRecord,
-        email: primaryManagedRecord.email || linkedRecord?.email || "",
-        displayName: primaryManagedRecord.displayName || linkedRecord?.displayName || primaryManagedRecord.email,
-        userId: primaryManagedRecord.userId || linkedRecord?.userId || null,
-        status: mergedStatus,
+        email: primaryManagedRecord.email || linkedRecord?.email || registeredRecord?.email || "",
+        displayName: primaryManagedRecord.displayName || linkedRecord?.displayName || registeredRecord?.displayName || primaryManagedRecord.email,
+        userId: primaryManagedRecord.userId || linkedRecord?.userId || registeredRecord?.id || null,
+        status: registeredRecord?.status || mergedStatus,
       } satisfies ManagedUserRecord;
     });
 
@@ -181,7 +194,7 @@ export default function AdminOrganisersPage() {
     setError("");
 
     try {
-      await updateDoc(doc(db, "users", organiser.id), {
+      await updateDoc(doc(db, "managedUsers", organiser.id), {
         status: "inactive",
         updatedAt: serverTimestamp(),
       });
@@ -214,7 +227,7 @@ export default function AdminOrganisersPage() {
     setError("");
 
     try {
-      await setDoc(doc(db, "users", organiser.id), {
+      await setDoc(doc(db, "managedUsers", organiser.id), {
         status: "active",
         updatedAt: serverTimestamp(),
       }, { merge: true });

@@ -150,10 +150,11 @@ export async function getVisiblePlayersForOrganiserManagement(
   dataPartition?: DataPartition,
 ) {
   const partition = resolveDataPartition(undefined, dataPartition);
-  const [ownedPlayersSnapshot, sessionsSnapshot, usersSnapshot] = await Promise.all([
+  const [ownedPlayersSnapshot, sessionsSnapshot, usersSnapshot, managedUsersSnapshot] = await Promise.all([
     getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", organiserId))),
     getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition), where("organiserId", "==", organiserId))),
     getDocs(query(collection(db, "users"), where("dataPartition", "==", partition))),
+    getDocs(query(collection(db, "managedUsers"), where("dataPartition", "==", partition), where("role", "==", "player"))),
   ]);
 
   const ownedPlayers = ownedPlayersSnapshot.docs.map((playerDoc) => ({
@@ -170,9 +171,18 @@ export async function getVisiblePlayersForOrganiserManagement(
     }),
   }));
   const usersById = new Map(users.map((user) => [user.id, user]));
-  const pendingUsersByEmail = new Map(
-    users
-      .filter((user) => user.isPending && user.email)
+  const managedUsersByEmail = new Map(
+    managedUsersSnapshot.docs
+      .map((managedDoc) => ({
+        id: managedDoc.id,
+        ...(managedDoc.data() as {
+          email?: string;
+          status?: "active" | "inactive";
+          userId?: string | null;
+          displayName?: string;
+        }),
+      }))
+      .filter((user) => user.email)
       .map((user) => [normalizePlayerEmail(user.email || ""), user]),
   );
 
@@ -211,8 +221,8 @@ export async function getVisiblePlayersForOrganiserManagement(
     const key = buildVisiblePlayerKey({ email: player.email, fallback: player.id });
     const existing = visiblePlayers.get(key);
     const linkedUser = player.userId ? usersById.get(player.userId) : null;
-    const pendingUser = pendingUsersByEmail.get(normalizePlayerEmail(player.email));
-    const status = linkedUser?.status || pendingUser?.status || player.status || "active";
+    const managedUser = managedUsersByEmail.get(normalizePlayerEmail(player.email));
+    const status = linkedUser?.status || managedUser?.status || player.status || "active";
     const nextRecord: OrganiserVisiblePlayerRecord = {
       key,
       displayName: player.displayName,
@@ -264,8 +274,8 @@ export async function getVisiblePlayersForOrganiserManagement(
     const ownerOrganiserId = storedPlayer?.ownerOrganiserId ?? null;
     const userId = storedPlayer?.userId || (registration.userId.startsWith("manual-player__") ? null : registration.userId);
     const linkedUser = userId ? usersById.get(userId) : null;
-    const pendingUser = email ? pendingUsersByEmail.get(normalizePlayerEmail(email)) : null;
-    const status = linkedUser?.status || pendingUser?.status || storedPlayer?.status || "active";
+    const managedUser = email ? managedUsersByEmail.get(normalizePlayerEmail(email)) : null;
+    const status = linkedUser?.status || managedUser?.status || storedPlayer?.status || "active";
     const isOwnedPrivatePlayer = ownerOrganiserId === organiserId && !userId;
 
     if (existing) {

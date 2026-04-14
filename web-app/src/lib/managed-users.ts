@@ -44,15 +44,14 @@ export async function getManagedUserByEmail(db: Firestore, email: string) {
   if (!normalized) return null;
 
   try {
-    const snapshot = await getDoc(doc(db, "users", buildManagedUserId(normalized)));
+    const snapshot = await getDoc(doc(db, "managedUsers", buildManagedUserId(normalized)));
     if (!snapshot.exists()) return null;
 
     const data = snapshot.data() as Omit<ManagedUserRecord, "id">;
-    if (!data.isPending) return null;
-
     return {
       id: snapshot.id,
       ...data,
+      isPending: true,
     };
   } catch (err) {
     // This can happen on first login if users/{uid} doesn't exist yet and the Firestore
@@ -68,13 +67,14 @@ export async function getManagedUsersByRole(
   dataPartition?: DataPartition,
 ) {
   const snapshot = dataPartition
-    ? await getDocs(query(collection(db, "users"), where("dataPartition", "==", dataPartition)))
-    : await getDocs(query(collection(db, "users"), where("role", "==", role), where("isPending", "==", true)));
+    ? await getDocs(query(collection(db, "managedUsers"), where("dataPartition", "==", dataPartition), where("role", "==", role)))
+    : await getDocs(query(collection(db, "managedUsers"), where("role", "==", role)));
 
   return snapshot.docs.map((managedUserDoc) => ({
     id: managedUserDoc.id,
     ...(managedUserDoc.data() as Omit<ManagedUserRecord, "id">),
-  })).filter((managedUser) => managedUser.role === role && managedUser.isPending);
+    isPending: true,
+  })).filter((managedUser) => managedUser.role === role);
 }
 
 export async function upsertManagedUser(
@@ -94,7 +94,7 @@ export async function upsertManagedUser(
   const id = previousId && previousId === canonicalId ? previousId : canonicalId;
 
   await setDoc(
-    doc(db, "users", id),
+    doc(db, "managedUsers", id),
     {
       email: normalizedEmail,
       displayName: input.displayName.trim(),
@@ -109,7 +109,7 @@ export async function upsertManagedUser(
   );
 
   if (previousId && previousId !== id) {
-    await deleteDoc(doc(db, "users", previousId));
+    await deleteDoc(doc(db, "managedUsers", previousId));
   }
 
   return id;
