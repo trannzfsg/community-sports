@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateEmail, type User } from "firebase/auth";
+import { type User } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { getManagedUserByEmail, normalizeEmail, upsertManagedUser } from "@/lib/managed-users";
@@ -145,13 +145,11 @@ export default function ProfilePage() {
 
     try {
       const trimmedName = name.trim();
-      const normalizedNextEmail = normalizeEmail(email);
-      const normalizedCurrentAuthEmail = normalizeEmail(user.email || "");
+      const normalizedCurrentEmail = normalizeEmail(email);
 
       console.log("[profile] save start", {
         uid: user.uid,
-        currentEmail: normalizedCurrentAuthEmail,
-        nextEmail: normalizedNextEmail,
+        currentEmail: normalizedCurrentEmail,
         role,
         skillLevel,
       });
@@ -160,23 +158,13 @@ export default function ProfilePage() {
         throw new Error("Display name is required.");
       }
 
-      if (!normalizedNextEmail) {
+      if (!normalizedCurrentEmail) {
         throw new Error("Email is required.");
-      }
-
-      const existingManaged = await getManagedUserByEmail(db, normalizedNextEmail);
-      if (existingManaged && existingManaged.userId && existingManaged.userId !== user.uid) {
-        throw new Error("Another user already uses this email.");
-      }
-
-      if (normalizedNextEmail !== normalizedCurrentAuthEmail) {
-        console.log("[profile] updating auth email");
-        await updateEmail(user, normalizedNextEmail);
       }
 
       await setDoc(doc(db, "users", user.uid), {
         displayName: trimmedName,
-        email: normalizedNextEmail,
+        email: normalizedCurrentEmail,
         role,
         updatedAt: serverTimestamp(),
       }, { merge: true });
@@ -186,16 +174,18 @@ export default function ProfilePage() {
           ownerOrganiserId: null,
           userId: user.uid,
           displayName: trimmedName,
-          email: normalizedNextEmail,
+          email: normalizedCurrentEmail,
           source: "self-registered",
           skillLevel: skillLevel || null,
           updatedAt: serverTimestamp(),
         }, { merge: true });
       }
 
+      const existingManaged = await getManagedUserByEmail(db, normalizedCurrentEmail);
       if (role === "player" || role === "organiser") {
         await upsertManagedUser(db, {
-          email: normalizedNextEmail,
+          id: existingManaged?.id,
+          email: normalizedCurrentEmail,
           displayName: trimmedName,
           role,
           status: "active",
@@ -205,7 +195,7 @@ export default function ProfilePage() {
 
       setCurrentUser(auth.currentUser);
       setName(trimmedName);
-      setEmail(normalizedNextEmail);
+      setEmail(normalizedCurrentEmail);
       setMessage("Profile saved.");
       console.log("[profile] save success");
     } catch (error) {
@@ -243,7 +233,7 @@ export default function ProfilePage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Email</span>
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" />
+            <input type="email" value={email} disabled className="w-full rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-3 text-zinc-600" />
           </label>
 
           <label className="block">

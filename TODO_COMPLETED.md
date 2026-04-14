@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Remove ability to change email address from Profile page for all user types, make it ready only.
 - [x] Admin user should be able to see self-registered players, and organisers' private players. Each organisers' private players should be its own section. Admin has ability to edit everything of players (except emails as per later todos).
 - [x] Organiser user login, manage players screen - move skill level drop down from list read view, into section triggered by "edit" button. This makes it clearer between read view and edit view of a player.
 - [x] Organiser user login, manage players screen - the private players are still displaying in "registered players" section (they're also displaying in "your private players" section), that's duplicated and should be removed from "registered players" section.
