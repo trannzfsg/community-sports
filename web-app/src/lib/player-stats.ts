@@ -150,19 +150,31 @@ export async function getVisiblePlayersForOrganiserManagement(
   dataPartition?: DataPartition,
 ) {
   const partition = resolveDataPartition(undefined, dataPartition);
-  const [ownedPlayersSnapshot, sharedPlayersSnapshot, sessionsSnapshot, usersSnapshot, managedUsersSnapshot] = await Promise.all([
+  const [ownedPlayersSnapshot, sharedPlayersSnapshot, sessionsSnapshot] = await Promise.all([
     getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", organiserId))),
     getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", null))),
     getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition), where("organiserId", "==", organiserId))),
-    getDocs(query(collection(db, "users"), where("dataPartition", "==", partition))),
-    getDocs(query(collection(db, "managedUsers"), where("dataPartition", "==", partition), where("role", "==", "player"))),
   ]);
+
+  const usersSnapshot = await getDocs(
+    query(collection(db, "users"), where("dataPartition", "==", partition)),
+  ).catch((error) => {
+    console.warn("[organiser players] users query fallback", error);
+    return null;
+  });
+
+  const managedUsersSnapshot = await getDocs(
+    query(collection(db, "managedUsers"), where("dataPartition", "==", partition), where("role", "==", "player")),
+  ).catch((error) => {
+    console.warn("[organiser players] managedUsers query fallback", error);
+    return null;
+  });
 
   const ownedPlayers = ownedPlayersSnapshot.docs.map((playerDoc) => ({
     id: playerDoc.id,
     ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
   })).filter((player) => (!player.dataPartition || player.dataPartition === partition) && player.ownerOrganiserId === organiserId);
-  const users = usersSnapshot.docs.map((userDoc) => ({
+  const users = (usersSnapshot?.docs || []).map((userDoc) => ({
     id: userDoc.id,
     ...(userDoc.data() as {
       email?: string;
@@ -173,7 +185,7 @@ export async function getVisiblePlayersForOrganiserManagement(
   }));
   const usersById = new Map(users.map((user) => [user.id, user]));
   const managedUsersByEmail = new Map(
-    managedUsersSnapshot.docs
+    (managedUsersSnapshot?.docs || [])
       .map((managedDoc) => ({
         id: managedDoc.id,
         ...(managedDoc.data() as {
