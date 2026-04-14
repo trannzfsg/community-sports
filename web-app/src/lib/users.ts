@@ -29,17 +29,14 @@ export async function getUsersByRole(
   role: UserRecord["role"],
   dataPartition?: DataPartition,
 ) {
-  const constraints = [where("role", "==", role)];
-  if (dataPartition) {
-    constraints.push(where("dataPartition", "==", dataPartition));
-  }
-
-  const snapshot = await getDocs(query(collection(db, "users"), ...constraints));
+  const snapshot = dataPartition
+    ? await getDocs(query(collection(db, "users"), where("dataPartition", "==", dataPartition)))
+    : await getDocs(query(collection(db, "users"), where("role", "==", role)));
 
   return snapshot.docs.map((userDoc) => ({
     id: userDoc.id,
     ...(userDoc.data() as Omit<UserRecord, "id">),
-  }));
+  })).filter((user) => user.role === role);
 }
 
 export async function getUserById(db: Firestore, userId: string) {

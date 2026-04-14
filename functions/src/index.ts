@@ -28,7 +28,7 @@ function applyCors(request: Request, response: Response) {
   }
   response.set("Vary", "Origin");
   response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  response.set("Access-Control-Allow-Headers", "Content-Type");
+  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
 /**

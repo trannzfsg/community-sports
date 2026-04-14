@@ -337,7 +337,7 @@ service cloud.firestore {
       // This is needed on first login: the user has no users/{uid} yet so isOrganiser/isAdmin
       // are false, but they still need to read users/{email} to resolve their pre-assigned role.
       allow read: if isOwner(userId)
-        || ((isAdmin() || isOrganiser()) && partitionMatchesRequest(userPartitionFromData(resource.data)))
+        || ((isAdmin() || isOrganiser()) && partitionMatchesRequest(resource.data.dataPartition))
         || (isSignedIn() && userId == signedInEmail());
 
       // A user can create their own profile doc (userId == their uid).
@@ -399,9 +399,9 @@ service cloud.firestore {
     }
 
     match /players/{playerId} {
-      allow read: if (isAdmin() && partitionMatchesRequest(playerPartitionFromData(resource.data)))
-        || (isPlayer() && partitionMatchesRequest(playerPartitionFromData(resource.data)))
-        || (isOrganiser() && partitionMatchesRequest(playerPartitionFromData(resource.data)) && (resource == null || resource.data.ownerOrganiserId == request.auth.uid || resource.data.ownerOrganiserId == null))
+      allow read: if (isAdmin() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isPlayer() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isOrganiser() && partitionMatchesRequest(resource.data.dataPartition) && (resource == null || resource.data.ownerOrganiserId == request.auth.uid || resource.data.ownerOrganiserId == null))
         || (isSignedIn() && resource != null && resource.data.userId == request.auth.uid);
       allow create: if (isAdmin() && partitionMatchesRequest(playerPartitionFromData(request.resource.data)))
         && playerDataMatchesPartition(request.resource.data)
@@ -424,9 +424,9 @@ service cloud.firestore {
     }
 
     match /sessions/{sessionId} {
-      allow read: if (isAdmin() && partitionMatchesRequest(sessionPartitionFromData(resource.data)))
-        || (isPlayer() && partitionMatchesRequest(sessionPartitionFromData(resource.data)))
-        || (isOrganiser() && partitionMatchesRequest(sessionPartitionFromData(resource.data)) && seriesOwnedByCurrentOrganiser());
+      allow read: if (isAdmin() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isPlayer() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isOrganiser() && partitionMatchesRequest(resource.data.dataPartition) && seriesOwnedByCurrentOrganiser());
       allow create: if ((isAdmin() || (isOrganiser() && newSeriesOwnedByCurrentOrganiser()))
         && partitionMatchesRequest(sessionPartitionFromData(request.resource.data))
         && sessionDataMatchesPartition(request.resource.data)
@@ -442,9 +442,9 @@ service cloud.firestore {
     }
 
     match /sessionEvents/{eventId} {
-      allow read: if (isAdmin() && partitionMatchesRequest(eventPartitionFromData(resource.data)))
-        || (isPlayer() && partitionMatchesRequest(eventPartitionFromData(resource.data)))
-        || (isOrganiser() && partitionMatchesRequest(eventPartitionFromData(resource.data)) && (eventOwnedByCurrentOrganiser() || eventBelongsToCurrentOrganiserBySeries()));
+      allow read: if (isAdmin() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isPlayer() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isOrganiser() && partitionMatchesRequest(resource.data.dataPartition) && (eventOwnedByCurrentOrganiser() || eventBelongsToCurrentOrganiserBySeries()));
       allow create: if (isAdmin() || (isOrganiser() && newEventOwnedByCurrentOrganiser()))
         && partitionMatchesRequest(eventPartitionFromData(request.resource.data))
         && eventDataMatchesPartition(request.resource.data);
@@ -456,7 +456,7 @@ service cloud.firestore {
     }
 
     match /registrations/{registrationId} {
-      allow read: if isSignedIn() && partitionMatchesRequest(registrationPartitionFromData(resource.data));
+      allow read: if isSignedIn() && partitionMatchesRequest(resource.data.dataPartition);
       allow create: if (isAdmin()
           || newRegistrationForOrganiserEvent()
           || newRegistrationForOrganiserSeries()
@@ -490,9 +490,9 @@ service cloud.firestore {
     }
 
     match /payments/{paymentId} {
-      allow read: if (isAdmin() && partitionMatchesRequest(paymentPartitionFromData(resource.data)))
-        || (isOrganiser() && partitionMatchesRequest(paymentPartitionFromData(resource.data)) && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration()))
-        || (isSignedIn() && partitionMatchesRequest(paymentPartitionFromData(resource.data)) && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()));
+      allow read: if (isAdmin() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isOrganiser() && partitionMatchesRequest(resource.data.dataPartition) && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration()))
+        || (isSignedIn() && partitionMatchesRequest(resource.data.dataPartition) && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()));
       allow create: if (isAdmin()
           || (isOrganiser() && (request.resource.data.organiserId == request.auth.uid || newPaymentBelongsToOrganiserByRegistration()))
           || (isSignedIn() && (request.resource.data.userId == request.auth.uid || newPaymentHasOwnedRegistration())))

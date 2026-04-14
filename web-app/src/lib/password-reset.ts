@@ -5,6 +5,9 @@ export type PasswordResetLookupResult = {
 
 const DEFAULT_FUNCTION_REGION = "us-central1";
 const DEFAULT_FUNCTION_NAME = "passwordResetLookup";
+const DEFAULT_FUNCTION_URLS: Record<string, string> = {
+  "community-sports-6584e": "https://passwordresetlookup-cyz7zlp3oq-uc.a.run.app",
+};
 
 function getPasswordResetLookupUrl() {
   const configuredUrl = process.env.NEXT_PUBLIC_PASSWORD_RESET_LOOKUP_URL?.trim();
@@ -15,6 +18,10 @@ function getPasswordResetLookupUrl() {
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   if (!projectId) {
     throw new Error("Missing Firebase project configuration.");
+  }
+
+  if (DEFAULT_FUNCTION_URLS[projectId]) {
+    return DEFAULT_FUNCTION_URLS[projectId];
   }
 
   return `https://${DEFAULT_FUNCTION_REGION}-${projectId}.cloudfunctions.net/${DEFAULT_FUNCTION_NAME}`;

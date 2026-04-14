@@ -66,17 +66,14 @@ export async function getManagedUsersByRole(
   role: ManagedUserRole,
   dataPartition?: DataPartition,
 ) {
-  const constraints = [where("role", "==", role), where("isPending", "==", true)];
-  if (dataPartition) {
-    constraints.push(where("dataPartition", "==", dataPartition));
-  }
-
-  const snapshot = await getDocs(query(collection(db, "users"), ...constraints));
+  const snapshot = dataPartition
+    ? await getDocs(query(collection(db, "users"), where("dataPartition", "==", dataPartition)))
+    : await getDocs(query(collection(db, "users"), where("role", "==", role), where("isPending", "==", true)));
 
   return snapshot.docs.map((managedUserDoc) => ({
     id: managedUserDoc.id,
     ...(managedUserDoc.data() as Omit<ManagedUserRecord, "id">),
-  }));
+  })).filter((managedUser) => managedUser.role === role && managedUser.isPending);
 }
 
 export async function upsertManagedUser(

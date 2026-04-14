@@ -89,15 +89,11 @@ export default function ProfilePage() {
         const refreshedUser = auth.currentUser || user;
         setCurrentUser(user);
 
-        const [userSnapshot, playerSnapshot] = await Promise.all([
-          getDoc(doc(db, "users", refreshedUser.uid)),
-          getDoc(doc(db, "players", refreshedUser.uid)),
-        ]);
+        const userSnapshot = await getDoc(doc(db, "users", refreshedUser.uid));
 
         console.log("[profile] firestore snapshots", {
           uid: refreshedUser.uid,
           userExists: userSnapshot.exists(),
-          playerExists: playerSnapshot.exists(),
         });
 
         let userData: UserProfile;
@@ -147,10 +143,17 @@ export default function ProfilePage() {
 
         if (cancelled) return;
 
+        const playerSnapshot = userData.role === "player"
+          ? await getDoc(doc(db, "players", refreshedUser.uid))
+          : null;
+        const nextSkillLevel = userData.role === "player"
+          ? (playerSnapshot?.data()?.skillLevel as SkillLevel | undefined) || ""
+          : "";
+
         setName(userData.displayName || "");
         setEmail(userData.email || refreshedUser.email || "");
         setRole(userData.role);
-        setSkillLevel((playerSnapshot.data()?.skillLevel as SkillLevel | undefined) || "");
+        setSkillLevel(nextSkillLevel);
         setGamesPlayedByOrganiser(
           userData.role === "player"
             ? await getGamesPlayedByOrganiserForPlayer(
@@ -165,7 +168,7 @@ export default function ProfilePage() {
           uid: refreshedUser.uid,
           role: userData.role,
           email: userData.email || refreshedUser.email || "",
-          skillLevel: (playerSnapshot.data()?.skillLevel as SkillLevel | undefined) || "",
+          skillLevel: nextSkillLevel,
         });
       } catch (error) {
         if (cancelled) return;

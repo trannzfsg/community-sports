@@ -5,6 +5,9 @@ export type SyncProfileEmailChangeResult = {
 const DEFAULT_FUNCTION_REGION = "us-central1";
 const DEFAULT_FUNCTION_NAME = "syncUserEmailChange";
 const PENDING_EMAIL_CHANGE_KEY = "pending-profile-email-change";
+const DEFAULT_FUNCTION_URLS: Record<string, string> = {
+  "community-sports-6584e": "https://syncuseremailchange-cyz7zlp3oq-uc.a.run.app",
+};
 
 export type PendingEmailChange = {
   previousEmail: string;
@@ -12,9 +15,18 @@ export type PendingEmailChange = {
 };
 
 function getSyncUserEmailChangeUrl() {
+  const configuredUrl = process.env.NEXT_PUBLIC_SYNC_USER_EMAIL_CHANGE_URL?.trim();
+  if (configuredUrl) {
+    return configuredUrl;
+  }
+
   const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
   if (!projectId) {
     throw new Error("Missing Firebase project configuration.");
+  }
+
+  if (DEFAULT_FUNCTION_URLS[projectId]) {
+    return DEFAULT_FUNCTION_URLS[projectId];
   }
 
   return `https://${DEFAULT_FUNCTION_REGION}-${projectId}.cloudfunctions.net/${DEFAULT_FUNCTION_NAME}`;

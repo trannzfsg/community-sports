@@ -90,8 +90,7 @@ export async function getVisiblePlayersForOrganiser(
   const partition = resolveDataPartition(undefined, dataPartition);
   const [snapshots, adminUsers, organiserUsers] = await Promise.all([
     Promise.all([
-      getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId), where("dataPartition", "==", partition))),
-      getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", null), where("dataPartition", "==", partition))),
+      getDocs(query(collection(db, "players"), where("dataPartition", "==", partition))),
     ]),
     getUsersByRole(db, "admin", partition),
     getUsersByRole(db, "organiser", partition),
@@ -112,6 +111,14 @@ export async function getVisiblePlayersForOrganiser(
       };
 
       if (player.userId && excludedUserIds.has(player.userId)) {
+        continue;
+      }
+
+      if (player.dataPartition && player.dataPartition !== partition) {
+        continue;
+      }
+
+      if (player.ownerOrganiserId != null && player.ownerOrganiserId !== organiserId && player.ownerOrganiserId !== null) {
         continue;
       }
 

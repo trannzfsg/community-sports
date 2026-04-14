@@ -1,5 +1,6 @@
 # To-Do List
 
+- [ ] Add admin-only inactive/reactivate organiser sections, matching the player lifecycle pattern.
 - [ ] Add a test-data partition so `@example.com` users bypass email verification, stay isolated from live users/sessions/events, and are managed only by `admin@example.com` while live data stays visible only to the real admin.
 - [ ] Fix organiser self-registration regression where admin-created organiser accounts can fall back to player role on first verified sign-in.
 - [ ] Make the post-registration verification guidance persist clearly on the login screen, including a junk/spam inbox hint.

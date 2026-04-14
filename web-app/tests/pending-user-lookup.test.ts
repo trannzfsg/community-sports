@@ -30,7 +30,7 @@ test("lookupPendingUserProfile uses deployed function url and returns role paylo
     const result = await lookupPendingUserProfile("id-token-123");
     assert.equal(
       capturedUrl,
-      "https://us-central1-community-sports-6584e.cloudfunctions.net/lookupPendingUserProfile",
+      "https://lookuppendinguserprofile-cyz7zlp3oq-uc.a.run.app",
     );
     assert.equal(capturedAuthHeader, "Bearer id-token-123");
     assert.deepEqual(result, {

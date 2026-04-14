@@ -151,15 +151,15 @@ export async function getVisiblePlayersForOrganiserManagement(
 ) {
   const partition = resolveDataPartition(undefined, dataPartition);
   const [ownedPlayersSnapshot, sessionsSnapshot, usersSnapshot] = await Promise.all([
-    getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId), where("dataPartition", "==", partition))),
-    getDocs(query(collection(db, "sessions"), where("organiserId", "==", organiserId), where("dataPartition", "==", partition))),
+    getDocs(query(collection(db, "players"), where("dataPartition", "==", partition))),
+    getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition))),
     getDocs(query(collection(db, "users"), where("dataPartition", "==", partition))),
   ]);
 
   const ownedPlayers = ownedPlayersSnapshot.docs.map((playerDoc) => ({
     id: playerDoc.id,
     ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
-  }));
+  })).filter((player) => (!player.dataPartition || player.dataPartition === partition) && player.ownerOrganiserId === organiserId);
   const users = usersSnapshot.docs.map((userDoc) => ({
     id: userDoc.id,
     ...(userDoc.data() as {
@@ -176,16 +176,23 @@ export async function getVisiblePlayersForOrganiserManagement(
       .map((user) => [normalizePlayerEmail(user.email || ""), user]),
   );
 
-  const registrationsBySeries = await Promise.all(
-    sessionsSnapshot.docs.map((sessionDoc) => (
-      getDocs(query(collection(db, "registrations"), where("sessionSeriesId", "==", sessionDoc.id), where("dataPartition", "==", partition)))
-    )),
+  const ownedSessionIds = new Set(
+    sessionsSnapshot.docs
+      .map((sessionDoc) => ({
+        id: sessionDoc.id,
+        ...(sessionDoc.data() as { organiserId?: string }),
+      }))
+      .filter((session) => session.organiserId === organiserId)
+      .map((session) => session.id),
+  );
+  const registrationsSnapshot = await getDocs(
+    query(collection(db, "registrations"), where("dataPartition", "==", partition)),
   );
 
-  const registeredEntries = registrationsBySeries.flatMap((snapshot) => snapshot.docs.map((registrationDoc) => ({
+  const registeredEntries = registrationsSnapshot.docs.map((registrationDoc) => ({
     id: registrationDoc.id,
     ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-  })));
+  })).filter((registration) => ownedSessionIds.has(registration.sessionSeriesId));
 
   const playerIds = Array.from(new Set(registeredEntries.map((registration) => registration.userId).filter(Boolean)));
   const playerSnapshots = await Promise.all(

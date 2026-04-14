@@ -181,6 +181,39 @@ export default function AdminOrganisersPage() {
     }
   }
 
+  async function handleReactivate(organiser: ManagedUserRecord) {
+    setBusyKey(`reactivate-${organiser.id}`);
+    setError("");
+
+    try {
+      await setDoc(doc(db, "users", organiser.id), {
+        status: "active",
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
+      if (organiser.userId) {
+        await setDoc(doc(db, "users", organiser.userId), {
+          status: "active",
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+
+        const seriesSnapshot = await getDocs(
+          query(collection(db, "sessions"), where("organiserId", "==", organiser.userId), where("dataPartition", "==", dataPartition)),
+        );
+
+        await Promise.all(
+          seriesSnapshot.docs.map((seriesDoc) => updateDoc(seriesDoc.ref, { status: "active" })),
+        );
+      }
+
+      await loadOrganisers();
+    } catch (reactivateError) {
+      setError(reactivateError instanceof Error ? reactivateError.message : "Failed to reactivate organiser.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
@@ -191,6 +224,10 @@ export default function AdminOrganisersPage() {
 
   const registeredOrganisers = organisers.filter((organiser) => organiser.userId);
   const pendingOrganisers = organisers.filter((organiser) => !organiser.userId);
+  const activeRegisteredOrganisers = registeredOrganisers.filter((organiser) => organiser.status !== "inactive");
+  const inactiveRegisteredOrganisers = registeredOrganisers.filter((organiser) => organiser.status === "inactive");
+  const activePendingOrganisers = pendingOrganisers.filter((organiser) => organiser.status !== "inactive");
+  const inactivePendingOrganisers = pendingOrganisers.filter((organiser) => organiser.status === "inactive");
 
   function renderOrganiserCard(organiser: ManagedUserRecord) {
     const isEditing = editingId === organiser.id;
@@ -285,6 +322,30 @@ export default function AdminOrganisersPage() {
     );
   }
 
+  function renderInactiveOrganiserCard(organiser: ManagedUserRecord) {
+    const isReactivating = busyKey === `reactivate-${organiser.id}`;
+
+    return (
+      <div key={organiser.id} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="font-medium text-zinc-900">{organiser.displayName}</div>
+            <div className="text-sm text-zinc-500">{organiser.email}</div>
+            <div className="mt-1 text-xs text-zinc-500">Status: inactive{organiser.userId ? ` • linked: ${organiser.userId}` : " • not registered yet"}</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleReactivate(organiser)}
+            disabled={isReactivating}
+            className="rounded-full border border-emerald-300 px-4 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isReactivating ? "Reactivating..." : "Reactivate organiser"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
@@ -326,7 +387,14 @@ export default function AdminOrganisersPage() {
               <h3 className="text-lg font-semibold text-zinc-900">Registered organisers</h3>
               <p className="mt-2 text-sm text-zinc-600">These organisers have already linked an auth account, so their email stays readonly in edit mode.</p>
               <div className="mt-4 space-y-3">
-                {registeredOrganisers.length ? registeredOrganisers.map((organiser) => renderOrganiserCard(organiser)) : <div className="text-sm text-zinc-500">No registered organisers yet.</div>}
+                {activeRegisteredOrganisers.length ? activeRegisteredOrganisers.map((organiser) => renderOrganiserCard(organiser)) : <div className="text-sm text-zinc-500">No registered organisers yet.</div>}
+              </div>
+
+              <div className="mt-8">
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">Inactive</h4>
+                <div className="mt-3 space-y-3">
+                  {inactiveRegisteredOrganisers.length ? inactiveRegisteredOrganisers.map((organiser) => renderInactiveOrganiserCard(organiser)) : <div className="text-sm text-zinc-500">No inactive registered organisers.</div>}
+                </div>
               </div>
             </section>
 
@@ -334,7 +402,14 @@ export default function AdminOrganisersPage() {
               <h3 className="text-lg font-semibold text-zinc-900">Not registered yet</h3>
               <p className="mt-2 text-sm text-zinc-600">These organiser records are still pending, so admins can correct the email before the user signs in.</p>
               <div className="mt-4 space-y-3">
-                {pendingOrganisers.length ? pendingOrganisers.map((organiser) => renderOrganiserCard(organiser)) : <div className="text-sm text-zinc-500">No pending organisers.</div>}
+                {activePendingOrganisers.length ? activePendingOrganisers.map((organiser) => renderOrganiserCard(organiser)) : <div className="text-sm text-zinc-500">No pending organisers.</div>}
+              </div>
+
+              <div className="mt-8">
+                <h4 className="text-sm font-semibold uppercase tracking-wide text-zinc-600">Inactive</h4>
+                <div className="mt-3 space-y-3">
+                  {inactivePendingOrganisers.length ? inactivePendingOrganisers.map((organiser) => renderInactiveOrganiserCard(organiser)) : <div className="text-sm text-zinc-500">No inactive pending organisers.</div>}
+                </div>
               </div>
             </section>
           </div>

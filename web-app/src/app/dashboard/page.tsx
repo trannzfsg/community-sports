@@ -9,7 +9,6 @@ import {
   doc,
   getDoc,
   getDocs,
-  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -161,52 +160,43 @@ export default function DashboardPage() {
           profileData.role === "organiser"
             ? query(
                 collection(db, "sessions"),
-                where("dataPartition", "==", dataPartition),
                 where("organiserId", "==", currentUser.uid),
-                orderBy("dayOfWeek"),
               )
-            : query(collection(db, "sessions"), where("dataPartition", "==", dataPartition), orderBy("dayOfWeek"));
+            : query(collection(db, "sessions"), where("dataPartition", "==", dataPartition));
 
         const seriesSnapshots = await getDocs(seriesQuery);
         const seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
           id: sessionDoc.id,
           ...(sessionDoc.data() as Omit<SessionSeries, "id">),
-        }));
+        })).sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek));
 
         const eventMap: Record<string, SessionEvent[]> = {};
         const registrationMap: Record<string, RegistrationItem[]> = {};
+        const eventSnapshotsByPartition = await getDocs(
+          query(collection(db, "sessionEvents"), where("dataPartition", "==", dataPartition)),
+        );
+        const registrationSnapshotsByPartition = await getDocs(
+          query(collection(db, "registrations"), where("dataPartition", "==", dataPartition)),
+        );
+        const allEventItems = eventSnapshotsByPartition.docs.map((eventDoc) => ({
+          id: eventDoc.id,
+          ...(eventDoc.data() as Omit<SessionEvent, "id">),
+        }));
+        const allRegistrationItems = registrationSnapshotsByPartition.docs.map((registrationDoc) => ({
+          id: registrationDoc.id,
+          ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+        }));
 
         await Promise.all(
           seriesItems.map(async (series) => {
-            const eventSnapshots = await getDocs(
-              query(
-                collection(db, "sessionEvents"),
-                where("sessionSeriesId", "==", series.id),
-                where("dataPartition", "==", dataPartition),
-              ),
-            );
-
-            const rawEventItems = eventSnapshots.docs
-              .map((eventDoc) => ({
-                id: eventDoc.id,
-                ...(eventDoc.data() as Omit<SessionEvent, "id">),
-              }))
+            const rawEventItems = allEventItems
+              .filter((event) => event.sessionSeriesId === series.id)
               .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
 
             await Promise.all(
               rawEventItems.map(async (event) => {
-                const registrationsSnapshot = await getDocs(
-                  query(
-                    collection(db, "registrations"),
-                    where("sessionEventId", "==", event.id),
-                    where("dataPartition", "==", dataPartition),
-                  ),
-                );
                 registrationMap[event.id] = sortRegistrations(
-                  registrationsSnapshot.docs.map((registrationDoc) => ({
-                    id: registrationDoc.id,
-                    ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-                  })),
+                  allRegistrationItems.filter((registration) => registration.sessionEventId === event.id),
                   currentUser.uid,
                 );
               }),
@@ -260,9 +250,8 @@ export default function DashboardPage() {
   }, [profile?.role]);
 
   async function refreshSeriesData(seriesId: string) {
-    const dataPartition = profile?.dataPartition || "live";
     const eventSnapshots = await getDocs(
-      query(collection(db, "sessionEvents"), where("sessionSeriesId", "==", seriesId), where("dataPartition", "==", dataPartition)),
+      query(collection(db, "sessionEvents"), where("dataPartition", "==", profile?.dataPartition || "live")),
     );
 
     const rawEventItems = eventSnapshots.docs
@@ -270,19 +259,21 @@ export default function DashboardPage() {
         id: eventDoc.id,
         ...(eventDoc.data() as Omit<SessionEvent, "id">),
       }))
+      .filter((event) => event.sessionSeriesId === seriesId)
       .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
 
     const registrationMap: Record<string, RegistrationItem[]> = {};
+    const registrationsSnapshot = await getDocs(
+      query(collection(db, "registrations"), where("dataPartition", "==", profile?.dataPartition || "live")),
+    );
+    const allRegistrations = registrationsSnapshot.docs.map((registrationDoc) => ({
+      id: registrationDoc.id,
+      ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+    }));
     await Promise.all(
       rawEventItems.map(async (event) => {
-        const registrationsSnapshot = await getDocs(
-          query(collection(db, "registrations"), where("sessionEventId", "==", event.id), where("dataPartition", "==", dataPartition)),
-        );
         registrationMap[event.id] = sortRegistrations(
-          registrationsSnapshot.docs.map((registrationDoc) => ({
-            id: registrationDoc.id,
-            ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-          })),
+          allRegistrations.filter((registration) => registration.sessionEventId === event.id),
           user?.uid,
         );
       }),
