@@ -9,7 +9,9 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import type { DayOfWeek, TypeOfSport } from "@/lib/session-options";
+import type { DayOfWeek, TypeOfSport } from "./session-options";
+
+type DataPartition = "test" | "live";
 
 export type SessionSeries = {
   id: string;
@@ -26,6 +28,7 @@ export type SessionSeries = {
   waitingListCapacity?: number;
   organiserId: string;
   organiserName?: string;
+  dataPartition?: DataPartition;
   status: string;
   copyRosterFromLastEvent?: boolean;
 };
@@ -47,6 +50,7 @@ export type SessionEvent = {
   waitingListCapacity?: number;
   bookedCount: number;
   waitingCount?: number;
+  dataPartition?: DataPartition;
   status: string;
   locked?: boolean;
 };
@@ -58,6 +62,7 @@ export type RegistrationItem = {
   userId: string;
   playerName: string;
   playerEmail: string;
+  dataPartition?: DataPartition;
   playerPaid: boolean;
   organiserPaid: boolean;
   paymentReference?: string | null;
@@ -137,9 +142,12 @@ export async function rebalanceEventRegistrations(
   db: Firestore,
   sessionEventId: string,
   capacity: number,
+  dataPartition?: DataPartition,
 ) {
   const registrationsSnapshot = await getDocs(
-    query(collection(db, "registrations"), where("sessionEventId", "==", sessionEventId)),
+    dataPartition
+      ? query(collection(db, "registrations"), where("sessionEventId", "==", sessionEventId), where("dataPartition", "==", dataPartition))
+      : query(collection(db, "registrations"), where("sessionEventId", "==", sessionEventId)),
   );
 
   const registrations = registrationsSnapshot.docs
@@ -186,6 +194,7 @@ export async function createSessionEventForSeries(
     query(
       collection(db, "sessionEvents"),
       where("sessionSeriesId", "==", series.id),
+      where("dataPartition", "==", series.dataPartition || "live"),
     ),
   );
 
@@ -221,6 +230,7 @@ export async function createSessionEventForSeries(
     defaultPriceCasual: series.defaultPriceCasual,
     capacity: series.capacity,
     waitingListCapacity: series.waitingListCapacity || 0,
+    dataPartition: series.dataPartition,
     bookedCount: 0,
     waitingCount: 0,
     status: "active",
@@ -240,6 +250,7 @@ export async function createSessionEventForSeries(
       query(
         collection(db, "sessionEvents"),
         where("sessionSeriesId", "==", series.id),
+        where("dataPartition", "==", series.dataPartition || "live"),
       ),
     );
 
@@ -258,6 +269,7 @@ export async function createSessionEventForSeries(
         query(
           collection(db, "registrations"),
           where("sessionEventId", "==", lastEvent.id),
+          where("dataPartition", "==", series.dataPartition || "live"),
         ),
       );
 
@@ -271,6 +283,7 @@ export async function createSessionEventForSeries(
             userId: registration.userId,
             playerName: registration.playerName,
             playerEmail: registration.playerEmail,
+            dataPartition: registration.dataPartition || series.dataPartition,
             playerPaid: false,
             organiserPaid: false,
             status: "registered",
@@ -283,7 +296,7 @@ export async function createSessionEventForSeries(
   }
 
   if (copiedCount > 0) {
-    await rebalanceEventRegistrations(db, eventId, series.capacity);
+    await rebalanceEventRegistrations(db, eventId, series.capacity, series.dataPartition);
   }
 
   return eventId;

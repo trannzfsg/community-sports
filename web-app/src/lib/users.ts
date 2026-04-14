@@ -10,20 +10,31 @@ import {
   type Firestore,
 } from "firebase/firestore";
 
+type DataPartition = "test" | "live";
+
+function getDataPartitionForEmail(email: string): DataPartition {
+  return email.trim().toLowerCase().endsWith("@example.com") ? "test" : "live";
+}
+
 export type UserRecord = {
   id: string;
   displayName?: string;
   email?: string;
   role: "player" | "organiser" | "admin";
+  dataPartition?: DataPartition;
 };
 
 export async function getUsersByRole(
   db: Firestore,
   role: UserRecord["role"],
+  dataPartition?: DataPartition,
 ) {
-  const snapshot = await getDocs(
-    query(collection(db, "users"), where("role", "==", role)),
-  );
+  const constraints = [where("role", "==", role)];
+  if (dataPartition) {
+    constraints.push(where("dataPartition", "==", dataPartition));
+  }
+
+  const snapshot = await getDocs(query(collection(db, "users"), ...constraints));
 
   return snapshot.docs.map((userDoc) => ({
     id: userDoc.id,
@@ -40,8 +51,10 @@ export async function getUserById(db: Firestore, userId: string) {
   };
 }
 
-export async function getAllUsers(db: Firestore) {
-  const snapshot = await getDocs(collection(db, "users"));
+export async function getAllUsers(db: Firestore, dataPartition?: DataPartition) {
+  const snapshot = dataPartition
+    ? await getDocs(query(collection(db, "users"), where("dataPartition", "==", dataPartition)))
+    : await getDocs(collection(db, "users"));
   return snapshot.docs.map((userDoc) => ({
     id: userDoc.id,
     ...(userDoc.data() as Omit<UserRecord, "id">),
@@ -58,6 +71,7 @@ export async function backfillSharedPlayerDirectoryFromUsers(db: Firestore) {
         userId: player.id,
         displayName: player.displayName || player.email || "Player",
         email: player.email || "",
+        dataPartition: getDataPartitionForEmail(player.email || ""),
         source: "self-registered",
         updatedAt: serverTimestamp(),
       },

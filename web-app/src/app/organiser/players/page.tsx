@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
@@ -16,6 +16,7 @@ import {
   where,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import {
   createManualPlayer,
   normalizePlayerEmail,
@@ -35,6 +36,7 @@ type UserProfile = {
   email?: string;
   role: "player" | "organiser" | "admin";
   status?: "active" | "inactive";
+  dataPartition?: DataPartition;
 };
 
 export default function OrganiserPlayersPage() {
@@ -51,6 +53,7 @@ export default function OrganiserPlayersPage() {
   const [editEmail, setEditEmail] = useState("");
   const [editDisplayName, setEditDisplayName] = useState("");
   const [editSkillLevel, setEditSkillLevel] = useState<SkillLevel | "">("");
+  const [dataPartition, setDataPartition] = useState<DataPartition>("live");
 
   function getTodayInBrisbane() {
     return new Intl.DateTimeFormat("en-CA", {
@@ -61,11 +64,11 @@ export default function OrganiserPlayersPage() {
     }).format(new Date());
   }
 
-  async function loadPlayers(ownerOrganiserId: string) {
-    const items = await getVisiblePlayersForOrganiserManagement(db, ownerOrganiserId);
+  const loadPlayers = useCallback(async (ownerOrganiserId: string, partition = dataPartition) => {
+    const items = await getVisiblePlayersForOrganiserManagement(db, ownerOrganiserId, partition);
     setPrivatePlayers(items.privatePlayers);
     setRegisteredPlayers(items.registeredPlayers);
-  }
+  }, [dataPartition]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -81,13 +84,15 @@ export default function OrganiserPlayersPage() {
         return;
       }
 
+      const nextPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
+      setDataPartition(nextPartition);
       setOrganiserId(user.uid);
-      await loadPlayers(user.uid);
+      await loadPlayers(user.uid, nextPartition);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [router]);
+  }, [loadPlayers, router]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -196,7 +201,7 @@ export default function OrganiserPlayersPage() {
 
     try {
       const registrationsSnapshot = await getDocs(
-        query(collection(db, "registrations"), where("userId", "==", player.playerId)),
+        query(collection(db, "registrations"), where("userId", "==", player.playerId), where("dataPartition", "==", dataPartition)),
       );
 
       const today = getTodayInBrisbane();
@@ -223,7 +228,7 @@ export default function OrganiserPlayersPage() {
       }
 
       for (const [sessionEventId, capacity] of affectedEventCapacities) {
-        await rebalanceEventRegistrations(db, sessionEventId, capacity);
+        await rebalanceEventRegistrations(db, sessionEventId, capacity, dataPartition);
       }
 
       await setDoc(doc(db, "players", player.playerId), {

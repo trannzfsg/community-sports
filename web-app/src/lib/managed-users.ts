@@ -10,6 +10,12 @@ import {
   type Firestore,
 } from "firebase/firestore";
 
+type DataPartition = "test" | "live";
+
+function getDataPartitionForEmail(email: string): DataPartition {
+  return email.trim().toLowerCase().endsWith("@example.com") ? "test" : "live";
+}
+
 export type ManagedUserRole = "player" | "organiser";
 export type ManagedUserStatus = "active" | "inactive";
 
@@ -17,8 +23,9 @@ export type ManagedUserRecord = {
   id: string;
   email: string;
   displayName: string;
-  role: ManagedUserRole;
+  role: ManagedUserRole | "admin";
   status: ManagedUserStatus;
+  dataPartition?: DataPartition;
   userId?: string | null;
   isPending?: boolean;
 };
@@ -57,10 +64,14 @@ export async function getManagedUserByEmail(db: Firestore, email: string) {
 export async function getManagedUsersByRole(
   db: Firestore,
   role: ManagedUserRole,
+  dataPartition?: DataPartition,
 ) {
-  const snapshot = await getDocs(
-    query(collection(db, "users"), where("role", "==", role), where("isPending", "==", true)),
-  );
+  const constraints = [where("role", "==", role), where("isPending", "==", true)];
+  if (dataPartition) {
+    constraints.push(where("dataPartition", "==", dataPartition));
+  }
+
+  const snapshot = await getDocs(query(collection(db, "users"), ...constraints));
 
   return snapshot.docs.map((managedUserDoc) => ({
     id: managedUserDoc.id,
@@ -89,6 +100,7 @@ export async function upsertManagedUser(
       displayName: input.displayName.trim(),
       role: input.role,
       status: input.status || "active",
+      dataPartition: getDataPartitionForEmail(normalizedEmail),
       userId: input.userId ?? null,
       isPending: true,
       updatedAt: serverTimestamp(),

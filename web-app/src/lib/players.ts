@@ -10,10 +10,21 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import { getUsersByRole } from "@/lib/users";
-import type { SkillLevel } from "@/lib/skill-levels";
-import { buildPaymentId } from "@/lib/payments";
-import { buildRegistrationId, type RegistrationItem, type SessionEvent, type SessionSeries } from "@/lib/session-series";
+import { getUsersByRole } from "./users";
+import type { SkillLevel } from "./skill-levels";
+import { buildPaymentId } from "./payments";
+import { buildRegistrationId, type RegistrationItem, type SessionEvent, type SessionSeries } from "./session-series";
+
+type DataPartition = "test" | "live";
+
+function getDataPartitionForEmail(email: string): DataPartition {
+  return email.trim().toLowerCase().endsWith("@example.com") ? "test" : "live";
+}
+
+function resolveDataPartition(email?: string | null, fallback: DataPartition = "live"): DataPartition {
+  const normalized = email?.trim().toLowerCase() || "";
+  return normalized ? getDataPartitionForEmail(normalized) : fallback;
+}
 
 export type PlayerDirectoryEntry = {
   id: string;
@@ -21,6 +32,7 @@ export type PlayerDirectoryEntry = {
   userId: string | null;
   displayName: string;
   email: string;
+  dataPartition?: DataPartition;
   source: "self-registered" | "manual";
   skillLevel?: SkillLevel | null;
   status?: "active" | "inactive" | null;
@@ -36,8 +48,10 @@ export function buildManualPlayerId(ownerOrganiserId: string, displayName: strin
   return `manual-player__${encodeURIComponent(ownerOrganiserId)}__${encodeURIComponent(suffix)}`;
 }
 
-export async function ensureSelfRegisteredPlayers(db: Firestore) {
-  const usersSnapshot = await getDocs(collection(db, "users"));
+export async function ensureSelfRegisteredPlayers(db: Firestore, dataPartition?: DataPartition) {
+  const usersSnapshot = dataPartition
+    ? await getDocs(query(collection(db, "users"), where("dataPartition", "==", dataPartition)))
+    : await getDocs(collection(db, "users"));
 
   await Promise.all(
     usersSnapshot.docs.map(async (userDoc) => {
@@ -58,6 +72,7 @@ export async function ensureSelfRegisteredPlayers(db: Firestore) {
           userId: userDoc.id,
           displayName: data.displayName || data.email,
           email: data.email,
+          dataPartition: getDataPartitionForEmail(data.email),
           source: "self-registered",
           updatedAt: serverTimestamp(),
         },
@@ -67,14 +82,19 @@ export async function ensureSelfRegisteredPlayers(db: Firestore) {
   );
 }
 
-export async function getVisiblePlayersForOrganiser(db: Firestore, organiserId: string) {
+export async function getVisiblePlayersForOrganiser(
+  db: Firestore,
+  organiserId: string,
+  dataPartition?: DataPartition,
+) {
+  const partition = resolveDataPartition(undefined, dataPartition);
   const [snapshots, adminUsers, organiserUsers] = await Promise.all([
     Promise.all([
-      getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId))),
-      getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", null))),
+      getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId), where("dataPartition", "==", partition))),
+      getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", null), where("dataPartition", "==", partition))),
     ]),
-    getUsersByRole(db, "admin"),
-    getUsersByRole(db, "organiser"),
+    getUsersByRole(db, "admin", partition),
+    getUsersByRole(db, "organiser", partition),
   ]);
 
   const excludedUserIds = new Set([
@@ -133,6 +153,7 @@ export async function createManualPlayer(
       userId: null,
       displayName: displayName.trim(),
       email: normalizedEmail,
+      dataPartition: getDataPartitionForEmail(normalizedEmail),
       source: "manual",
       skillLevel: null,
       updatedAt: serverTimestamp(),
@@ -157,6 +178,7 @@ export async function promoteManualPlayerToSelfRegistered(
       userId,
       displayName: displayName.trim(),
       email: normalizedEmail,
+      dataPartition: getDataPartitionForEmail(normalizedEmail),
       source: "self-registered",
       updatedAt: serverTimestamp(),
     },
@@ -174,7 +196,7 @@ export async function migrateManualPlayersToSelfRegistered(
   if (!normalizedEmail) return;
 
   const matchingPlayersSnapshot = await getDocs(
-    query(collection(db, "players"), where("email", "==", normalizedEmail)),
+    query(collection(db, "players"), where("email", "==", normalizedEmail), where("dataPartition", "==", getDataPartitionForEmail(normalizedEmail))),
   );
 
   const manualPlayers = matchingPlayersSnapshot.docs
@@ -196,6 +218,7 @@ export async function migrateManualPlayersToSelfRegistered(
     userId,
     displayName: displayName.trim(),
     email: normalizedEmail,
+    dataPartition: getDataPartitionForEmail(normalizedEmail),
     source: "self-registered",
     skillLevel: existingSelfSnapshot.data()?.skillLevel ?? fallbackSkillLevel,
     updatedAt: serverTimestamp(),
@@ -203,7 +226,7 @@ export async function migrateManualPlayersToSelfRegistered(
 
   for (const manualPlayer of manualPlayers) {
     const registrationsSnapshot = await getDocs(
-      query(collection(db, "registrations"), where("userId", "==", manualPlayer.id)),
+      query(collection(db, "registrations"), where("userId", "==", manualPlayer.id), where("dataPartition", "==", getDataPartitionForEmail(normalizedEmail))),
     );
 
     for (const registrationDoc of registrationsSnapshot.docs) {
@@ -242,6 +265,7 @@ export async function migrateManualPlayersToSelfRegistered(
           ...existingRegistration,
           playerName: displayName.trim(),
           playerEmail: normalizedEmail,
+          dataPartition: getDataPartitionForEmail(normalizedEmail),
           userId,
           playerPaid: existingRegistration.playerPaid || registration.playerPaid,
           organiserPaid: existingRegistration.organiserPaid || registration.organiserPaid,
@@ -259,6 +283,7 @@ export async function migrateManualPlayersToSelfRegistered(
             userId,
             playerName: displayName.trim(),
             playerEmail: normalizedEmail,
+            dataPartition: getDataPartitionForEmail(normalizedEmail),
             amount: paymentData?.amount ?? eventData.defaultPriceCasual ?? seriesData.defaultPriceCasual,
             playerPaid: (paymentData?.playerPaid ?? false) || existingRegistration.playerPaid || registration.playerPaid,
             organiserPaid: (paymentData?.organiserPaid ?? false) || existingRegistration.organiserPaid || registration.organiserPaid,
@@ -279,6 +304,7 @@ export async function migrateManualPlayersToSelfRegistered(
         userId,
         playerName: displayName.trim(),
         playerEmail: normalizedEmail,
+        dataPartition: getDataPartitionForEmail(normalizedEmail),
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
@@ -291,6 +317,7 @@ export async function migrateManualPlayersToSelfRegistered(
           userId,
           playerName: displayName.trim(),
           playerEmail: normalizedEmail,
+          dataPartition: getDataPartitionForEmail(normalizedEmail),
           amount: paymentData?.amount ?? eventData.defaultPriceCasual ?? seriesData.defaultPriceCasual,
           playerPaid: paymentData?.playerPaid ?? !!registration.playerPaid,
           organiserPaid: paymentData?.organiserPaid ?? !!registration.organiserPaid,

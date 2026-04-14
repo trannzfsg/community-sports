@@ -2,10 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { type User } from "firebase/auth";
+import {
+  EmailAuthProvider,
+  linkWithCredential,
+  reauthenticateWithPopup,
+  reload,
+  type User,
+  verifyBeforeUpdateEmail,
+} from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail, normalizeEmail, upsertManagedUser } from "@/lib/managed-users";
+import {
+  clearPendingEmailChange,
+  readPendingEmailChange,
+  rememberPendingEmailChange,
+  syncProfileEmailChange,
+} from "@/lib/profile-email-change";
+import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import { getGamesPlayedByOrganiserForPlayer, type OrganiserGameCount } from "@/lib/player-stats";
 
@@ -13,6 +27,7 @@ type UserProfile = {
   displayName?: string;
   email?: string;
   role: "player" | "organiser" | "admin";
+  dataPartition?: DataPartition;
 };
 
 export default function ProfilePage() {
@@ -22,10 +37,25 @@ export default function ProfilePage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [pendingEmail, setPendingEmail] = useState("");
   const [role, setRole] = useState<UserProfile["role"]>("player");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [gamesPlayedByOrganiser, setGamesPlayedByOrganiser] = useState<OrganiserGameCount[]>([]);
   const [message, setMessage] = useState("");
+  const [changingEmail, setChangingEmail] = useState(false);
+  const [refreshingProfile, setRefreshingProfile] = useState(false);
+
+  function hasPasswordProvider(user: User) {
+    return user.providerData.some((provider) => provider.providerId === "password");
+  }
+
+  function hasGoogleProvider(user: User) {
+    return user.providerData.some((provider) => provider.providerId === "google.com");
+  }
+
+  function buildTemporaryPassword() {
+    return `Temp-${crypto.randomUUID()}-Aa1!`;
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -55,39 +85,43 @@ export default function ProfilePage() {
           return;
         }
 
+        await reload(user);
+        const refreshedUser = auth.currentUser || user;
         setCurrentUser(user);
 
         const [userSnapshot, playerSnapshot] = await Promise.all([
-          getDoc(doc(db, "users", user.uid)),
-          getDoc(doc(db, "players", user.uid)),
+          getDoc(doc(db, "users", refreshedUser.uid)),
+          getDoc(doc(db, "players", refreshedUser.uid)),
         ]);
 
         console.log("[profile] firestore snapshots", {
-          uid: user.uid,
+          uid: refreshedUser.uid,
           userExists: userSnapshot.exists(),
           playerExists: playerSnapshot.exists(),
         });
 
         let userData: UserProfile;
         if (!userSnapshot.exists()) {
-          const managedUser = user.email ? await getManagedUserByEmail(db, user.email) : null;
+          const managedUser = refreshedUser.email ? await getManagedUserByEmail(db, refreshedUser.email) : null;
           console.warn("[profile] users/{uid} missing, rebuilding from managed/auth data", {
-            uid: user.uid,
+            uid: refreshedUser.uid,
             managedRole: managedUser?.role || null,
             managedEmail: managedUser?.email || null,
           });
 
           userData = {
-            displayName: managedUser?.displayName || user.displayName || user.email || "",
-            email: managedUser?.email || user.email || "",
+            displayName: managedUser?.displayName || refreshedUser.displayName || refreshedUser.email || "",
+            email: managedUser?.email || refreshedUser.email || "",
             role: managedUser?.role || "player",
+            dataPartition: getDataPartitionForEmail(managedUser?.email || refreshedUser.email || ""),
           };
 
-          await setDoc(doc(db, "users", user.uid), {
+          await setDoc(doc(db, "users", refreshedUser.uid), {
             displayName: userData.displayName,
             email: userData.email,
             role: userData.role,
             status: "active",
+            dataPartition: userData.dataPartition,
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           }, { merge: true });
@@ -95,22 +129,42 @@ export default function ProfilePage() {
           userData = userSnapshot.data() as UserProfile;
         }
 
+        const normalizedAuthEmail = normalizeEmail(refreshedUser.email || "");
+        const normalizedStoredEmail = normalizeEmail(userData.email || "");
+        const pendingChange = readPendingEmailChange();
+
+        if (normalizedAuthEmail && normalizedAuthEmail !== normalizedStoredEmail) {
+          const idToken = await refreshedUser.getIdToken(true);
+          const synced = await syncProfileEmailChange({
+            idToken,
+            previousEmail: pendingChange?.previousEmail || normalizedStoredEmail,
+            nextEmail: normalizedAuthEmail,
+          });
+          userData.email = synced.email;
+          clearPendingEmailChange();
+          setMessage("Email change verified and synced.");
+        }
+
         if (cancelled) return;
 
         setName(userData.displayName || "");
-        setEmail(userData.email || user.email || "");
+        setEmail(userData.email || refreshedUser.email || "");
         setRole(userData.role);
         setSkillLevel((playerSnapshot.data()?.skillLevel as SkillLevel | undefined) || "");
         setGamesPlayedByOrganiser(
           userData.role === "player"
-            ? await getGamesPlayedByOrganiserForPlayer(db, user.uid)
+            ? await getGamesPlayedByOrganiserForPlayer(
+              db,
+              user.uid,
+              resolveDataPartition(userData.email || refreshedUser.email || "", userData.dataPartition || "live"),
+            )
             : [],
         );
 
         console.log("[profile] load success", {
-          uid: user.uid,
+          uid: refreshedUser.uid,
           role: userData.role,
-          email: userData.email || user.email || "",
+          email: userData.email || refreshedUser.email || "",
           skillLevel: (playerSnapshot.data()?.skillLevel as SkillLevel | undefined) || "",
         });
       } catch (error) {
@@ -132,6 +186,22 @@ export default function ProfilePage() {
       console.log("[profile] effect cleanup");
     };
   }, [router]);
+
+  async function refreshProfileState() {
+    setRefreshingProfile(true);
+    try {
+      await auth.authStateReady();
+      const user = auth.currentUser;
+      if (!user) {
+        setMessage("You are no longer signed in.");
+        return;
+      }
+      await reload(user);
+      router.refresh();
+    } finally {
+      setRefreshingProfile(false);
+    }
+  }
 
   async function handleSave() {
     const user = currentUser || auth.currentUser;
@@ -166,6 +236,7 @@ export default function ProfilePage() {
         displayName: trimmedName,
         email: normalizedCurrentEmail,
         role,
+        dataPartition: getDataPartitionForEmail(normalizedCurrentEmail),
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
@@ -175,6 +246,7 @@ export default function ProfilePage() {
           userId: user.uid,
           displayName: trimmedName,
           email: normalizedCurrentEmail,
+          dataPartition: getDataPartitionForEmail(normalizedCurrentEmail),
           source: "self-registered",
           skillLevel: skillLevel || null,
           updatedAt: serverTimestamp(),
@@ -203,6 +275,56 @@ export default function ProfilePage() {
       setMessage(error instanceof Error ? error.message : "Failed to save profile.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleEmailChange() {
+    const user = currentUser || auth.currentUser;
+    if (!user) {
+      setMessage("You are no longer signed in.");
+      return;
+    }
+
+    const normalizedCurrentEmail = normalizeEmail(email);
+    const normalizedNextEmail = normalizeEmail(pendingEmail);
+    if (!normalizedNextEmail) {
+      setMessage("Enter the new email address first.");
+      return;
+    }
+
+    if (normalizedCurrentEmail === normalizedNextEmail) {
+      setMessage("Enter a different email address to start the change.");
+      return;
+    }
+
+    setChangingEmail(true);
+    setMessage("");
+
+    try {
+      if (!hasPasswordProvider(user) && hasGoogleProvider(user)) {
+        await reauthenticateWithPopup(user, googleProvider);
+        await linkWithCredential(
+          user,
+          EmailAuthProvider.credential(normalizedNextEmail, buildTemporaryPassword()),
+        );
+      }
+
+      await verifyBeforeUpdateEmail(user, normalizedNextEmail);
+      rememberPendingEmailChange({
+        previousEmail: normalizedCurrentEmail,
+        nextEmail: normalizedNextEmail,
+      });
+      setPendingEmail("");
+      setMessage(
+        hasPasswordProvider(user)
+          ? "Verification link sent to the new email address. After opening it, come back here and refresh your profile."
+          : "Verification link sent to the new email address. After confirming it, this account will use email/password sign-in. Then use Forgot password on login to set your password.",
+      );
+    } catch (error) {
+      console.error("[profile] email change failed", error);
+      setMessage(error instanceof Error ? error.message : "Failed to start email change.");
+    } finally {
+      setChangingEmail(false);
     }
   }
 
@@ -240,6 +362,41 @@ export default function ProfilePage() {
             <span className="mb-2 block text-sm font-medium text-zinc-700">Role</span>
             <input value={role} disabled className="w-full rounded-xl border border-zinc-300 bg-zinc-100 px-4 py-3 text-zinc-600" />
           </label>
+
+          <div className="rounded-2xl border border-zinc-200 p-4">
+            <h2 className="text-base font-semibold text-zinc-900">Change email address</h2>
+            <p className="mt-1 text-sm text-zinc-500">We will send a verification link to the new email address before the change is applied.</p>
+            {!currentUser || hasPasswordProvider(currentUser) ? null : (
+              <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
+                This account currently uses SSO. After you verify the new email, the account will switch to email/password sign-in. Then use Forgot password on the login page to set your password.
+              </div>
+            )}
+            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <input
+                type="email"
+                value={pendingEmail}
+                onChange={(event) => setPendingEmail(event.target.value)}
+                className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
+                placeholder="new-email@example.com"
+              />
+              <button
+                type="button"
+                onClick={handleEmailChange}
+                disabled={changingEmail}
+                className="rounded-full border border-zinc-300 px-5 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {changingEmail ? "Sending..." : "Change email"}
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => void refreshProfileState()}
+              disabled={refreshingProfile}
+              className="mt-3 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {refreshingProfile ? "Refreshing..." : "Refresh email status after verifying"}
+            </button>
+          </div>
 
           {role === "player" ? (
             <>

@@ -9,7 +9,13 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import type { RegistrationItem, SessionEvent, SessionSeries } from "@/lib/session-series";
+import type { RegistrationItem, SessionEvent, SessionSeries } from "./session-series";
+
+type DataPartition = "test" | "live";
+
+function getDataPartitionForEmail(email: string): DataPartition {
+  return email.trim().toLowerCase().endsWith("@example.com") ? "test" : "live";
+}
 
 export type PaymentRecord = {
   id: string;
@@ -20,6 +26,7 @@ export type PaymentRecord = {
   userId: string;
   playerName: string;
   playerEmail: string;
+  dataPartition?: DataPartition;
   amount: number;
   playerPaid: boolean;
   organiserPaid: boolean;
@@ -59,6 +66,7 @@ export async function syncPaymentRecordForRegistration(
     userId: registration.userId,
     playerName: registration.playerName,
     playerEmail: registration.playerEmail,
+    dataPartition: registration.dataPartition || getDataPartitionForEmail(registration.playerEmail),
     amount: eventItem.defaultPriceCasual ?? series.defaultPriceCasual,
     playerPaid: !!registration.playerPaid,
     organiserPaid: !!registration.organiserPaid,

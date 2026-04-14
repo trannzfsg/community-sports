@@ -38,6 +38,118 @@ service cloud.firestore {
         : null;
     }
 
+    function partitionForEmail(email) {
+      return email != null && email.matches('.*@example\\.com$')
+        ? 'test'
+        : 'live';
+    }
+
+    function requestPartition() {
+      return signedInEmail() != null
+        ? partitionForEmail(signedInEmail())
+        : null;
+    }
+
+    function userPartitionFromData(data) {
+      return data.get('dataPartition', data.email is string ? partitionForEmail(data.email) : null);
+    }
+
+    function playerPartitionFromData(data) {
+      return data.get('dataPartition', data.email is string ? partitionForEmail(data.email) : null);
+    }
+
+    function partitionForUserId(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId))
+        ? userPartitionFromData(get(/databases/$(database)/documents/users/$(userId)).data)
+        : null;
+    }
+
+    function sessionPartitionFromData(data) {
+      return data.get('dataPartition', partitionForUserId(data.organiserId));
+    }
+
+    function eventPartitionFromData(data) {
+      return data.get('dataPartition', partitionForUserId(data.organiserId));
+    }
+
+    function sessionPartitionById(sessionId) {
+      return exists(/databases/$(database)/documents/sessions/$(sessionId))
+        ? sessionPartitionFromData(get(/databases/$(database)/documents/sessions/$(sessionId)).data)
+        : null;
+    }
+
+    function eventPartitionById(eventId) {
+      return exists(/databases/$(database)/documents/sessionEvents/$(eventId))
+        ? eventPartitionFromData(get(/databases/$(database)/documents/sessionEvents/$(eventId)).data)
+        : null;
+    }
+
+    function registrationPartitionFromData(data) {
+      return data.get('dataPartition', eventPartitionById(data.sessionEventId));
+    }
+
+    function paymentPartitionFromData(data) {
+      return data.get('dataPartition',
+        exists(/databases/$(database)/documents/registrations/$(data.registrationId))
+          ? registrationPartitionFromData(get(/databases/$(database)/documents/registrations/$(data.registrationId)).data)
+          : null
+      );
+    }
+
+    function emailPartitionMatches(partition, email) {
+      return email is string && partition == partitionForEmail(email);
+    }
+
+    function userDataMatchesPartition(data) {
+      return data.email is string
+        && userPartitionFromData(data) == partitionForEmail(data.email);
+    }
+
+    function playerDataMatchesPartition(data) {
+      return data.email is string
+        && playerPartitionFromData(data) == partitionForEmail(data.email)
+        && (
+          data.ownerOrganiserId == null
+          || playerPartitionFromData(data) == partitionForUserId(data.ownerOrganiserId)
+        )
+        && (
+          data.userId == null
+          || (
+            exists(/databases/$(database)/documents/users/$(data.userId))
+            && playerPartitionFromData(data) == partitionForUserId(data.userId)
+          )
+        );
+    }
+
+    function sessionDataMatchesPartition(data) {
+      return sessionPartitionFromData(data) != null
+        && sessionPartitionFromData(data) == partitionForUserId(data.organiserId);
+    }
+
+    function eventDataMatchesPartition(data) {
+      return eventPartitionFromData(data) != null
+        && eventPartitionFromData(data) == partitionForUserId(data.organiserId)
+        && eventPartitionFromData(data) == sessionPartitionById(data.sessionSeriesId);
+    }
+
+    function registrationDataMatchesPartition(data) {
+      return exists(/databases/$(database)/documents/sessionEvents/$(data.sessionEventId))
+        && registrationPartitionFromData(data) == eventPartitionById(data.sessionEventId)
+        && emailPartitionMatches(registrationPartitionFromData(data), data.playerEmail);
+    }
+
+    function paymentDataMatchesPartition(data) {
+      return exists(/databases/$(database)/documents/registrations/$(data.registrationId))
+        && paymentPartitionFromData(data) == registrationPartitionFromData(
+          get(/databases/$(database)/documents/registrations/$(data.registrationId)).data
+        )
+        && emailPartitionMatches(paymentPartitionFromData(data), data.playerEmail);
+    }
+
+    function partitionMatchesRequest(partition) {
+      return partition != null && partition == requestPartition();
+    }
+
     function hasPendingUserForSignedInEmail() {
       return signedInEmail() != null
         && exists(/databases/$(database)/documents/users/$(signedInEmail()))
@@ -196,6 +308,8 @@ service cloud.firestore {
       return pendingUserBelongsToSignedInEmail()
         && (resource.data.userId == null || resource.data.userId == request.auth.uid)
         && request.resource.data.userId == request.auth.uid
+        && userDataMatchesPartition(resource.data)
+        && userDataMatchesPartition(request.resource.data)
         && request.resource.data.role == resource.data.role
         && request.resource.data.status == resource.data.status
         && request.resource.data.isPending == true;
@@ -208,6 +322,8 @@ service cloud.firestore {
         && resource.data.email is string
         && signedInEmail() != null
         && resource.data.email == signedInEmail()
+        && playerDataMatchesPartition(resource.data)
+        && playerDataMatchesPartition(request.resource.data)
         && request.resource.data.ownerOrganiserId == resource.data.ownerOrganiserId
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.displayName == resource.data.displayName
@@ -220,89 +336,145 @@ service cloud.firestore {
       // Allow a signed-in user to read their own email-keyed pending doc (userId == their email).
       // This is needed on first login: the user has no users/{uid} yet so isOrganiser/isAdmin
       // are false, but they still need to read users/{email} to resolve their pre-assigned role.
-      allow read: if isOwner(userId) || isAdmin() || isOrganiser()
+      allow read: if isOwner(userId)
+        || ((isAdmin() || isOrganiser()) && partitionMatchesRequest(userPartitionFromData(resource.data)))
         || (isSignedIn() && userId == signedInEmail());
 
       // A user can create their own profile doc (userId == their uid).
       // We use get('isPending', false) to safely handle the case where isPending is not written
       // (null != true is unreliable in Firestore rules; get() with default is explicit).
       // An organiser can create pending player docs to pre-register players.
-      allow create: if isAdmin()
+      allow create: if (isAdmin()
+          && partitionMatchesRequest(userPartitionFromData(request.resource.data))
+          && userDataMatchesPartition(request.resource.data))
         || (isOwner(userId)
-          && request.resource.data.get('isPending', false) != true)
-        || (isOrganiser() && request.resource.data.get('isPending', false) == true && request.resource.data.role == 'player');
+          && request.resource.data.get('isPending', false) != true
+          && request.resource.data.email == signedInEmail()
+          && request.resource.data.role == allowedSelfRegistrationRole()
+          && request.resource.data.status == allowedSelfRegistrationStatus()
+          && partitionMatchesRequest(userPartitionFromData(request.resource.data))
+          && userDataMatchesPartition(request.resource.data))
+        || (isOrganiser()
+          && request.resource.data.get('isPending', false) == true
+          && request.resource.data.role == 'player'
+          && partitionMatchesRequest(userPartitionFromData(request.resource.data))
+          && userDataMatchesPartition(request.resource.data));
 
       // A user can update their own profile doc:
       //   - Role and email must stay the same (prevents self-promotion), OR
       //   - There is a valid pending user doc that grants them a specific role (first-login fix).
       // pendingUserSelfLinkUpdate() handles writing userId back to the email-keyed pending doc.
       // An organiser can update pending player docs they created.
-      allow update: if isAdmin()
+      allow update: if (isAdmin()
+          && partitionMatchesRequest(userPartitionFromData(resource.data))
+          && partitionMatchesRequest(userPartitionFromData(request.resource.data)))
+          && userDataMatchesPartition(resource.data)
+          && userDataMatchesPartition(request.resource.data)
         || pendingUserSelfLinkUpdate()
         || (isOwner(userId)
           && request.resource.data.get('isPending', false) != true
           && request.resource.data.email == resource.data.email
-          && request.resource.data.role == resource.data.role)
+          && request.resource.data.role == resource.data.role
+          && partitionMatchesRequest(userPartitionFromData(resource.data))
+          && userDataMatchesPartition(resource.data)
+          && userDataMatchesPartition(request.resource.data))
         || (isOwner(userId)
           && request.resource.data.get('isPending', false) != true
           && hasPendingUserForSignedInEmail()
-          && request.resource.data.role == allowedSelfRegistrationRole())
-        || (isOrganiser() && resource.data.get('isPending', false) == true && request.resource.data.get('isPending', false) == true && resource.data.role == 'player' && request.resource.data.role == 'player');
+          && request.resource.data.role == allowedSelfRegistrationRole()
+          && request.resource.data.status == allowedSelfRegistrationStatus()
+          && partitionMatchesRequest(userPartitionFromData(request.resource.data))
+          && userDataMatchesPartition(request.resource.data))
+        || (isOrganiser()
+          && resource.data.get('isPending', false) == true
+          && request.resource.data.get('isPending', false) == true
+          && resource.data.role == 'player'
+          && request.resource.data.role == 'player'
+          && partitionMatchesRequest(userPartitionFromData(resource.data))
+          && partitionMatchesRequest(userPartitionFromData(request.resource.data))
+          && userDataMatchesPartition(resource.data)
+          && userDataMatchesPartition(request.resource.data));
 
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() && partitionMatchesRequest(userPartitionFromData(resource.data));
     }
 
     match /players/{playerId} {
-      allow read: if isAdmin()
-        || isPlayer()
-        || (isOrganiser() && (resource == null || resource.data.ownerOrganiserId == request.auth.uid || resource.data.ownerOrganiserId == null))
+      allow read: if (isAdmin() && partitionMatchesRequest(playerPartitionFromData(resource.data)))
+        || (isPlayer() && partitionMatchesRequest(playerPartitionFromData(resource.data)))
+        || (isOrganiser() && partitionMatchesRequest(playerPartitionFromData(resource.data)) && (resource == null || resource.data.ownerOrganiserId == request.auth.uid || resource.data.ownerOrganiserId == null))
         || (isSignedIn() && resource != null && resource.data.userId == request.auth.uid);
-      allow create: if isAdmin()
-        || (isOrganiser() && request.resource.data.ownerOrganiserId == request.auth.uid)
-        || (isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.ownerOrganiserId == null);
-      allow update: if isAdmin()
+      allow create: if (isAdmin() && partitionMatchesRequest(playerPartitionFromData(request.resource.data)))
+        && playerDataMatchesPartition(request.resource.data)
+        || (isOrganiser() && request.resource.data.ownerOrganiserId == request.auth.uid && partitionMatchesRequest(playerPartitionFromData(request.resource.data)) && playerDataMatchesPartition(request.resource.data))
+        || (isSignedIn() && request.resource.data.userId == request.auth.uid && request.resource.data.ownerOrganiserId == null && request.resource.data.email == signedInEmail() && partitionMatchesRequest(playerPartitionFromData(request.resource.data)) && playerDataMatchesPartition(request.resource.data));
+      allow update: if (isAdmin() && partitionMatchesRequest(playerPartitionFromData(resource.data)) && partitionMatchesRequest(playerPartitionFromData(request.resource.data)))
+        && playerDataMatchesPartition(resource.data)
+        && playerDataMatchesPartition(request.resource.data)
         || manualPlayerSelfLinkUpdate()
         || (isOrganiser()
+          && partitionMatchesRequest(playerPartitionFromData(resource.data))
           && resource.data.ownerOrganiserId == request.auth.uid
           && resource.data.userId == null
-          && request.resource.data.userId == null)
-        || (isSignedIn() && resource.data.userId == request.auth.uid && resource.data.ownerOrganiserId == null);
-      allow delete: if isAdmin()
-        || (isOrganiser() && resource.data.ownerOrganiserId == request.auth.uid && resource.data.userId == null);
+          && request.resource.data.userId == null
+          && playerDataMatchesPartition(resource.data)
+          && playerDataMatchesPartition(request.resource.data))
+        || (isSignedIn() && resource.data.userId == request.auth.uid && resource.data.ownerOrganiserId == null && partitionMatchesRequest(playerPartitionFromData(resource.data)) && playerDataMatchesPartition(resource.data) && playerDataMatchesPartition(request.resource.data));
+      allow delete: if (isAdmin() && partitionMatchesRequest(playerPartitionFromData(resource.data)))
+        || (isOrganiser() && partitionMatchesRequest(playerPartitionFromData(resource.data)) && resource.data.ownerOrganiserId == request.auth.uid && resource.data.userId == null);
     }
 
     match /sessions/{sessionId} {
-      allow read: if isAdmin()
-        || isPlayer()
-        || (isOrganiser() && seriesOwnedByCurrentOrganiser());
-      allow create: if (isAdmin() || (isOrganiser() && newSeriesOwnedByCurrentOrganiser()))
+      allow read: if (isAdmin() && partitionMatchesRequest(sessionPartitionFromData(resource.data)))
+        || (isPlayer() && partitionMatchesRequest(sessionPartitionFromData(resource.data)))
+        || (isOrganiser() && partitionMatchesRequest(sessionPartitionFromData(resource.data)) && seriesOwnedByCurrentOrganiser());
+      allow create: if ((isAdmin() || (isOrganiser() && newSeriesOwnedByCurrentOrganiser()))
+        && partitionMatchesRequest(sessionPartitionFromData(request.resource.data))
+        && sessionDataMatchesPartition(request.resource.data)
         && validSport(request.resource.data.typeOfSport)
-        && validDayOfWeek(request.resource.data.dayOfWeek);
-      allow update, delete: if (isAdmin() || (isOrganiser() && seriesOwnedByCurrentOrganiser()))
+        && validDayOfWeek(request.resource.data.dayOfWeek));
+      allow update, delete: if ((isAdmin() || (isOrganiser() && seriesOwnedByCurrentOrganiser()))
+        && partitionMatchesRequest(sessionPartitionFromData(resource.data))
+        && partitionMatchesRequest(sessionPartitionFromData(request.resource.data))
+        && sessionDataMatchesPartition(resource.data)
+        && sessionDataMatchesPartition(request.resource.data)
         && validSport(request.resource.data.typeOfSport)
-        && validDayOfWeek(request.resource.data.dayOfWeek);
+        && validDayOfWeek(request.resource.data.dayOfWeek));
     }
 
     match /sessionEvents/{eventId} {
-      allow read: if isAdmin()
-        || isPlayer()
-        || (isOrganiser() && (eventOwnedByCurrentOrganiser() || eventBelongsToCurrentOrganiserBySeries()));
-      allow create: if isAdmin()
-        || (isOrganiser() && newEventOwnedByCurrentOrganiser());
-      allow update, delete: if isAdmin()
-        || (isOrganiser() && eventOwnedByCurrentOrganiser());
+      allow read: if (isAdmin() && partitionMatchesRequest(eventPartitionFromData(resource.data)))
+        || (isPlayer() && partitionMatchesRequest(eventPartitionFromData(resource.data)))
+        || (isOrganiser() && partitionMatchesRequest(eventPartitionFromData(resource.data)) && (eventOwnedByCurrentOrganiser() || eventBelongsToCurrentOrganiserBySeries()));
+      allow create: if (isAdmin() || (isOrganiser() && newEventOwnedByCurrentOrganiser()))
+        && partitionMatchesRequest(eventPartitionFromData(request.resource.data))
+        && eventDataMatchesPartition(request.resource.data);
+      allow update, delete: if ((isAdmin() || (isOrganiser() && eventOwnedByCurrentOrganiser()))
+        && partitionMatchesRequest(eventPartitionFromData(resource.data))
+        && partitionMatchesRequest(eventPartitionFromData(request.resource.data))
+        && eventDataMatchesPartition(resource.data)
+        && eventDataMatchesPartition(request.resource.data));
     }
 
     match /registrations/{registrationId} {
-      allow read: if isSignedIn();
+      allow read: if isSignedIn() && partitionMatchesRequest(registrationPartitionFromData(resource.data));
       allow create: if (isAdmin()
           || newRegistrationForOrganiserEvent()
           || newRegistrationForOrganiserSeries()
           || (isSignedIn() && request.resource.data.userId == request.auth.uid))
+        && partitionMatchesRequest(registrationPartitionFromData(request.resource.data))
+        && registrationDataMatchesPartition(request.resource.data)
         && !newRegistrationEventIsLocked();
-      allow update: if isAdmin()
-        || ((registrationForOrganiserEvent() || registrationForOrganiserSeries()) && !registrationEventIsLocked())
+      allow update: if ((isAdmin()
+          && partitionMatchesRequest(registrationPartitionFromData(resource.data))
+          && partitionMatchesRequest(registrationPartitionFromData(request.resource.data))
+          && registrationDataMatchesPartition(resource.data)
+          && registrationDataMatchesPartition(request.resource.data))
+          && !registrationEventIsLocked())
+        || ((registrationForOrganiserEvent() || registrationForOrganiserSeries()) && partitionMatchesRequest(registrationPartitionFromData(resource.data)) && registrationDataMatchesPartition(resource.data) && registrationDataMatchesPartition(request.resource.data) && !registrationEventIsLocked())
         || (registrationOwnedByCurrentUser()
+          && partitionMatchesRequest(registrationPartitionFromData(resource.data))
+          && registrationDataMatchesPartition(resource.data)
+          && registrationDataMatchesPartition(request.resource.data)
           && !registrationEventIsLocked()
           && request.resource.data.userId == resource.data.userId
           && request.resource.data.sessionEventId == resource.data.sessionEventId
@@ -310,31 +482,50 @@ service cloud.firestore {
           && request.resource.data.playerName == resource.data.playerName
           && request.resource.data.playerEmail == resource.data.playerEmail
           && request.resource.data.organiserPaid == resource.data.organiserPaid);
-      allow delete: if isAdmin()
-        || ((registrationForOrganiserEvent() || registrationOwnedByCurrentUser()) && !registrationEventIsLocked());
+      allow delete: if ((isAdmin()
+          && partitionMatchesRequest(registrationPartitionFromData(resource.data))
+          && registrationDataMatchesPartition(resource.data))
+          && !registrationEventIsLocked())
+        || ((registrationForOrganiserEvent() || registrationOwnedByCurrentUser()) && partitionMatchesRequest(registrationPartitionFromData(resource.data)) && registrationDataMatchesPartition(resource.data) && !registrationEventIsLocked());
     }
 
     match /payments/{paymentId} {
-      allow read: if isAdmin()
-        || (isOrganiser() && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration()))
-        || (isSignedIn() && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()));
+      allow read: if (isAdmin() && partitionMatchesRequest(paymentPartitionFromData(resource.data)))
+        || (isOrganiser() && partitionMatchesRequest(paymentPartitionFromData(resource.data)) && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration()))
+        || (isSignedIn() && partitionMatchesRequest(paymentPartitionFromData(resource.data)) && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()));
       allow create: if (isAdmin()
           || (isOrganiser() && (request.resource.data.organiserId == request.auth.uid || newPaymentBelongsToOrganiserByRegistration()))
           || (isSignedIn() && (request.resource.data.userId == request.auth.uid || newPaymentHasOwnedRegistration())))
+        && partitionMatchesRequest(paymentPartitionFromData(request.resource.data))
+        && paymentDataMatchesPartition(request.resource.data)
         && !newPaymentEventIsLocked();
-      allow update: if isAdmin()
+      allow update: if ((isAdmin()
+            && partitionMatchesRequest(paymentPartitionFromData(resource.data))
+            && partitionMatchesRequest(paymentPartitionFromData(request.resource.data))
+            && paymentDataMatchesPartition(resource.data)
+            && paymentDataMatchesPartition(request.resource.data))
+          && !paymentEventIsLocked())
         || ((isOrganiser()
+            && partitionMatchesRequest(paymentPartitionFromData(resource.data))
+            && paymentDataMatchesPartition(resource.data)
+            && paymentDataMatchesPartition(request.resource.data)
             && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration())
             && (request.resource.data.organiserId == request.auth.uid || newPaymentBelongsToOrganiserByRegistration()))
           && !paymentEventIsLocked())
         || ((isSignedIn()
+            && partitionMatchesRequest(paymentPartitionFromData(resource.data))
+            && paymentDataMatchesPartition(resource.data)
+            && paymentDataMatchesPartition(request.resource.data)
             && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration())
             && (request.resource.data.userId == request.auth.uid || newPaymentHasOwnedRegistration()))
           && !paymentEventIsLocked());
-      allow delete: if isAdmin()
-        || ((isOrganiser() && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration()))
+      allow delete: if ((isAdmin()
+            && partitionMatchesRequest(paymentPartitionFromData(resource.data))
+            && paymentDataMatchesPartition(resource.data))
           && !paymentEventIsLocked())
-        || ((isSignedIn() && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()))
+        || ((isOrganiser() && partitionMatchesRequest(paymentPartitionFromData(resource.data)) && paymentDataMatchesPartition(resource.data) && (resource.data.organiserId == request.auth.uid || paymentBelongsToOrganiserByRegistration()))
+          && !paymentEventIsLocked())
+        || ((isSignedIn() && partitionMatchesRequest(paymentPartitionFromData(resource.data)) && paymentDataMatchesPartition(resource.data) && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()))
           && !paymentEventIsLocked());
     }
 

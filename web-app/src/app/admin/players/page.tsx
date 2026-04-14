@@ -17,6 +17,7 @@ import {
   where,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import { getManagedUserByEmail, getManagedUsersByRole, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
 import { deletePaymentRecord } from "@/lib/payments";
 import { shouldRemoveRegistrationForInactivatedPlayer } from "@/lib/admin-player-flows";
@@ -30,6 +31,7 @@ type UserProfile = {
   email?: string;
   role: "player" | "organiser" | "admin";
   status?: "active" | "inactive";
+  dataPartition?: DataPartition;
 };
 
 type RegistrationRecord = {
@@ -46,6 +48,7 @@ type DirectoryUserRecord = {
   status?: "active" | "inactive";
   isPending?: boolean;
   userId?: string | null;
+  dataPartition?: DataPartition;
 };
 
 type AdminDirectoryPlayerRecord = {
@@ -94,6 +97,7 @@ export default function AdminPlayersPage() {
   const [directoryEditDisplayName, setDirectoryEditDisplayName] = useState("");
   const [directoryEditEmail, setDirectoryEditEmail] = useState("");
   const [directoryEditSkillLevel, setDirectoryEditSkillLevel] = useState<SkillLevel | "">("");
+  const [dataPartition, setDataPartition] = useState<DataPartition>("live");
 
   function splitByStatus<T extends { status?: "active" | "inactive" }>(items: T[]) {
     return {
@@ -108,12 +112,12 @@ export default function AdminPlayersPage() {
     return a.email.localeCompare(b.email);
   }
 
-  const loadPlayers = useCallback(async () => {
+  const loadPlayers = useCallback(async (partition = dataPartition) => {
     const [managedItems, playerSnapshots, organiserUsers, userSnapshots] = await Promise.all([
-      getManagedUsersByRole(db, "player"),
-      getDocs(collection(db, "players")),
-      getUsersByRole(db, "organiser"),
-      getDocs(collection(db, "users")),
+      getManagedUsersByRole(db, "player", partition),
+      getDocs(query(collection(db, "players"), where("dataPartition", "==", partition))),
+      getUsersByRole(db, "organiser", partition),
+      getDocs(query(collection(db, "users"), where("dataPartition", "==", partition))),
     ]);
 
     const directoryPlayers = playerSnapshots.docs.map((playerDoc) => ({
@@ -202,7 +206,7 @@ export default function AdminPlayersPage() {
         }))
         .sort((a, b) => a.organiserName.localeCompare(b.organiserName)),
     );
-  }, []);
+  }, [dataPartition]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -218,7 +222,9 @@ export default function AdminPlayersPage() {
         return;
       }
 
-      await loadPlayers();
+      const nextPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
+      setDataPartition(nextPartition);
+      await loadPlayers(nextPartition);
       setLoading(false);
     });
 
@@ -304,7 +310,7 @@ export default function AdminPlayersPage() {
         id: player.id,
         email: normalizedNextEmail,
         displayName: trimmedDisplayName,
-        role: player.role,
+        role: "player",
         status: player.status,
         userId: player.userId ?? null,
       });
@@ -348,9 +354,9 @@ export default function AdminPlayersPage() {
           updatedAt: serverTimestamp(),
         }, { merge: true });
 
-        const registrationsSnapshot = await getDocs(
-          query(collection(db, "registrations"), where("userId", "==", player.userId)),
-        );
+      const registrationsSnapshot = await getDocs(
+        query(collection(db, "registrations"), where("userId", "==", player.userId), where("dataPartition", "==", dataPartition)),
+      );
 
         const today = getTodayInBrisbane();
         const affectedEventCapacities = new Map<string, number>();
@@ -377,7 +383,7 @@ export default function AdminPlayersPage() {
         }
 
         for (const [sessionEventId, capacity] of affectedEventCapacities) {
-          await rebalanceEventRegistrations(db, sessionEventId, capacity);
+          await rebalanceEventRegistrations(db, sessionEventId, capacity, dataPartition);
         }
       }
 
@@ -471,7 +477,7 @@ export default function AdminPlayersPage() {
       }
 
       const registrationsSnapshot = await getDocs(
-        query(collection(db, "registrations"), where("userId", "==", player.playerId)),
+        query(collection(db, "registrations"), where("userId", "==", player.playerId), where("dataPartition", "==", dataPartition)),
       );
 
       const today = getTodayInBrisbane();
@@ -499,7 +505,7 @@ export default function AdminPlayersPage() {
       }
 
       for (const [sessionEventId, capacity] of affectedEventCapacities) {
-        await rebalanceEventRegistrations(db, sessionEventId, capacity);
+        await rebalanceEventRegistrations(db, sessionEventId, capacity, dataPartition);
       }
 
       if (player.kind === "organiser-private" && !player.userId) {

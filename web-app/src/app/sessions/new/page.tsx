@@ -6,6 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { addDoc, collection, doc, getDoc, serverTimestamp } from "firebase/firestore";
 import DatePicker from "@/components/date-picker";
 import { auth, db } from "@/lib/firebase";
+import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import type { AppRole } from "@/lib/roles";
 import {
   DAY_OF_WEEK_OPTIONS,
@@ -19,6 +20,7 @@ type UserProfile = {
   displayName?: string;
   email?: string;
   role: AppRole;
+  dataPartition?: DataPartition;
 };
 
 export default function NewSessionPage() {
@@ -70,8 +72,9 @@ export default function NewSessionPage() {
       }
 
       setCurrentRole(profile.role);
+      const dataPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
       if (profile.role === "admin") {
-        const organiserUsers = await getUsersByRole(db, "organiser");
+        const organiserUsers = await getUsersByRole(db, "organiser", dataPartition);
         setOrganisers(organiserUsers);
         setOwnerOrganiserId(organiserUsers[0]?.id || "");
       } else {
@@ -102,6 +105,7 @@ export default function NewSessionPage() {
 
       const organiser = await getUserById(db, organiserId);
       const organiserName = organiser?.displayName || organiser?.email || "Organiser";
+      const dataPartition = getDataPartitionForEmail(organiser?.email || "");
 
       const seriesRef = await addDoc(collection(db, "sessions"), {
         title: title.trim(),
@@ -117,6 +121,7 @@ export default function NewSessionPage() {
         waitingListCapacity: Number(waitingListCapacity || 0),
         organiserId,
         organiserName,
+        dataPartition,
         status,
         copyRosterFromLastEvent,
         createdAt: serverTimestamp(),
@@ -138,6 +143,7 @@ export default function NewSessionPage() {
           waitingListCapacity: Number(waitingListCapacity || 0),
           organiserId,
           organiserName,
+          dataPartition,
           status,
           copyRosterFromLastEvent,
         };

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
@@ -14,8 +14,10 @@ import {
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
+import { getDataPartitionForEmail, shouldBypassEmailVerification } from "@/lib/data-partition";
 import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { resolveAuthProfile } from "@/lib/auth-profile";
+import { lookupPendingUserProfile } from "@/lib/pending-user-lookup";
 import { lookupPasswordResetEligibility } from "@/lib/password-reset";
 import { migrateManualPlayersToSelfRegistered, promoteManualPlayerToSelfRegistered } from "@/lib/players";
 
@@ -33,18 +35,22 @@ async function upsertPlayerDirectoryEntry(userId: string, name: string, userEmai
     userId,
     displayName: name,
     email: userEmail,
+    dataPartition: getDataPartitionForEmail(userEmail),
     source: "self-registered",
     updatedAt: serverTimestamp(),
   }, { merge: true });
 }
 
 function requiresVerifiedEmail(user: User) {
-  return user.providerData.some((provider) => provider.providerId === "password");
+  return user.providerData.some((provider) => provider.providerId === "password")
+    && !shouldBypassEmailVerification(user.email || "");
 }
 
 function buildVerificationSendKey(email: string) {
   return `verification-email-sent:${email.trim().toLowerCase()}`;
 }
+
+const REGISTER_NOTICE_KEY = "post-register-verification-notice";
 
 function rememberVerificationEmailSent(email: string) {
   if (typeof window === "undefined") return;
@@ -59,6 +65,20 @@ function sentVerificationRecently(email: string) {
   return Number.isFinite(lastSent) && Date.now() - lastSent < 60_000;
 }
 
+function rememberRegisterNotice(message: string) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(REGISTER_NOTICE_KEY, message);
+}
+
+function consumeRegisterNotice() {
+  if (typeof window === "undefined") return "";
+  const value = window.localStorage.getItem(REGISTER_NOTICE_KEY) || "";
+  if (value) {
+    window.localStorage.removeItem(REGISTER_NOTICE_KEY);
+  }
+  return value;
+}
+
 async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: string) {
   console.log("[auth] ensureUserProfileForAuthUser start", { uid: user.uid, email: user.email });
 
@@ -67,7 +87,25 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   const existing = snapshot.data() as UserProfile | undefined;
   console.log("[auth] existing users/{uid} doc", { exists: snapshot.exists(), role: existing?.role });
 
-  const managedUser = user.email ? await getManagedUserByEmail(db, user.email) : null;
+  let managedUser = user.email ? await getManagedUserByEmail(db, user.email) : null;
+  if (!managedUser) {
+    try {
+      const pendingUser = await lookupPendingUserProfile(await user.getIdToken());
+      if (pendingUser.email && pendingUser.role) {
+        managedUser = {
+          id: pendingUser.email,
+          email: pendingUser.email,
+          displayName: pendingUser.displayName || pendingUser.email,
+          role: pendingUser.role,
+          status: pendingUser.status || "active",
+          userId: user.uid,
+          isPending: true,
+        };
+      }
+    } catch (lookupError) {
+      console.warn("[auth] pending user lookup fallback failed", lookupError);
+    }
+  }
   console.log("[auth] managed user (email-keyed pending doc)", { found: !!managedUser, role: managedUser?.role });
 
   const resolved = resolveAuthProfile({
@@ -84,6 +122,7 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
     email: resolved.email,
     role: resolved.role,
     status: resolved.status,
+    dataPartition: getDataPartitionForEmail(resolved.email),
     createdAt: snapshot.exists() ? snapshot.data()?.createdAt || serverTimestamp() : serverTimestamp(),
     updatedAt: serverTimestamp(),
   }, { merge: true });
@@ -126,6 +165,13 @@ export default function LoginPage() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    const rememberedNotice = consumeRegisterNotice();
+    if (rememberedNotice) {
+      setNotice(rememberedNotice);
+    }
+  }, []);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
@@ -140,6 +186,12 @@ export default function LoginPage() {
           password,
         );
 
+        if (shouldBypassEmailVerification(credentials.user.email || email)) {
+          await ensureUserProfileForAuthUser(credentials.user, displayName);
+          router.push("/dashboard");
+          return;
+        }
+
         await sendEmailVerification(credentials.user);
         rememberVerificationEmailSent(credentials.user.email || email);
         await signOut(auth);
@@ -147,7 +199,9 @@ export default function LoginPage() {
         setDisplayName("");
         setEmail("");
         setPassword("");
-        setNotice("Verification email sent. Open the link in your inbox, then sign in to finish setup.");
+        const nextNotice = "Registration successful. We sent a verification email. Open the link in your inbox or junk/spam folder, then sign in to finish setup.";
+        rememberRegisterNotice(nextNotice);
+        setNotice(nextNotice);
       } else {
         const credentials = await signInWithEmailAndPassword(auth, email, password);
         await reload(credentials.user);
@@ -158,7 +212,7 @@ export default function LoginPage() {
             rememberVerificationEmailSent(credentials.user.email || email);
           }
           await signOut(auth);
-          setNotice("Please verify your email before signing in. Check your inbox for the verification link we already sent.");
+          setNotice("Please verify your email before signing in. Check your inbox or junk/spam folder for the verification link we already sent.");
           return;
         }
         await ensureUserProfileForAuthUser(credentials.user);

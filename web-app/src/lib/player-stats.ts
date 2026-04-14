@@ -10,8 +10,15 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import { splitOrganiserVisiblePlayers } from "./organiser-visible-players";
-import { normalizePlayerEmail, type PlayerDirectoryEntry } from "@/lib/players";
-import type { RegistrationItem, SessionEvent } from "@/lib/session-series";
+import { normalizePlayerEmail, type PlayerDirectoryEntry } from "./players";
+import type { RegistrationItem, SessionEvent } from "./session-series";
+
+type DataPartition = "test" | "live";
+
+function resolveDataPartition(email?: string | null, fallback: DataPartition = "live"): DataPartition {
+  const normalized = email?.trim().toLowerCase() || "";
+  return normalized ? (normalized.endsWith("@example.com") ? "test" : "live") : fallback;
+}
 
 export type OrganiserGameCount = {
   organiserId: string;
@@ -60,7 +67,7 @@ export async function linkManualPlayersToSelfRegisteredUser(
   if (!normalizedEmail) return;
 
   const snapshot = await getDocs(
-    query(collection(db, "players"), where("email", "==", normalizedEmail)),
+    query(collection(db, "players"), where("email", "==", normalizedEmail), where("dataPartition", "==", resolveDataPartition(normalizedEmail))),
   );
 
   await Promise.all(
@@ -81,9 +88,11 @@ export async function linkManualPlayersToSelfRegisteredUser(
 export async function getGamesPlayedByOrganiserForPlayer(
   db: Firestore,
   userId: string,
+  dataPartition?: DataPartition,
 ) {
+  const partition = resolveDataPartition(undefined, dataPartition);
   const registrationsSnapshot = await getDocs(
-    query(collection(db, "registrations"), where("userId", "==", userId)),
+    query(collection(db, "registrations"), where("userId", "==", userId), where("dataPartition", "==", partition)),
   );
 
   const playedRegistrations = registrationsSnapshot.docs
@@ -138,11 +147,13 @@ export async function getGamesPlayedByOrganiserForPlayer(
 export async function getVisiblePlayersForOrganiserManagement(
   db: Firestore,
   organiserId: string,
+  dataPartition?: DataPartition,
 ) {
+  const partition = resolveDataPartition(undefined, dataPartition);
   const [ownedPlayersSnapshot, sessionsSnapshot, usersSnapshot] = await Promise.all([
-    getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId))),
-    getDocs(query(collection(db, "sessions"), where("organiserId", "==", organiserId))),
-    getDocs(collection(db, "users")),
+    getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId), where("dataPartition", "==", partition))),
+    getDocs(query(collection(db, "sessions"), where("organiserId", "==", organiserId), where("dataPartition", "==", partition))),
+    getDocs(query(collection(db, "users"), where("dataPartition", "==", partition))),
   ]);
 
   const ownedPlayers = ownedPlayersSnapshot.docs.map((playerDoc) => ({
@@ -167,7 +178,7 @@ export async function getVisiblePlayersForOrganiserManagement(
 
   const registrationsBySeries = await Promise.all(
     sessionsSnapshot.docs.map((sessionDoc) => (
-      getDocs(query(collection(db, "registrations"), where("sessionSeriesId", "==", sessionDoc.id)))
+      getDocs(query(collection(db, "registrations"), where("sessionSeriesId", "==", sessionDoc.id), where("dataPartition", "==", partition)))
     )),
   );
 

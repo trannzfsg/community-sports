@@ -7,6 +7,7 @@ import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } 
 import { deletePaymentRecord } from "@/lib/payments";
 import DatePicker from "@/components/date-picker";
 import { auth, db } from "@/lib/firebase";
+import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import type { AppRole } from "@/lib/roles";
 import {
   DAY_OF_WEEK_OPTIONS,
@@ -21,6 +22,7 @@ type UserProfile = {
   displayName?: string;
   email?: string;
   role: AppRole;
+  dataPartition?: DataPartition;
 };
 
 type SessionSeries = {
@@ -37,6 +39,7 @@ type SessionSeries = {
   waitingListCapacity?: number;
   organiserId: string;
   organiserName?: string;
+  dataPartition?: "test" | "live";
   status: string;
   copyRosterFromLastEvent?: boolean;
 };
@@ -102,7 +105,8 @@ function EditSessionPageInner() {
 
       setCurrentRole(profile.role);
       if (profile.role === "admin") {
-        const organiserUsers = await getUsersByRole(db, "organiser");
+        const dataPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
+        const organiserUsers = await getUsersByRole(db, "organiser", dataPartition);
         setOrganisers(organiserUsers);
       }
       setAllowed(true);
@@ -150,12 +154,14 @@ function EditSessionPageInner() {
 
       const organiser = await getUserById(db, organiserId);
       const organiserName = organiser?.displayName || organiser?.email || "Organiser";
+      const dataPartition = getDataPartitionForEmail(organiser?.email || "");
 
       const updatedSeries: SessionSeriesRecord = {
         id: sessionId,
         title: title.trim(),
         organiserId,
         organiserName,
+        dataPartition,
         typeOfSport,
         location: location.trim(),
         dayOfWeek,

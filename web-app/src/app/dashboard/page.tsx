@@ -20,6 +20,7 @@ import {
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
+import { getDataPartitionForEmail, resolveDataPartition, shouldBypassEmailVerification, type DataPartition } from "@/lib/data-partition";
 import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
 import { getManagedUserByEmail } from "@/lib/managed-users";
 import {
@@ -44,10 +45,12 @@ type UserProfile = {
   displayName?: string;
   email?: string;
   role: AppRole;
+  dataPartition?: DataPartition;
 };
 
 function requiresVerifiedEmail(user: User) {
-  return user.providerData.some((provider) => provider.providerId === "password");
+  return user.providerData.some((provider) => provider.providerId === "password")
+    && !shouldBypassEmailVerification(user.email || "");
 }
 
 function sortRegistrations(
@@ -135,14 +138,21 @@ export default function DashboardPage() {
             email,
             role,
             status,
+            dataPartition: getDataPartitionForEmail(email),
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
           }, { merge: true });
 
-          profileData = { displayName, email, role };
+          profileData = { displayName, email, role, dataPartition: getDataPartitionForEmail(email) };
         } else {
           profileData = profileSnapshot.data() as UserProfile;
         }
+
+        const dataPartition = resolveDataPartition(profileData.email || currentUser.email || "", profileData.dataPartition || "live");
+        profileData = {
+          ...profileData,
+          dataPartition,
+        };
 
         console.log("[dashboard] loaded profile", { role: profileData.role });
         setProfile(profileData);
@@ -151,10 +161,11 @@ export default function DashboardPage() {
           profileData.role === "organiser"
             ? query(
                 collection(db, "sessions"),
+                where("dataPartition", "==", dataPartition),
                 where("organiserId", "==", currentUser.uid),
                 orderBy("dayOfWeek"),
               )
-            : query(collection(db, "sessions"), orderBy("dayOfWeek"));
+            : query(collection(db, "sessions"), where("dataPartition", "==", dataPartition), orderBy("dayOfWeek"));
 
         const seriesSnapshots = await getDocs(seriesQuery);
         const seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
@@ -171,6 +182,7 @@ export default function DashboardPage() {
               query(
                 collection(db, "sessionEvents"),
                 where("sessionSeriesId", "==", series.id),
+                where("dataPartition", "==", dataPartition),
               ),
             );
 
@@ -187,6 +199,7 @@ export default function DashboardPage() {
                   query(
                     collection(db, "registrations"),
                     where("sessionEventId", "==", event.id),
+                    where("dataPartition", "==", dataPartition),
                   ),
                 );
                 registrationMap[event.id] = sortRegistrations(
@@ -204,7 +217,7 @@ export default function DashboardPage() {
         );
 
         if (profileData.role === "admin") {
-          await ensureSelfRegisteredPlayers(db);
+          await ensureSelfRegisteredPlayers(db, dataPartition);
         }
 
         if (profileData.role === "admin" || profileData.role === "organiser") {
@@ -214,7 +227,7 @@ export default function DashboardPage() {
 
           const visiblePlayers = new Map<string, PlayerDirectoryEntry>();
           for (const organiserId of organiserIds) {
-            const entries = await getVisiblePlayersForOrganiser(db, organiserId);
+              const entries = await getVisiblePlayersForOrganiser(db, organiserId, dataPartition);
             for (const entry of entries) {
               visiblePlayers.set(entry.id, entry);
             }
@@ -247,8 +260,9 @@ export default function DashboardPage() {
   }, [profile?.role]);
 
   async function refreshSeriesData(seriesId: string) {
+    const dataPartition = profile?.dataPartition || "live";
     const eventSnapshots = await getDocs(
-      query(collection(db, "sessionEvents"), where("sessionSeriesId", "==", seriesId)),
+      query(collection(db, "sessionEvents"), where("sessionSeriesId", "==", seriesId), where("dataPartition", "==", dataPartition)),
     );
 
     const rawEventItems = eventSnapshots.docs
@@ -262,7 +276,7 @@ export default function DashboardPage() {
     await Promise.all(
       rawEventItems.map(async (event) => {
         const registrationsSnapshot = await getDocs(
-          query(collection(db, "registrations"), where("sessionEventId", "==", event.id)),
+          query(collection(db, "registrations"), where("sessionEventId", "==", event.id), where("dataPartition", "==", dataPartition)),
         );
         registrationMap[event.id] = sortRegistrations(
           registrationsSnapshot.docs.map((registrationDoc) => ({
@@ -351,6 +365,7 @@ export default function DashboardPage() {
         userId: user.uid,
         playerName: profile?.displayName || user.email || "Player",
         playerEmail: user.email || "",
+        dataPartition: getDataPartitionForEmail(user.email || ""),
         playerPaid: false,
         organiserPaid: false,
         status: capacityState.nextRegistrationStatus,
@@ -363,7 +378,7 @@ export default function DashboardPage() {
 
       await syncPaymentRecordForRegistration(db, series, eventItem, registration);
       if (canManageSessions) {
-        await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+        await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
         await updateDoc(doc(db, "sessions", series.id), {
           nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
         });
@@ -384,7 +399,7 @@ export default function DashboardPage() {
       await deletePaymentRecord(db, registration.id);
       await deleteDoc(doc(db, "registrations", registration.id));
       if (canManageSessions) {
-        await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+        await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
       }
       await refreshSeriesData(series.id);
     } finally {
@@ -470,6 +485,7 @@ export default function DashboardPage() {
       userId: playerKey,
       playerName: player.displayName,
       playerEmail: player.email,
+      dataPartition: player.dataPartition || getDataPartitionForEmail(player.email),
       playerPaid: false,
       organiserPaid: false,
       status: capacityState.nextRegistrationStatus,
@@ -505,7 +521,7 @@ export default function DashboardPage() {
 
     console.log("[addPlayerToEvent] rebalancing event", eventItem.id);
     try {
-      await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity);
+      await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
     } catch (err: unknown) {
       const firebaseErr = err as { message?: string; code?: string };
       console.error("[addPlayerToEvent] FAILED rebalancing sessionEvents/" + eventItem.id, "code:", firebaseErr?.code, "message:", firebaseErr?.message);

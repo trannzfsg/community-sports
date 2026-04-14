@@ -3,11 +3,13 @@ import {onRequest} from "firebase-functions/https";
 import * as logger from "firebase-functions/logger";
 import {getApps, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
+import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import type {Request, Response} from "express";
 
 setGlobalOptions({maxInstances: 10});
 
 const adminApp = getApps().length ? getApps()[0] : initializeApp();
+const firestore = getFirestore(adminApp);
 const allowedOrigins = new Set([
   "http://localhost:3000",
   "https://community-sports-6584e.web.app",
@@ -27,6 +29,38 @@ function applyCors(request: Request, response: Response) {
   response.set("Vary", "Origin");
   response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
   response.set("Access-Control-Allow-Headers", "Content-Type");
+}
+
+/**
+ * Normalizes an email address for consistent storage and partition checks.
+ * @param {string} email
+ * @return {string}
+ */
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+/**
+ * Resolves the logical data partition for the supplied email address.
+ * @param {string} email
+ * @return {"test"|"live"}
+ */
+function getDataPartitionForEmail(email: string) {
+  return normalizeEmail(email).endsWith("@example.com") ? "test" : "live";
+}
+
+/**
+ * Verifies the Bearer token and returns the decoded user identity.
+ * @param {Request} request
+ */
+async function authenticateRequest(request: Request) {
+  const authorization = request.headers.authorization || "";
+  const match = authorization.match(/^Bearer (.+)$/);
+  if (!match) {
+    throw new Error("Missing authorization token.");
+  }
+
+  return getAuth(adminApp).verifyIdToken(match[1]);
 }
 
 export const health = onRequest((request, response) => {
@@ -103,5 +137,180 @@ export const passwordResetLookup = onRequest(async (request, response) => {
         error instanceof Error ? error.message : String(error),
     });
     response.status(200).json({canReset: true});
+  }
+});
+
+export const syncUserEmailChange = onRequest(async (request, response) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const nextEmail = typeof decodedToken.email === "string" ?
+      decodedToken.email.trim().toLowerCase() :
+      "";
+    const previousEmail = typeof request.body?.previousEmail === "string" ?
+      request.body.previousEmail.trim().toLowerCase() :
+      "";
+
+    if (!nextEmail) {
+      response.status(400).json({
+        error: "Authenticated user email is required.",
+      });
+      return;
+    }
+
+    const userSnapshot = await firestore.doc(`users/${uid}`).get();
+    if (!userSnapshot.exists) {
+      response.status(404).json({error: "User profile not found."});
+      return;
+    }
+
+    const userData = userSnapshot.data() || {};
+    const role = userData.role;
+    const displayName =
+      typeof userData.displayName === "string" && userData.displayName.trim() ?
+        userData.displayName.trim() :
+        nextEmail;
+    const status =
+      typeof userData.status === "string" && userData.status.trim() ?
+        userData.status.trim() :
+        "active";
+    const nextPartition = getDataPartitionForEmail(nextEmail);
+
+    const batch = firestore.batch();
+    batch.set(firestore.doc(`users/${uid}`), {
+      email: nextEmail,
+      dataPartition: nextPartition,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    if (role === "player") {
+      batch.set(firestore.doc(`players/${uid}`), {
+        email: nextEmail,
+        dataPartition: nextPartition,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
+
+    if (role === "player" || role === "organiser") {
+      const nextPendingRef = firestore.doc(`users/${nextEmail}`);
+      batch.set(nextPendingRef, {
+        displayName,
+        email: nextEmail,
+        role,
+        status,
+        dataPartition: nextPartition,
+        userId: uid,
+        isPending: true,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+
+      if (previousEmail && previousEmail !== nextEmail) {
+        const previousPendingRef = firestore.doc(`users/${previousEmail}`);
+        const previousPendingSnapshot = await previousPendingRef.get();
+        const previousPendingData = previousPendingSnapshot.data();
+        if (previousPendingSnapshot.exists &&
+          (
+            previousPendingData?.userId === uid ||
+            previousPendingData?.isPending === true
+          )
+        ) {
+          batch.delete(previousPendingRef);
+        }
+      }
+    }
+
+    const [registrationSnapshot, paymentSnapshot] = await Promise.all([
+      firestore.collection("registrations").where("userId", "==", uid).get(),
+      firestore.collection("payments").where("userId", "==", uid).get(),
+    ]);
+
+    registrationSnapshot.docs.forEach((registrationDoc) => {
+      batch.set(registrationDoc.ref, {
+        playerEmail: nextEmail,
+        dataPartition: nextPartition,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    });
+
+    paymentSnapshot.docs.forEach((paymentDoc) => {
+      batch.set(paymentDoc.ref, {
+        playerEmail: nextEmail,
+        dataPartition: nextPartition,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    });
+
+    await batch.commit();
+
+    response.status(200).json({email: nextEmail});
+  } catch (error) {
+    logger.error("Email sync failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({error: "Failed to sync email change."});
+  }
+});
+
+export const lookupPendingUserProfile = onRequest(async (request, response) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const signedInEmail = typeof decodedToken.email === "string" ?
+      decodedToken.email.trim().toLowerCase() :
+      "";
+
+    if (!signedInEmail) {
+      response.status(400).json({
+        error: "Authenticated user email is required.",
+      });
+      return;
+    }
+
+    const pendingSnapshot = await firestore.doc(`users/${signedInEmail}`).get();
+    if (!pendingSnapshot.exists) {
+      response.status(200).json({});
+      return;
+    }
+
+    const pendingData = pendingSnapshot.data();
+    if (!pendingData?.isPending) {
+      response.status(200).json({});
+      return;
+    }
+
+    response.status(200).json({
+      displayName: pendingData.displayName || "",
+      email: pendingData.email || signedInEmail,
+      role: pendingData.role || "player",
+      status: pendingData.status || "active",
+    });
+  } catch (error) {
+    logger.error("Pending user lookup failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({error: "Failed to resolve pending user role."});
   }
 });

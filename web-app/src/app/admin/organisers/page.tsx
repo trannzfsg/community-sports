@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import { getManagedUserByEmail, getManagedUsersByRole, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
 
 type UserProfile = {
@@ -13,6 +14,7 @@ type UserProfile = {
   email?: string;
   role: "player" | "organiser" | "admin";
   status?: "active" | "inactive";
+  dataPartition?: DataPartition;
 };
 
 export default function AdminOrganisersPage() {
@@ -26,15 +28,16 @@ export default function AdminOrganisersPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editEmail, setEditEmail] = useState("");
   const [editDisplayName, setEditDisplayName] = useState("");
+  const [dataPartition, setDataPartition] = useState<DataPartition>("live");
 
-  async function loadOrganisers() {
-    const items = await getManagedUsersByRole(db, "organiser");
+  const loadOrganisers = useCallback(async (partition = dataPartition) => {
+    const items = await getManagedUsersByRole(db, "organiser", partition);
     setOrganisers(
       items
         .filter((item) => item.status !== "inactive")
         .sort((a, b) => a.email.localeCompare(b.email)),
     );
-  }
+  }, [dataPartition]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -50,12 +53,14 @@ export default function AdminOrganisersPage() {
         return;
       }
 
-      await loadOrganisers();
+      const nextPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
+      setDataPartition(nextPartition);
+      await loadOrganisers(nextPartition);
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [router]);
+  }, [loadOrganisers, router]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -121,7 +126,7 @@ export default function AdminOrganisersPage() {
         id: organiser.id,
         email: normalizedNextEmail,
         displayName: trimmedDisplayName,
-        role: organiser.role,
+        role: "organiser",
         status: organiser.status,
         userId: organiser.userId ?? null,
       });
@@ -160,7 +165,7 @@ export default function AdminOrganisersPage() {
         }, { merge: true });
 
         const seriesSnapshot = await getDocs(
-          query(collection(db, "sessions"), where("organiserId", "==", organiser.userId)),
+          query(collection(db, "sessions"), where("organiserId", "==", organiser.userId), where("dataPartition", "==", dataPartition)),
         );
 
         await Promise.all(
