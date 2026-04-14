@@ -28,6 +28,7 @@ function buildPlayer(overrides: Partial<TestPlayer>): TestPlayer {
     userId: null,
     ownerOrganiserId: "organiser-1",
     isSelfRegistered: false,
+    isOwnedPrivatePlayer: false,
     isEditablePrivatePlayer: false,
     hasRegisteredForOrganiser: false,
     ...overrides,
@@ -37,6 +38,7 @@ function buildPlayer(overrides: Partial<TestPlayer>): TestPlayer {
 test("splitOrganiserVisiblePlayers keeps editable private players out of registered history", () => {
   const editablePrivatePlayer = buildPlayer({
     key: "private-player",
+    isOwnedPrivatePlayer: true,
     isEditablePrivatePlayer: true,
     hasRegisteredForOrganiser: true,
   });

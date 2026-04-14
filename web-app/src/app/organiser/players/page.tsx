@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -226,7 +225,23 @@ export default function OrganiserPlayersPage() {
         await rebalanceEventRegistrations(db, sessionEventId, capacity);
       }
 
-      await deleteDoc(doc(db, "players", player.playerId));
+      await setDoc(doc(db, "players", player.playerId), {
+        status: "inactive",
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
+      const existingManaged = await getManagedUserByEmail(db, player.email);
+      if (existingManaged) {
+        await upsertManagedUser(db, {
+          id: existingManaged.id,
+          email: player.email,
+          displayName: player.displayName,
+          role: "player",
+          status: "inactive",
+          userId: existingManaged.userId ?? null,
+        });
+      }
+
       await loadPlayers(organiserId);
     } catch (removeError) {
       setError(removeError instanceof Error ? removeError.message : "Failed to remove player.");
@@ -242,6 +257,11 @@ export default function OrganiserPlayersPage() {
       </main>
     );
   }
+
+  const activePrivatePlayers = privatePlayers.filter((player) => player.status !== "inactive");
+  const inactivePrivatePlayers = privatePlayers.filter((player) => player.status === "inactive");
+  const activeRegisteredPlayers = registeredPlayers.filter((player) => player.status !== "inactive");
+  const inactiveRegisteredPlayers = registeredPlayers.filter((player) => player.status === "inactive");
 
   return (
     <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
@@ -279,9 +299,9 @@ export default function OrganiserPlayersPage() {
 
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
           <h2 className="text-xl font-semibold">Your private players</h2>
-          <p className="mt-2 text-sm text-zinc-500">Only organiser-created players who have not self-registered yet can be edited or removed here.</p>
+          <p className="mt-2 text-sm text-zinc-500">Only active organiser-created players who have not self-registered yet can be edited or removed here.</p>
           <div className="mt-6 space-y-3">
-            {privatePlayers.length ? privatePlayers.map((player) => {
+            {activePrivatePlayers.length ? activePrivatePlayers.map((player) => {
               const isEditing = editingId === player.key;
               const isSaving = busyKey === `edit-${player.key}`;
 
@@ -385,7 +405,25 @@ export default function OrganiserPlayersPage() {
                   )}
                 </div>
               );
-            }) : <div className="text-sm text-zinc-500">No editable private players yet.</div>}
+            }) : <div className="text-sm text-zinc-500">No active private players yet.</div>}
+          </div>
+
+          <div className="mt-8">
+            <h3 className="text-lg font-semibold text-zinc-900">Inactive private players</h3>
+            <p className="mt-2 text-sm text-zinc-500">Inactive players remain visible here for history, but cannot be edited or reactivated from organiser view.</p>
+            <div className="mt-4 space-y-3">
+              {inactivePrivatePlayers.length ? inactivePrivatePlayers.map((player) => (
+                <div key={player.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div>
+                    <div className="font-medium text-zinc-900">{player.displayName}</div>
+                    <div className="text-sm text-zinc-500">{player.email}</div>
+                    <div className="mt-1 text-xs text-zinc-500">Skill level: {player.skillLevel || "Not set"}</div>
+                    <div className="mt-1 text-xs text-zinc-500">Games played with you: {player.gamesPlayed}</div>
+                    <div className="mt-1 text-xs text-zinc-500">Status: inactive</div>
+                  </div>
+                </div>
+              )) : <div className="text-sm text-zinc-500">No inactive private players.</div>}
+            </div>
           </div>
         </div>
 
@@ -393,7 +431,7 @@ export default function OrganiserPlayersPage() {
           <h2 className="text-xl font-semibold">Registered players</h2>
           <p className="mt-2 text-sm text-zinc-500">Readonly history for players who have appeared in at least one of your events, including self-registered and private players.</p>
           <div className="mt-6 space-y-3">
-            {registeredPlayers.length ? registeredPlayers.map((player) => (
+            {activeRegisteredPlayers.length ? activeRegisteredPlayers.map((player) => (
               <div key={player.key} className="rounded-2xl border border-zinc-200 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -407,7 +445,30 @@ export default function OrganiserPlayersPage() {
                   </div>
                 </div>
               </div>
-            )) : <div className="text-sm text-zinc-500">No registered players yet.</div>}
+            )) : <div className="text-sm text-zinc-500">No active registered players yet.</div>}
+          </div>
+
+          <div className="mt-8">
+            <h3 className="text-lg font-semibold text-zinc-900">Inactive registered players</h3>
+            <p className="mt-2 text-sm text-zinc-500">Inactive registered players remain visible for historical reference only.</p>
+            <div className="mt-4 space-y-3">
+              {inactiveRegisteredPlayers.length ? inactiveRegisteredPlayers.map((player) => (
+                <div key={player.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="font-medium text-zinc-900">{player.displayName}</div>
+                      <div className="text-sm text-zinc-500">{player.email || "No email recorded"}</div>
+                      <div className="mt-1 text-xs text-zinc-500">Skill level: {player.skillLevel || "Not set"}</div>
+                      <div className="mt-1 text-xs text-zinc-500">Games played with you: {player.gamesPlayed}</div>
+                      <div className="mt-1 text-xs text-zinc-500">Status: inactive</div>
+                    </div>
+                    <div className="text-xs text-zinc-500">
+                      {player.isSelfRegistered ? "Self-registered or linked account" : "Private player"}
+                    </div>
+                  </div>
+                </div>
+              )) : <div className="text-sm text-zinc-500">No inactive registered players.</div>}
+            </div>
           </div>
         </div>
       </div>

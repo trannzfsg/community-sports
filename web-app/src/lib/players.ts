@@ -23,6 +23,7 @@ export type PlayerDirectoryEntry = {
   email: string;
   source: "self-registered" | "manual";
   skillLevel?: SkillLevel | null;
+  status?: "active" | "inactive" | null;
 };
 
 export function normalizePlayerEmail(email: string) {

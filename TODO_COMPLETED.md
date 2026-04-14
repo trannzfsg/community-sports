@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Admin user should be able to see self-registered players, and organisers' private players. Each organisers' private players should be its own section. Admin has ability to edit everything of players (except emails as per later todos).
 - [x] Organiser user login, manage players screen - move skill level drop down from list read view, into section triggered by "edit" button. This makes it clearer between read view and edit view of a player.
 - [x] Organiser user login, manage players screen - the private players are still displaying in "registered players" section (they're also displaying in "your private players" section), that's duplicated and should be removed from "registered players" section.
 - [x] Self-registration now uses Firebase built-in email verification links before account setup is completed.

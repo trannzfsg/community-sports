@@ -24,11 +24,13 @@ export type OrganiserVisiblePlayerRecord = {
   displayName: string;
   email: string;
   skillLevel: PlayerDirectoryEntry["skillLevel"];
+  status: "active" | "inactive";
   gamesPlayed: number;
   playerId: string | null;
   userId: string | null;
   ownerOrganiserId: string | null;
   isSelfRegistered: boolean;
+  isOwnedPrivatePlayer: boolean;
   isEditablePrivatePlayer: boolean;
   hasRegisteredForOrganiser: boolean;
 };
@@ -137,15 +139,31 @@ export async function getVisiblePlayersForOrganiserManagement(
   db: Firestore,
   organiserId: string,
 ) {
-  const [ownedPlayersSnapshot, sessionsSnapshot] = await Promise.all([
+  const [ownedPlayersSnapshot, sessionsSnapshot, usersSnapshot] = await Promise.all([
     getDocs(query(collection(db, "players"), where("ownerOrganiserId", "==", organiserId))),
     getDocs(query(collection(db, "sessions"), where("organiserId", "==", organiserId))),
+    getDocs(collection(db, "users")),
   ]);
 
   const ownedPlayers = ownedPlayersSnapshot.docs.map((playerDoc) => ({
     id: playerDoc.id,
     ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
   }));
+  const users = usersSnapshot.docs.map((userDoc) => ({
+    id: userDoc.id,
+    ...(userDoc.data() as {
+      email?: string;
+      status?: "active" | "inactive";
+      isPending?: boolean;
+      userId?: string | null;
+    }),
+  }));
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  const pendingUsersByEmail = new Map(
+    users
+      .filter((user) => user.isPending && user.email)
+      .map((user) => [normalizePlayerEmail(user.email || ""), user]),
+  );
 
   const registrationsBySeries = await Promise.all(
     sessionsSnapshot.docs.map((sessionDoc) => (
@@ -182,17 +200,22 @@ export async function getVisiblePlayersForOrganiserManagement(
   for (const player of ownedPlayers) {
     const key = buildVisiblePlayerKey({ email: player.email, fallback: player.id });
     const existing = visiblePlayers.get(key);
+    const linkedUser = player.userId ? usersById.get(player.userId) : null;
+    const pendingUser = pendingUsersByEmail.get(normalizePlayerEmail(player.email));
+    const status = linkedUser?.status || pendingUser?.status || player.status || "active";
     const nextRecord: OrganiserVisiblePlayerRecord = {
       key,
       displayName: player.displayName,
       email: player.email,
       skillLevel: player.skillLevel || null,
+      status,
       gamesPlayed: 0,
       playerId: player.id,
       userId: player.userId || null,
       ownerOrganiserId: player.ownerOrganiserId,
       isSelfRegistered: player.ownerOrganiserId == null && !!player.userId,
-      isEditablePrivatePlayer: player.ownerOrganiserId === organiserId && !player.userId,
+      isOwnedPrivatePlayer: player.ownerOrganiserId === organiserId && !player.userId,
+      isEditablePrivatePlayer: player.ownerOrganiserId === organiserId && !player.userId && status !== "inactive",
       hasRegisteredForOrganiser: false,
     };
 
@@ -209,9 +232,11 @@ export async function getVisiblePlayersForOrganiserManagement(
     } : {
       ...existing,
       skillLevel: existing.skillLevel || nextRecord.skillLevel,
+      status: existing.status === "inactive" || nextRecord.status === "inactive" ? "inactive" : "active",
       playerId: existing.playerId || nextRecord.playerId,
       userId: existing.userId || nextRecord.userId,
       ownerOrganiserId: existing.ownerOrganiserId ?? nextRecord.ownerOrganiserId,
+      isOwnedPrivatePlayer: existing.isOwnedPrivatePlayer || nextRecord.isOwnedPrivatePlayer,
     });
   }
 
@@ -228,6 +253,10 @@ export async function getVisiblePlayersForOrganiserManagement(
     const skillLevel = storedPlayer?.skillLevel || null;
     const ownerOrganiserId = storedPlayer?.ownerOrganiserId ?? null;
     const userId = storedPlayer?.userId || (registration.userId.startsWith("manual-player__") ? null : registration.userId);
+    const linkedUser = userId ? usersById.get(userId) : null;
+    const pendingUser = email ? pendingUsersByEmail.get(normalizePlayerEmail(email)) : null;
+    const status = linkedUser?.status || pendingUser?.status || storedPlayer?.status || "active";
+    const isOwnedPrivatePlayer = ownerOrganiserId === organiserId && !userId;
 
     if (existing) {
       existing.gamesPlayed += gamesPlayedIncrement;
@@ -237,8 +266,10 @@ export async function getVisiblePlayersForOrganiserManagement(
       if (!existing.skillLevel && skillLevel) existing.skillLevel = skillLevel;
       if (!existing.userId && userId) existing.userId = userId;
       if (existing.ownerOrganiserId == null && ownerOrganiserId != null) existing.ownerOrganiserId = ownerOrganiserId;
+      if (existing.status !== "inactive" && status === "inactive") existing.status = "inactive";
       existing.isSelfRegistered = existing.userId != null;
-      existing.isEditablePrivatePlayer = existing.ownerOrganiserId === organiserId && !existing.userId;
+      existing.isOwnedPrivatePlayer = existing.isOwnedPrivatePlayer || isOwnedPrivatePlayer;
+      existing.isEditablePrivatePlayer = existing.isOwnedPrivatePlayer && existing.status !== "inactive";
       continue;
     }
 
@@ -247,12 +278,14 @@ export async function getVisiblePlayersForOrganiserManagement(
       displayName,
       email,
       skillLevel,
+      status,
       gamesPlayed: gamesPlayedIncrement,
       playerId: storedPlayer?.id || null,
       userId,
       ownerOrganiserId,
       isSelfRegistered: userId != null,
-      isEditablePrivatePlayer: ownerOrganiserId === organiserId && !userId,
+      isOwnedPrivatePlayer,
+      isEditablePrivatePlayer: isOwnedPrivatePlayer && status !== "inactive",
       hasRegisteredForOrganiser: true,
     });
   }
