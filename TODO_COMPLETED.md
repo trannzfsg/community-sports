@@ -2,7 +2,7 @@
 
 - [x] Remove tracked debug artifacts that hardcoded Firebase API keys in source (`web-app/tmp-live-sdk-check.mjs`).
 - [x] Produce an implementation plan for WhatsApp integration (`WHATSAPP_INTEGRATION_PLAN.md`) covering setup, phased delivery, testing, and decision gates.
-- [x] Add Firebase API key and App Check security planning docs (`SECURITY_AUDIT.md`, `APP_CHECK_ROLLOUT_PLAN.md`).
+- [x] Complete Firebase API key security audit notes and park App Check rollout planning (`APP_CHECK_ROLLOUT_PLAN.md`).
 - [x] Add a server-side direct email-change path for `@example.com` test users so they can skip verification and we can exercise the full email-change flow end-to-end ourselves.
 - [x] Allow a signed-in user to directly sync their own `users/{uid}` email to the authenticated email after verification, so Firestore cannot stay stale even if the server helper path misses a run.
 - [x] Clarify in admin/login UX that organiser pre-assignment only works when the user registers with the exact same email address as the pending organiser record.
