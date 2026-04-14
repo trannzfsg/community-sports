@@ -150,8 +150,9 @@ export async function getVisiblePlayersForOrganiserManagement(
   dataPartition?: DataPartition,
 ) {
   const partition = resolveDataPartition(undefined, dataPartition);
-  const [ownedPlayersSnapshot, sessionsSnapshot, usersSnapshot, managedUsersSnapshot] = await Promise.all([
+  const [ownedPlayersSnapshot, sharedPlayersSnapshot, sessionsSnapshot, usersSnapshot, managedUsersSnapshot] = await Promise.all([
     getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", organiserId))),
+    getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", null))),
     getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition), where("organiserId", "==", organiserId))),
     getDocs(query(collection(db, "users"), where("dataPartition", "==", partition))),
     getDocs(query(collection(db, "managedUsers"), where("dataPartition", "==", partition), where("role", "==", "player"))),
@@ -196,24 +197,17 @@ export async function getVisiblePlayersForOrganiserManagement(
     ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
   })).filter((registration) => ownedSessionIds.has(registration.sessionSeriesId));
 
-  const playerIds = Array.from(new Set(registeredEntries.map((registration) => registration.userId).filter(Boolean)));
-  const playerSnapshots = await Promise.all(
-    playerIds.map(async (playerId) => {
-      const playerSnapshot = await getDoc(doc(db, "players", playerId));
-      return playerSnapshot.exists()
-        ? {
-            id: playerSnapshot.id,
-            ...(playerSnapshot.data() as Omit<PlayerDirectoryEntry, "id">),
-          }
-        : null;
-    }),
-  );
-
-  const playersById = new Map(
-    playerSnapshots
-      .filter((player): player is PlayerDirectoryEntry => player != null)
-      .map((player) => [player.id, player]),
-  );
+  const sharedPlayers = sharedPlayersSnapshot.docs.map((playerDoc) => ({
+    id: playerDoc.id,
+    ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
+  }));
+  const playersById = new Map<string, PlayerDirectoryEntry>();
+  for (const player of ownedPlayers) {
+    playersById.set(player.id, player);
+  }
+  for (const player of sharedPlayers) {
+    playersById.set(player.id, player);
+  }
 
   const visiblePlayers = new Map<string, OrganiserVisiblePlayerRecord>();
 
