@@ -380,6 +380,12 @@ service cloud.firestore {
           && userDataMatchesPartition(request.resource.data))
         || (isOwner(userId)
           && request.resource.data.get('isPending', false) != true
+          && request.resource.data.email == signedInEmail()
+          && request.resource.data.role == resource.data.role
+          && partitionMatchesRequest(userPartitionFromData(request.resource.data))
+          && userDataMatchesPartition(request.resource.data))
+        || (isOwner(userId)
+          && request.resource.data.get('isPending', false) != true
           && hasPendingUserForSignedInEmail()
           && request.resource.data.role == allowedSelfRegistrationRole()
           && request.resource.data.status == allowedSelfRegistrationStatus()

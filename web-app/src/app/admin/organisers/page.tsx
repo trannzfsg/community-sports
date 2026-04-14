@@ -32,9 +32,37 @@ export default function AdminOrganisersPage() {
 
   const loadOrganisers = useCallback(async (partition = dataPartition) => {
     const items = await getManagedUsersByRole(db, "organiser", partition);
+    const groupedByEmail = new Map<string, ManagedUserRecord[]>();
+
+    for (const item of items) {
+      const emailKey = normalizeEmail(item.email);
+      const existing = groupedByEmail.get(emailKey);
+      if (existing) {
+        existing.push(item);
+      } else {
+        groupedByEmail.set(emailKey, [item]);
+      }
+    }
+
+    const dedupedOrganisers = Array.from(groupedByEmail.values()).map((records) => {
+      const primaryManagedRecord =
+        records.find((record) => record.id === normalizeEmail(record.email))
+        || records.find((record) => record.isPending)
+        || records[0];
+      const linkedRecord = records.find((record) => record.userId) || null;
+      const mergedStatus = records.some((record) => record.status === "inactive") ? "inactive" : "active";
+
+      return {
+        ...primaryManagedRecord,
+        email: primaryManagedRecord.email || linkedRecord?.email || "",
+        displayName: primaryManagedRecord.displayName || linkedRecord?.displayName || primaryManagedRecord.email,
+        userId: primaryManagedRecord.userId || linkedRecord?.userId || null,
+        status: mergedStatus,
+      } satisfies ManagedUserRecord;
+    });
+
     setOrganisers(
-      items
-        .filter((item) => item.status !== "inactive")
+      dedupedOrganisers
         .sort((a, b) => a.email.localeCompare(b.email)),
     );
   }, [dataPartition]);
@@ -355,6 +383,7 @@ export default function AdminOrganisersPage() {
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Admin</p>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">Organisers</h1>
               <p className="mt-3 text-zinc-600">Admins create organisers first. Organisers can then self-register to set their password.</p>
+              <p className="mt-2 text-sm text-zinc-500">The organiser must register with this exact email address, otherwise the account will be treated as a normal player sign-up.</p>
             </div>
             <Link href="/dashboard" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Back</Link>
           </div>

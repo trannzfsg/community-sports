@@ -88,9 +88,10 @@ export async function getVisiblePlayersForOrganiser(
   dataPartition?: DataPartition,
 ) {
   const partition = resolveDataPartition(undefined, dataPartition);
-  const [snapshots, adminUsers, organiserUsers] = await Promise.all([
+  const [[ownedPlayersSnapshot, sharedPlayersSnapshot], adminUsers, organiserUsers] = await Promise.all([
     Promise.all([
-      getDocs(query(collection(db, "players"), where("dataPartition", "==", partition))),
+      getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", organiserId))),
+      getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", null))),
     ]),
     getUsersByRole(db, "admin", partition),
     getUsersByRole(db, "organiser", partition),
@@ -103,7 +104,7 @@ export async function getVisiblePlayersForOrganiser(
 
   const merged = new Map<string, PlayerDirectoryEntry>();
 
-  for (const snapshot of snapshots) {
+  for (const snapshot of [ownedPlayersSnapshot, sharedPlayersSnapshot]) {
     for (const playerDoc of snapshot.docs) {
       const player = {
         id: playerDoc.id,

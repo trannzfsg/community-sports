@@ -151,8 +151,8 @@ export async function getVisiblePlayersForOrganiserManagement(
 ) {
   const partition = resolveDataPartition(undefined, dataPartition);
   const [ownedPlayersSnapshot, sessionsSnapshot, usersSnapshot] = await Promise.all([
-    getDocs(query(collection(db, "players"), where("dataPartition", "==", partition))),
-    getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition))),
+    getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", organiserId))),
+    getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition), where("organiserId", "==", organiserId))),
     getDocs(query(collection(db, "users"), where("dataPartition", "==", partition))),
   ]);
 
@@ -176,15 +176,7 @@ export async function getVisiblePlayersForOrganiserManagement(
       .map((user) => [normalizePlayerEmail(user.email || ""), user]),
   );
 
-  const ownedSessionIds = new Set(
-    sessionsSnapshot.docs
-      .map((sessionDoc) => ({
-        id: sessionDoc.id,
-        ...(sessionDoc.data() as { organiserId?: string }),
-      }))
-      .filter((session) => session.organiserId === organiserId)
-      .map((session) => session.id),
-  );
+  const ownedSessionIds = new Set(sessionsSnapshot.docs.map((sessionDoc) => sessionDoc.id));
   const registrationsSnapshot = await getDocs(
     query(collection(db, "registrations"), where("dataPartition", "==", partition)),
   );

@@ -159,10 +159,6 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
     const nextEmail = typeof decodedToken.email === "string" ?
       decodedToken.email.trim().toLowerCase() :
       "";
-    const previousEmail = typeof request.body?.previousEmail === "string" ?
-      request.body.previousEmail.trim().toLowerCase() :
-      "";
-
     if (!nextEmail) {
       response.status(400).json({
         error: "Authenticated user email is required.",
@@ -178,6 +174,12 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
 
     const userData = userSnapshot.data() || {};
     const role = userData.role;
+    const storedEmail = typeof userData.email === "string" ?
+      userData.email.trim().toLowerCase() :
+      "";
+    const previousEmail = typeof request.body?.previousEmail === "string" ?
+      request.body.previousEmail.trim().toLowerCase() :
+      storedEmail;
     const displayName =
       typeof userData.displayName === "string" && userData.displayName.trim() ?
         userData.displayName.trim() :
@@ -215,25 +217,19 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
         isPending: true,
         updatedAt: FieldValue.serverTimestamp(),
       }, {merge: true});
-
-      if (previousEmail && previousEmail !== nextEmail) {
-        const previousPendingRef = firestore.doc(`users/${previousEmail}`);
-        const previousPendingSnapshot = await previousPendingRef.get();
-        const previousPendingData = previousPendingSnapshot.data();
-        if (previousPendingSnapshot.exists &&
-          (
-            previousPendingData?.userId === uid ||
-            previousPendingData?.isPending === true
-          )
-        ) {
-          batch.delete(previousPendingRef);
-        }
-      }
     }
 
-    const [registrationSnapshot, paymentSnapshot] = await Promise.all([
+    const [
+      registrationSnapshot,
+      paymentSnapshot,
+      stalePendingSnapshot,
+    ] = await Promise.all([
       firestore.collection("registrations").where("userId", "==", uid).get(),
       firestore.collection("payments").where("userId", "==", uid).get(),
+      firestore.collection("users")
+        .where("isPending", "==", true)
+        .where("userId", "==", uid)
+        .get(),
     ]);
 
     registrationSnapshot.docs.forEach((registrationDoc) => {
@@ -252,6 +248,28 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
       }, {merge: true});
     });
 
+    stalePendingSnapshot.docs.forEach((pendingDoc) => {
+      if (pendingDoc.id !== nextEmail) {
+        batch.delete(pendingDoc.ref);
+      }
+    });
+
+    if (previousEmail && previousEmail !== nextEmail) {
+      const previousPendingRef = firestore.doc(`users/${previousEmail}`);
+      const previousPendingSnapshot = await previousPendingRef.get();
+      const previousPendingData = previousPendingSnapshot.data();
+      const canDeletePreviousPending =
+        previousPendingData?.userId === uid ||
+        previousPendingData?.isPending === true;
+      if (
+        previousPendingSnapshot.exists &&
+        previousPendingRef.id !== nextEmail &&
+        canDeletePreviousPending
+      ) {
+        batch.delete(previousPendingRef);
+      }
+    }
+
     await batch.commit();
 
     response.status(200).json({email: nextEmail});
@@ -260,6 +278,145 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
       error: error instanceof Error ? error.message : String(error),
     });
     response.status(500).json({error: "Failed to sync email change."});
+  }
+});
+
+export const changeExampleUserEmail = onRequest(async (request, response) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const currentEmail = typeof decodedToken.email === "string" ?
+      normalizeEmail(decodedToken.email) :
+      "";
+    const nextEmail = typeof request.body?.nextEmail === "string" ?
+      normalizeEmail(request.body.nextEmail) :
+      "";
+
+    if (!currentEmail || !nextEmail) {
+      response.status(400).json({
+        error: "Current and next email are required.",
+      });
+      return;
+    }
+
+    if (getDataPartitionForEmail(currentEmail) !== "test" ||
+      getDataPartitionForEmail(nextEmail) !== "test") {
+      response.status(403).json({
+        error: "Direct email change is only allowed for @example.com users.",
+      });
+      return;
+    }
+
+    const userSnapshot = await firestore.doc(`users/${uid}`).get();
+    if (!userSnapshot.exists) {
+      response.status(404).json({error: "User profile not found."});
+      return;
+    }
+
+    const userData = userSnapshot.data() || {};
+    const role = userData.role;
+    const displayName =
+      typeof userData.displayName === "string" && userData.displayName.trim() ?
+        userData.displayName.trim() :
+        nextEmail;
+    const status =
+      typeof userData.status === "string" && userData.status.trim() ?
+        userData.status.trim() :
+        "active";
+
+    await getAuth(adminApp).updateUser(uid, {email: nextEmail});
+
+    const batch = firestore.batch();
+    batch.set(firestore.doc(`users/${uid}`), {
+      email: nextEmail,
+      dataPartition: "test",
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    if (role === "player") {
+      batch.set(firestore.doc(`players/${uid}`), {
+        email: nextEmail,
+        dataPartition: "test",
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
+
+    if (role === "player" || role === "organiser") {
+      batch.set(firestore.doc(`users/${nextEmail}`), {
+        displayName,
+        email: nextEmail,
+        role,
+        status,
+        dataPartition: "test",
+        userId: uid,
+        isPending: true,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
+
+    const [registrationSnapshot, paymentSnapshot, stalePendingSnapshot] =
+      await Promise.all([
+        firestore.collection("registrations").where("userId", "==", uid).get(),
+        firestore.collection("payments").where("userId", "==", uid).get(),
+        firestore.collection("users")
+          .where("isPending", "==", true)
+          .where("userId", "==", uid)
+          .get(),
+      ]);
+
+    registrationSnapshot.docs.forEach((registrationDoc) => {
+      batch.set(registrationDoc.ref, {
+        playerEmail: nextEmail,
+        dataPartition: "test",
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    });
+
+    paymentSnapshot.docs.forEach((paymentDoc) => {
+      batch.set(paymentDoc.ref, {
+        playerEmail: nextEmail,
+        dataPartition: "test",
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    });
+
+    stalePendingSnapshot.docs.forEach((pendingDoc) => {
+      if (pendingDoc.id !== nextEmail) {
+        batch.delete(pendingDoc.ref);
+      }
+    });
+
+    if (currentEmail !== nextEmail) {
+      const previousPendingRef = firestore.doc(`users/${currentEmail}`);
+      const previousPendingSnapshot = await previousPendingRef.get();
+      if (
+        previousPendingSnapshot.exists &&
+        previousPendingRef.id !== nextEmail
+      ) {
+        batch.delete(previousPendingRef);
+      }
+    }
+
+    await batch.commit();
+
+    response.status(200).json({email: nextEmail});
+  } catch (error) {
+    logger.error("Direct example email change failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({error: "Failed to change example user email."});
   }
 });
 

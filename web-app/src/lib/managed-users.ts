@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -88,7 +89,9 @@ export async function upsertManagedUser(
   },
 ) {
   const normalizedEmail = normalizeEmail(input.email);
-  const id = input.id || buildManagedUserId(normalizedEmail);
+  const canonicalId = buildManagedUserId(normalizedEmail);
+  const previousId = input.id?.trim() || "";
+  const id = previousId && previousId === canonicalId ? previousId : canonicalId;
 
   await setDoc(
     doc(db, "users", id),
@@ -104,5 +107,10 @@ export async function upsertManagedUser(
     },
     { merge: true },
   );
+
+  if (previousId && previousId !== id) {
+    await deleteDoc(doc(db, "users", previousId));
+  }
+
   return id;
 }

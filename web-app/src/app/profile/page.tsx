@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  ActionCodeSettings,
   EmailAuthProvider,
   linkWithCredential,
   reauthenticateWithPopup,
+  reauthenticateWithCredential,
   reload,
   type User,
   verifyBeforeUpdateEmail,
@@ -14,6 +16,7 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail, normalizeEmail, upsertManagedUser } from "@/lib/managed-users";
 import {
+  changeExampleUserEmailDirectly,
   clearPendingEmailChange,
   readPendingEmailChange,
   rememberPendingEmailChange,
@@ -44,6 +47,16 @@ export default function ProfilePage() {
   const [message, setMessage] = useState("");
   const [changingEmail, setChangingEmail] = useState(false);
   const [refreshingProfile, setRefreshingProfile] = useState(false);
+  const [reauthPassword, setReauthPassword] = useState("");
+  const [reauthenticating, setReauthenticating] = useState(false);
+  const [recentLoginRequired, setRecentLoginRequired] = useState(false);
+
+  function isRecentLoginError(error: unknown) {
+    return typeof error === "object"
+      && error !== null
+      && "code" in error
+      && (error as { code?: string }).code === "auth/requires-recent-login";
+  }
 
   function hasPasswordProvider(user: User) {
     return user.providerData.some((provider) => provider.providerId === "password");
@@ -55,6 +68,21 @@ export default function ProfilePage() {
 
   function buildTemporaryPassword() {
     return `Temp-${crypto.randomUUID()}-Aa1!`;
+  }
+
+  function buildEmailChangeActionSettings(): ActionCodeSettings | undefined {
+    if (typeof window === "undefined") {
+      return undefined;
+    }
+
+    return {
+      url: `${window.location.origin}/profile?emailChange=verified`,
+      handleCodeInApp: false,
+    };
+  }
+
+  function isExampleDomainEmail(value: string) {
+    return normalizeEmail(value).endsWith("@example.com");
   }
 
   useEffect(() => {
@@ -130,15 +158,29 @@ export default function ProfilePage() {
         const pendingChange = readPendingEmailChange();
 
         if (normalizedAuthEmail && normalizedAuthEmail !== normalizedStoredEmail) {
-          const idToken = await refreshedUser.getIdToken(true);
-          const synced = await syncProfileEmailChange({
-            idToken,
-            previousEmail: pendingChange?.previousEmail || normalizedStoredEmail,
-            nextEmail: normalizedAuthEmail,
-          });
-          userData.email = synced.email;
-          clearPendingEmailChange();
-          setMessage("Email change verified and synced.");
+          try {
+            await setDoc(doc(db, "users", refreshedUser.uid), {
+              email: normalizedAuthEmail,
+              dataPartition: getDataPartitionForEmail(normalizedAuthEmail),
+              updatedAt: serverTimestamp(),
+            }, { merge: true });
+
+            const idToken = await refreshedUser.getIdToken(true);
+            const synced = await syncProfileEmailChange({
+              idToken,
+              previousEmail: pendingChange?.previousEmail || normalizedStoredEmail,
+              nextEmail: normalizedAuthEmail,
+            });
+            userData.email = synced.email;
+            userData.dataPartition = getDataPartitionForEmail(synced.email);
+            clearPendingEmailChange();
+            setMessage("Email change verified and synced.");
+          } catch (syncError) {
+            console.error("[profile] email sync fallback", syncError);
+            userData.email = normalizedStoredEmail || normalizedAuthEmail;
+            userData.dataPartition = getDataPartitionForEmail(userData.email);
+            setMessage("Email verified, but the profile sync has not completed yet. Please sign out and sign back in so we can retry it safely.");
+          }
         }
 
         if (cancelled) return;
@@ -257,7 +299,11 @@ export default function ProfilePage() {
       }
 
       const existingManaged = await getManagedUserByEmail(db, normalizedCurrentEmail);
-      if (role === "player" || role === "organiser") {
+      const canUpdateExistingManaged =
+        !!existingManaged
+        && (existingManaged.userId == null || existingManaged.userId === user.uid);
+
+      if ((role === "player" || role === "organiser") && canUpdateExistingManaged) {
         await upsertManagedUser(db, {
           id: existingManaged?.id,
           email: normalizedCurrentEmail,
@@ -302,32 +348,118 @@ export default function ProfilePage() {
 
     setChangingEmail(true);
     setMessage("");
+    setRecentLoginRequired(false);
 
     try {
-      if (!hasPasswordProvider(user) && hasGoogleProvider(user)) {
-        await reauthenticateWithPopup(user, googleProvider);
+      await startEmailChange(user, normalizedCurrentEmail, normalizedNextEmail);
+    } catch (error) {
+      console.error("[profile] email change failed", error);
+      if (isRecentLoginError(error)) {
+        setRecentLoginRequired(true);
+        setMessage(
+          hasPasswordProvider(user)
+            ? "Please confirm your password to continue changing your email."
+            : "Please confirm your Google sign-in to continue changing your email.",
+        );
+      } else {
+        setMessage(error instanceof Error ? error.message : "Failed to start email change.");
+      }
+    } finally {
+      setChangingEmail(false);
+    }
+  }
+
+  async function startEmailChange(user: User, normalizedCurrentEmail: string, normalizedNextEmail: string) {
+    if (isExampleDomainEmail(normalizedCurrentEmail) && isExampleDomainEmail(normalizedNextEmail)) {
+      const idToken = await user.getIdToken(true);
+      const changed = await changeExampleUserEmailDirectly({
+        idToken,
+        nextEmail: normalizedNextEmail,
+      });
+      await reload(user);
+      setEmail(changed.email);
+      setCurrentUser(auth.currentUser || user);
+      setPendingEmail("");
+      setRecentLoginRequired(false);
+      setReauthPassword("");
+      clearPendingEmailChange();
+      setMessage("Test-user email changed immediately.");
+      return;
+    }
+
+    if (!hasPasswordProvider(user) && hasGoogleProvider(user)) {
+      try {
         await linkWithCredential(
           user,
           EmailAuthProvider.credential(normalizedNextEmail, buildTemporaryPassword()),
         );
+      } catch (error) {
+        const alreadyLinked =
+          typeof error === "object"
+          && error !== null
+          && "code" in error
+          && (error as { code?: string }).code === "auth/provider-already-linked";
+
+        if (!alreadyLinked) {
+          throw error;
+        }
+      }
+    }
+
+    await verifyBeforeUpdateEmail(user, normalizedNextEmail, buildEmailChangeActionSettings());
+    rememberPendingEmailChange({
+      previousEmail: normalizedCurrentEmail,
+      nextEmail: normalizedNextEmail,
+    });
+    setPendingEmail("");
+    setRecentLoginRequired(false);
+    setReauthPassword("");
+    setMessage(
+      hasPasswordProvider(user)
+        ? "Verification link sent to the new email address. After opening it, come back here and refresh your profile."
+        : "Verification link sent to the new email address. After confirming it, this account will use email/password sign-in. Then use Forgot password on login to set your password.",
+    );
+  }
+
+  async function handleRecentLogin() {
+    const user = currentUser || auth.currentUser;
+    if (!user) {
+      setMessage("You are no longer signed in.");
+      return;
+    }
+
+    const normalizedCurrentEmail = normalizeEmail(email);
+    const normalizedNextEmail = normalizeEmail(pendingEmail);
+    if (!normalizedNextEmail) {
+      setMessage("Enter the new email address first.");
+      return;
+    }
+
+    setReauthenticating(true);
+    setMessage("");
+
+    try {
+      if (hasPasswordProvider(user)) {
+        if (!reauthPassword) {
+          throw new Error("Enter your current password to continue.");
+        }
+
+        await reauthenticateWithCredential(
+          user,
+          EmailAuthProvider.credential(normalizedCurrentEmail, reauthPassword),
+        );
+      } else if (hasGoogleProvider(user)) {
+        await reauthenticateWithPopup(user, googleProvider);
+      } else {
+        throw new Error("This account needs a fresh sign-in before the email can be changed.");
       }
 
-      await verifyBeforeUpdateEmail(user, normalizedNextEmail);
-      rememberPendingEmailChange({
-        previousEmail: normalizedCurrentEmail,
-        nextEmail: normalizedNextEmail,
-      });
-      setPendingEmail("");
-      setMessage(
-        hasPasswordProvider(user)
-          ? "Verification link sent to the new email address. After opening it, come back here and refresh your profile."
-          : "Verification link sent to the new email address. After confirming it, this account will use email/password sign-in. Then use Forgot password on login to set your password.",
-      );
+      await startEmailChange(user, normalizedCurrentEmail, normalizedNextEmail);
     } catch (error) {
-      console.error("[profile] email change failed", error);
-      setMessage(error instanceof Error ? error.message : "Failed to start email change.");
+      console.error("[profile] reauthentication failed", error);
+      setMessage(error instanceof Error ? error.message : "Failed to confirm your sign-in.");
     } finally {
-      setChangingEmail(false);
+      setReauthenticating(false);
     }
   }
 
@@ -382,9 +514,9 @@ export default function ProfilePage() {
                 className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
                 placeholder="new-email@example.com"
               />
-              <button
-                type="button"
-                onClick={handleEmailChange}
+            <button
+              type="button"
+              onClick={handleEmailChange}
                 disabled={changingEmail}
                 className="rounded-full border border-zinc-300 px-5 py-3 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -399,6 +531,38 @@ export default function ProfilePage() {
             >
               {refreshingProfile ? "Refreshing..." : "Refresh email status after verifying"}
             </button>
+            {recentLoginRequired ? (
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <h3 className="text-sm font-semibold text-amber-950">Confirm it&apos;s really you</h3>
+                <p className="mt-1 text-sm text-amber-900">
+                  Firebase requires a recent sign-in before it can change the account email.
+                </p>
+                {currentUser && hasPasswordProvider(currentUser) ? (
+                  <label className="mt-3 block">
+                    <span className="mb-2 block text-sm font-medium text-amber-950">Current password</span>
+                    <input
+                      type="password"
+                      value={reauthPassword}
+                      onChange={(event) => setReauthPassword(event.target.value)}
+                      className="w-full rounded-xl border border-amber-300 px-4 py-3 outline-none transition focus:border-amber-500"
+                      placeholder="Enter your current password"
+                    />
+                  </label>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void handleRecentLogin()}
+                  disabled={reauthenticating}
+                  className="mt-3 rounded-full border border-amber-300 px-5 py-3 text-sm font-medium text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {reauthenticating
+                    ? "Confirming..."
+                    : currentUser && hasPasswordProvider(currentUser)
+                      ? "Confirm password and continue"
+                      : "Confirm sign-in and continue"}
+                </button>
+              </div>
+            ) : null}
           </div>
 
           {role === "player" ? (

@@ -19,6 +19,7 @@ import { getManagedUserByEmail, upsertManagedUser } from "@/lib/managed-users";
 import { resolveAuthProfile } from "@/lib/auth-profile";
 import { lookupPendingUserProfile } from "@/lib/pending-user-lookup";
 import { lookupPasswordResetEligibility } from "@/lib/password-reset";
+import { syncProfileEmailChange } from "@/lib/profile-email-change";
 import { migrateManualPlayersToSelfRegistered, promoteManualPlayerToSelfRegistered } from "@/lib/players";
 
 type AppUserRole = "player" | "organiser" | "admin";
@@ -51,6 +52,7 @@ function buildVerificationSendKey(email: string) {
 }
 
 const REGISTER_NOTICE_KEY = "post-register-verification-notice";
+const REGISTER_NOTICE_MESSAGE = "Registration successful. We sent a verification email. Open the link in your inbox or junk/spam folder, then sign in to finish setup.";
 
 function rememberVerificationEmailSent(email: string) {
   if (typeof window === "undefined") return;
@@ -70,13 +72,14 @@ function rememberRegisterNotice(message: string) {
   window.localStorage.setItem(REGISTER_NOTICE_KEY, message);
 }
 
-function consumeRegisterNotice() {
+function readRegisterNotice() {
   if (typeof window === "undefined") return "";
-  const value = window.localStorage.getItem(REGISTER_NOTICE_KEY) || "";
-  if (value) {
-    window.localStorage.removeItem(REGISTER_NOTICE_KEY);
-  }
-  return value;
+  return window.localStorage.getItem(REGISTER_NOTICE_KEY) || "";
+}
+
+function clearRegisterNotice() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(REGISTER_NOTICE_KEY);
 }
 
 async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: string) {
@@ -86,6 +89,22 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   const snapshot = await getDoc(userRef);
   const existing = snapshot.data() as UserProfile | undefined;
   console.log("[auth] existing users/{uid} doc", { exists: snapshot.exists(), role: existing?.role });
+
+  const normalizedAuthEmail = (user.email || "").trim().toLowerCase();
+  const normalizedExistingEmail = (existing?.email || "").trim().toLowerCase();
+  if (snapshot.exists() && normalizedAuthEmail && normalizedExistingEmail && normalizedAuthEmail !== normalizedExistingEmail) {
+    try {
+      const idToken = await user.getIdToken(true);
+      await syncProfileEmailChange({
+        idToken,
+        previousEmail: normalizedExistingEmail,
+        nextEmail: normalizedAuthEmail,
+      });
+      console.log("[auth] synced changed auth email back into Firestore profile");
+    } catch (syncError) {
+      console.error("[auth] profile email sync before ensureUserProfileForAuthUser failed", syncError);
+    }
+  }
 
   let managedUser = user.email ? await getManagedUserByEmail(db, user.email) : null;
   if (!managedUser) {
@@ -132,7 +151,7 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   // Writing to managedUsers has no security rules and always fails — that dead write
   // was the root cause of the recurring organiser/player permission error. Removed.
 
-  if (resolved.role === "player" || resolved.role === "organiser") {
+  if ((resolved.role === "player" || resolved.role === "organiser") && managedUser) {
     await upsertManagedUser(db, {
       id: managedUser?.id,
       email: resolved.email,
@@ -166,7 +185,16 @@ export default function LoginPage() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const rememberedNotice = consumeRegisterNotice();
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("registered") === "1") {
+        rememberRegisterNotice(REGISTER_NOTICE_MESSAGE);
+        setNotice(REGISTER_NOTICE_MESSAGE);
+        return;
+      }
+    }
+
+    const rememberedNotice = readRegisterNotice();
     if (rememberedNotice) {
       setNotice(rememberedNotice);
     }
@@ -199,9 +227,10 @@ export default function LoginPage() {
         setDisplayName("");
         setEmail("");
         setPassword("");
-        const nextNotice = "Registration successful. We sent a verification email. Open the link in your inbox or junk/spam folder, then sign in to finish setup.";
+        const nextNotice = REGISTER_NOTICE_MESSAGE;
         rememberRegisterNotice(nextNotice);
         setNotice(nextNotice);
+        router.replace("/login?registered=1");
       } else {
         const credentials = await signInWithEmailAndPassword(auth, email, password);
         await reload(credentials.user);
@@ -212,16 +241,27 @@ export default function LoginPage() {
             rememberVerificationEmailSent(credentials.user.email || email);
           }
           await signOut(auth);
+          rememberRegisterNotice(REGISTER_NOTICE_MESSAGE);
           setNotice("Please verify your email before signing in. Check your inbox or junk/spam folder for the verification link we already sent.");
+          router.replace("/login?registered=1");
           return;
         }
         await ensureUserProfileForAuthUser(credentials.user);
+        clearRegisterNotice();
         setNotice("");
         router.push("/dashboard");
         return;
       }
     } catch (submitError) {
-      if (submitError instanceof Error) {
+      const invalidCredentials =
+        typeof submitError === "object"
+        && submitError !== null
+        && "code" in submitError
+        && (submitError as { code?: string }).code === "auth/invalid-credential";
+
+      if (invalidCredentials) {
+        setError("Invalid email or password");
+      } else if (submitError instanceof Error) {
         setError(submitError.message);
       } else {
         setError("Something went wrong. Please try again.");
@@ -239,6 +279,7 @@ export default function LoginPage() {
     try {
       const credentials = await signInWithPopup(auth, googleProvider);
       await ensureUserProfileForAuthUser(credentials.user);
+      clearRegisterNotice();
       router.push("/dashboard");
     } catch (signInError) {
       if (signInError instanceof Error) {
@@ -296,7 +337,7 @@ export default function LoginPage() {
         </h1>
         {mode === "register" ? (
           <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
-            All self-registrations will be created as <strong>player</strong>. If you want to register as organiser, please contact tranzha83@gmail.com.
+            All self-registrations will be created as <strong>player</strong>. If an admin pre-created you as an organiser, you must register with that exact email address or the account will still be created as a player.
           </div>
         ) : null}
 

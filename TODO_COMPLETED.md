@@ -1,5 +1,27 @@
 # To-Do List - Completed tasks
 
+- [x] Remove tracked debug artifacts that hardcoded Firebase API keys in source (`web-app/tmp-live-sdk-check.mjs`).
+- [x] Produce an implementation plan for WhatsApp integration (`WHATSAPP_INTEGRATION_PLAN.md`) covering setup, phased delivery, testing, and decision gates.
+- [x] Add Firebase API key and App Check security planning docs (`SECURITY_AUDIT.md`, `APP_CHECK_ROLLOUT_PLAN.md`).
+- [x] Add a server-side direct email-change path for `@example.com` test users so they can skip verification and we can exercise the full email-change flow end-to-end ourselves.
+- [x] Allow a signed-in user to directly sync their own `users/{uid}` email to the authenticated email after verification, so Firestore cannot stay stale even if the server helper path misses a run.
+- [x] Clarify in admin/login UX that organiser pre-assignment only works when the user registers with the exact same email address as the pending organiser record.
+- [x] Make the post-registration redirect carry an explicit login notice signal so the verification message always shows after registration, even if auth redirects race.
+- [x] Make the server-side email sync reconcile by `uid`, update `users/{uid}` from the authenticated email, and delete stale email-keyed pending docs automatically after each verified email change.
+- [x] Keep the post-registration verification notice on the login screen until the user actually signs in, instead of clearing it on first render.
+- [x] Return verified profile email-change links back into `/profile` so the app can immediately sync Firestore after Firebase Auth applies the new email.
+- [x] Make profile email-change recovery update `users/{uid}` immediately from the authenticated email, then repair the server-side sync path so Firestore does not stay on the old email after verification.
+- [x] Stop self-service login/profile flows from client-writing email-keyed managed-user docs after an email change, and route those managed-user syncs through server-safe paths only.
+- [x] Add proper reauthentication UX to profile email changes so `auth/requires-recent-login` prompts the user to confirm their identity and then retries the email-change flow.
+- [x] Fix organiser dashboard and organiser-player reads so newly linked organisers only query Firestore documents allowed by organiser rules, avoiding post-login permission errors.
+- [x] Fix managed pending-user email renames so organiser/player admin edits move the Firestore doc to the canonical email-based ID instead of leaving stale duplicate records behind.
+- [x] Add admin-only inactive/reactivate organiser sections, matching the player lifecycle pattern.
+- [x] Add a test-data partition so `@example.com` users bypass email verification, stay isolated from live users/sessions/events, and are managed only by `admin@example.com` while live data stays visible only to the real admin.
+- [x] Fix organiser self-registration regression where admin-created organiser accounts can fall back to player role on first verified sign-in.
+- [x] Make the post-registration verification guidance persist clearly on the login screen, including a junk/spam inbox hint.
+- [x] Add another section in profile page, allow user to change email address, this requires a firebase email link verification, which is the same process as self-registration (use firebase feature to do this). If user is using email/password auth, no further action is needed. Alert user that if they were using SSO, they'll be changed into email/password auth, and need to use forget password on login page to set a new password.
+- [x] All users with @example.com domain is test users. Find a good way to segregate them from other users. Admin user should be able to see all. Users with @example.com email domain should only be able to see other @example.com users, including sessions and events created by those users. Users with non @example.com emails should not be able to see any @example.com users or sessions/events created by those users.
+
 - [x] Implement a forget password functionality on login page. Only users with email/password auth can use this. Display proper error message for SSO users. Use firebase native functionalities for this.
 - [x] Add inactive player segments to admin and organiser player management views. Admin can reactivate inactive players; organiser can view inactive players but cannot reactivate them.
 - [x] Remove ability to change email address from Manage players page for all self-registered players and organisers, for all user types.
