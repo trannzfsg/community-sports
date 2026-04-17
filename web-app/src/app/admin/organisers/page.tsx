@@ -32,8 +32,10 @@ export default function AdminOrganisersPage() {
 
   const loadOrganisers = useCallback(async (partition = dataPartition) => {
     const [items, sessionsInPartition] = await Promise.all([
-      getManagedUsersByRole(db, "organiser", partition),
-      getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition))),
+      getManagedUsersByRole(db, "organiser", partition).catch(() => []),
+      getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition))).catch(() => ({
+        docs: [],
+      } as { docs: Array<{ data: () => { organiserId?: string } }> })),
     ]);
 
     const organiserIdsFromSessions = Array.from(
@@ -61,7 +63,18 @@ export default function AdminOrganisersPage() {
 
     const registeredOrganiserUsers = await getDocs(
       query(collection(db, "users"), where("role", "==", "organiser"), where("dataPartition", "==", partition)),
-    );
+    ).catch(async () => {
+      // Fallback for environments where compound query/index or rule matching can fail.
+      const usersByPartition = await getDocs(
+        query(collection(db, "users"), where("dataPartition", "==", partition)),
+      );
+      return {
+        docs: usersByPartition.docs.filter((userDoc) => {
+          const data = userDoc.data() as { role?: string };
+          return data.role === "organiser";
+        }),
+      } as typeof usersByPartition;
+    });
     const groupedByEmail = new Map<string, ManagedUserRecord[]>();
     const registeredByEmail = new Map(
       registeredOrganiserUsers.docs
