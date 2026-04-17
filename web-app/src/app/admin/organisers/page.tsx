@@ -31,10 +31,37 @@ export default function AdminOrganisersPage() {
   const [dataPartition, setDataPartition] = useState<DataPartition>("live");
 
   const loadOrganisers = useCallback(async (partition = dataPartition) => {
-    const [items, registeredOrganiserUsers] = await Promise.all([
+    const [items, sessionsInPartition] = await Promise.all([
       getManagedUsersByRole(db, "organiser", partition),
-      getDocs(query(collection(db, "users"), where("role", "==", "organiser"), where("dataPartition", "==", partition))),
+      getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition))),
     ]);
+
+    const organiserIdsFromSessions = Array.from(
+      new Set(
+        sessionsInPartition.docs
+          .map((sessionDoc) => (sessionDoc.data() as { organiserId?: string }).organiserId)
+          .filter((organiserId): organiserId is string => !!organiserId),
+      ),
+    );
+
+    // Legacy repair: older organiser user docs can miss dataPartition, which makes them
+    // invisible to the partition-scoped organiser query. We backfill from session ownership.
+    await Promise.all(
+      organiserIdsFromSessions.map(async (organiserId) => {
+        try {
+          await setDoc(doc(db, "users", organiserId), {
+            dataPartition: partition,
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+        } catch {
+          // Ignore repair failures here; query below will still return what is readable.
+        }
+      }),
+    );
+
+    const registeredOrganiserUsers = await getDocs(
+      query(collection(db, "users"), where("role", "==", "organiser"), where("dataPartition", "==", partition)),
+    );
     const groupedByEmail = new Map<string, ManagedUserRecord[]>();
     const registeredByEmail = new Map(
       registeredOrganiserUsers.docs
