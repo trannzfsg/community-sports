@@ -82,22 +82,27 @@ export default function AdminOrganisersPage() {
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        router.push("/login");
-        return;
-      }
+      try {
+        if (!user) {
+          router.push("/login");
+          return;
+        }
 
-      const snapshot = await getDoc(doc(db, "users", user.uid));
-      const profile = snapshot.data() as UserProfile | undefined;
-      if (!profile || profile.role !== "admin") {
-        router.push("/dashboard");
-        return;
-      }
+        const snapshot = await getDoc(doc(db, "users", user.uid));
+        const profile = snapshot.data() as UserProfile | undefined;
+        if (!profile || profile.role !== "admin") {
+          router.push("/dashboard");
+          return;
+        }
 
-      const nextPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
-      setDataPartition(nextPartition);
-      await loadOrganisers(nextPartition);
-      setLoading(false);
+        const nextPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
+        setDataPartition(nextPartition);
+        await loadOrganisers(nextPartition);
+      } catch (loadError) {
+        setError(loadError instanceof Error ? loadError.message : "Failed to load organisers.");
+      } finally {
+        setLoading(false);
+      }
     });
 
     return () => unsubscribe();

@@ -977,12 +977,15 @@ export default function DashboardPage() {
                               const isOwnRegistration = registration.userId === user?.uid;
                               const playerRecord = visiblePlayersForSeries.find((player) => (player.userId || player.id) === registration.userId);
                               const isWaiting = registration.status === "waiting";
-                              const showCompactPlayerRow = !canManageSessions && !isOwnRegistration;
+                              const showCompactPlayerRow = canManageSessions || (!canManageSessions && !isOwnRegistration);
                               return (
                                 <div key={registration.id} className={`rounded-xl bg-white p-3 ring-1 ${isOwnRegistration ? "ring-blue-300 bg-blue-50/30" : "ring-zinc-200"}`}>
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                     {showCompactPlayerRow ? (
-                                      <div className="font-medium text-zinc-900">{registration.playerName}</div>
+                                      <div>
+                                        <div className="font-medium text-zinc-900">{registration.playerName}{isOwnRegistration ? " (you)" : ""}</div>
+                                        {isWaiting ? <div className="mt-1 text-xs text-zinc-500">Waiting list</div> : null}
+                                      </div>
                                     ) : (
                                       <div>
                                         <div className="font-medium text-zinc-900">{registration.playerName}{isOwnRegistration ? " (you)" : ""}</div>
@@ -997,6 +1000,17 @@ export default function DashboardPage() {
                                       <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>{registration.organiserPaid ? "Confirmed" : "Not confirmed"}</span>
                                     </div>
                                   </div>
+                                  {canManageSessions ? (
+                                    <details className="mt-2 text-xs text-zinc-500">
+                                      <summary className="cursor-pointer select-none text-zinc-600">Details</summary>
+                                      <div className="mt-2 space-y-1">
+                                        <div>Email: {registration.playerEmail || "Manually added player"}</div>
+                                        <div>Status: {isWaiting ? "Waiting list" : "Registered"}</div>
+                                        <div>Skill level: {playerRecord?.skillLevel || "Not set"}</div>
+                                        {registration.paymentReference ? <div>Payment ref: <span className="font-medium text-zinc-700">{registration.paymentReference}</span></div> : null}
+                                      </div>
+                                    </details>
+                                  ) : null}
                                   <div className="mt-3 flex flex-wrap gap-2 items-center">
                                     {isOwnRegistration && !isWaiting && !canManageSessions ? (
                                       registration.paymentReference && editingReferenceId !== registration.id ? (
