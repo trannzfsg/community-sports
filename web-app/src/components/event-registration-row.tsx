@@ -26,30 +26,30 @@ export default function EventRegistrationRow({
 
   return (
     <details
-      className={`rounded-xl bg-white p-3 ring-1 ${isOwnRegistration ? "bg-blue-50/30 ring-blue-300" : "ring-zinc-200"}`}
+      className={`rounded-lg bg-white px-2 py-1.5 ring-1 ${isOwnRegistration ? "bg-blue-50/30 ring-blue-300" : "ring-zinc-200"}`}
     >
       <summary className="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
-        <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900">
+        <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1 truncate text-[13px] font-medium leading-none text-zinc-900">
             {registration.playerName}
             {isOwnRegistration ? " (you)" : ""}
           </div>
-          <div className="flex shrink-0 items-center gap-1 text-[11px]">
+          <div className="flex shrink-0 items-center gap-1 text-[10px] leading-none">
             {isWaiting ? (
-              <span className="rounded-full bg-amber-100 px-2 py-1 font-medium text-amber-700">Wait</span>
+              <span className="rounded-full bg-amber-100 px-1.5 py-1 font-medium text-amber-700">Wait</span>
             ) : null}
-            <span className={`rounded-full px-2 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>
+            <span className={`rounded-full px-1.5 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>
               {getPaymentSummaryLabel(registration)}
             </span>
-            <span className={`rounded-full px-2 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>
+            <span className={`rounded-full px-1.5 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>
               {getConfirmationSummaryLabel(registration)}
             </span>
-            <span className="text-sm text-zinc-400" aria-hidden="true">▾</span>
+            <span className="text-[10px] text-zinc-400" aria-hidden="true">▾</span>
           </div>
         </div>
       </summary>
 
-      <div className="mt-3 space-y-2 border-t border-zinc-200 pt-3 text-xs text-zinc-500">
+      <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2 text-[11px] text-zinc-500">
         <div>Email: {registration.playerEmail || "Manually added player"}</div>
         <div>Status: {isWaiting ? "Waiting list" : "Registered"}</div>
         {skillLevel ? <div>Skill level: {skillLevel}</div> : null}
