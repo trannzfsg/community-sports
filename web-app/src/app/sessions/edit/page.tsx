@@ -185,7 +185,11 @@ function EditSessionPageInner() {
 
         if (previousEventSnapshot.exists()) {
           const registrationsSnapshot = await getDocs(
-            query(collection(db, "registrations"), where("sessionEventId", "==", previousEventId)),
+            query(
+              collection(db, "registrations"),
+              where("sessionEventId", "==", previousEventId),
+              where("dataPartition", "==", dataPartition),
+            ),
           );
 
           for (const registrationDoc of registrationsSnapshot.docs) {

@@ -355,7 +355,10 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId)
-        || ((isAdmin() || isOrganiser()) && resource.data.dataPartition == requestPartition());
+        || ((isAdmin() || isOrganiser()) && resource.data.dataPartition == requestPartition())
+        || (isPlayer()
+          && resource.data.dataPartition == requestPartition()
+          && resource.data.role == 'organiser');
 
       allow create: if (isAdmin()
           && partitionMatchesRequest(userPartitionFromData(request.resource.data))

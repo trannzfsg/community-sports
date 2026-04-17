@@ -245,13 +245,6 @@ export default function DashboardPage() {
 
         const eventMap: Record<string, SessionEvent[]> = {};
         const registrationMap: Record<string, RegistrationItem[]> = {};
-        const registrationSnapshotsByPartition = await getDocs(
-          query(collection(db, "registrations"), where("dataPartition", "==", dataPartition)),
-        );
-        const allRegistrationItems = registrationSnapshotsByPartition.docs.map((registrationDoc) => ({
-          id: registrationDoc.id,
-          ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-        }));
 
         await Promise.all(
           seriesItems.map(async (series) => {
@@ -259,6 +252,7 @@ export default function DashboardPage() {
               query(
                 collection(db, "sessionEvents"),
                 where("sessionSeriesId", "==", series.id),
+                where("organiserId", "==", series.organiserId),
                 where("dataPartition", "==", dataPartition),
               ),
             );
@@ -271,8 +265,18 @@ export default function DashboardPage() {
 
             await Promise.all(
               rawEventItems.map(async (event) => {
+                const registrationSnapshot = await getDocs(
+                  query(
+                    collection(db, "registrations"),
+                    where("sessionEventId", "==", event.id),
+                    where("dataPartition", "==", dataPartition),
+                  ),
+                );
                 registrationMap[event.id] = sortRegistrations(
-                  allRegistrationItems.filter((registration) => registration.sessionEventId === event.id),
+                  registrationSnapshot.docs.map((registrationDoc) => ({
+                    id: registrationDoc.id,
+                    ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+                  })),
                   currentUser.uid,
                 );
               }),
@@ -356,11 +360,12 @@ export default function DashboardPage() {
     );
   }, [organiserApprovalRequests]);
 
-  async function refreshSeriesData(seriesId: string) {
+  async function refreshSeriesData(seriesId: string, organiserId: string) {
     const eventSnapshots = await getDocs(
       query(
         collection(db, "sessionEvents"),
         where("sessionSeriesId", "==", seriesId),
+        where("organiserId", "==", organiserId),
         where("dataPartition", "==", profile?.dataPartition || "live"),
       ),
     );
@@ -373,17 +378,20 @@ export default function DashboardPage() {
       .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
 
     const registrationMap: Record<string, RegistrationItem[]> = {};
-    const registrationsSnapshot = await getDocs(
-      query(collection(db, "registrations"), where("dataPartition", "==", profile?.dataPartition || "live")),
-    );
-    const allRegistrations = registrationsSnapshot.docs.map((registrationDoc) => ({
-      id: registrationDoc.id,
-      ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
-    }));
     await Promise.all(
       rawEventItems.map(async (event) => {
+        const registrationsSnapshot = await getDocs(
+          query(
+            collection(db, "registrations"),
+            where("sessionEventId", "==", event.id),
+            where("dataPartition", "==", profile?.dataPartition || "live"),
+          ),
+        );
         registrationMap[event.id] = sortRegistrations(
-          allRegistrations.filter((registration) => registration.sessionEventId === event.id),
+          registrationsSnapshot.docs.map((registrationDoc) => ({
+            id: registrationDoc.id,
+            ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+          })),
           user?.uid,
         );
       }),
@@ -402,7 +410,7 @@ export default function DashboardPage() {
       await updateDoc(doc(db, "sessions", series.id), {
         nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
       });
-      await refreshSeriesData(series.id);
+      await refreshSeriesData(series.id, series.organiserId);
     } finally {
       setBusyKey(null);
     }
@@ -412,7 +420,7 @@ export default function DashboardPage() {
     setBusyKey(eventItem.id);
     try {
       await updateDoc(doc(db, "sessionEvents", eventItem.id), { status });
-      await refreshSeriesData(series.id);
+      await refreshSeriesData(series.id, series.organiserId);
     } finally {
       setBusyKey(null);
     }
@@ -443,11 +451,6 @@ export default function DashboardPage() {
 
     try {
       const registrationId = buildRegistrationId(eventItem.id, user.uid);
-      const existing = await getDoc(doc(db, "registrations", registrationId));
-      if (existing.exists()) {
-        return;
-      }
-
       if (!approvedOrganiserIdsForPlayer.has(series.organiserId)) {
         return;
       }
@@ -476,19 +479,39 @@ export default function DashboardPage() {
         status: capacityState.nextRegistrationStatus,
       };
 
-      await setDoc(doc(db, "registrations", registrationId), {
-        ...registration,
-        createdAt: serverTimestamp(),
-      });
+      try {
+        await setDoc(doc(db, "registrations", registrationId), {
+          ...registration,
+          createdAt: serverTimestamp(),
+        });
+      } catch (error) {
+        const firebaseError = error as { code?: string; message?: string };
+        console.error("[handleRegister] failed writing registration", {
+          registrationId,
+          code: firebaseError?.code,
+          message: firebaseError?.message,
+        });
+        throw error;
+      }
 
-      await syncPaymentRecordForRegistration(db, series, eventItem, registration);
+      try {
+        await syncPaymentRecordForRegistration(db, series, eventItem, registration);
+      } catch (error) {
+        const firebaseError = error as { code?: string; message?: string };
+        console.error("[handleRegister] failed syncing payment", {
+          registrationId,
+          code: firebaseError?.code,
+          message: firebaseError?.message,
+        });
+        throw error;
+      }
       if (canManageSessions) {
         await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
         await updateDoc(doc(db, "sessions", series.id), {
           nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
         });
       }
-      await refreshSeriesData(series.id);
+      await refreshSeriesData(series.id, series.organiserId);
     } finally {
       setBusyKey(null);
     }
@@ -506,7 +529,7 @@ export default function DashboardPage() {
       if (canManageSessions) {
         await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
       }
-      await refreshSeriesData(series.id);
+      await refreshSeriesData(series.id, series.organiserId);
     } finally {
       setBusyKey(null);
     }
@@ -537,7 +560,7 @@ export default function DashboardPage() {
         delete next[registration.id];
         return next;
       });
-      await refreshSeriesData(series.id);
+      await refreshSeriesData(series.id, series.organiserId);
     } finally {
       setBusyKey(null);
     }
@@ -559,7 +582,7 @@ export default function DashboardPage() {
         organiserPaid: nextValue,
       });
       await syncPaymentRecordForRegistration(db, series, eventItem, updatedRegistration);
-      await refreshSeriesData(series.id);
+      await refreshSeriesData(series.id, series.organiserId);
     } finally {
       setBusyKey(null);
     }
@@ -650,7 +673,7 @@ export default function DashboardPage() {
     setBusyKey(eventItem.id);
     try {
       await addPlayerToEvent(series, eventItem, selection.player);
-      await refreshSeriesData(series.id);
+      await refreshSeriesData(series.id, series.organiserId);
     } catch (err: unknown) {
       const firebaseErr = err as { message?: string; code?: string };
       console.error("[handleSelectOrCreatePlayer] failed:", "code:", firebaseErr?.code, "message:", firebaseErr?.message, "eventId:", eventItem.id, "playerId:", selection.player.id);
