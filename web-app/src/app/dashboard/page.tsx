@@ -981,7 +981,7 @@ export default function DashboardPage() {
                         </div>
 
                         {canManageSessions ? (
-                          <div className="mt-4 space-y-2">
+                          <div className="mt-2 space-y-1">
                             <SearchablePlayerSelect
                               players={visiblePlayersForSeries}
                               allowCreate={false}
@@ -995,7 +995,7 @@ export default function DashboardPage() {
                           </div>
                         ) : null}
 
-                          <div className="mt-4 space-y-2">
+                        <div className="mt-2 space-y-1">
                             {registrations.length ? (
                               registrations.map((registration) => {
                                 const isOwnRegistration = registration.userId === user?.uid;

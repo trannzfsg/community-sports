@@ -280,7 +280,7 @@ function SessionViewPageInner() {
                 {registrations.length === 0 ? (
                   <p className="mt-4 text-sm text-zinc-500">No registrations for this event.</p>
                 ) : (
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-2 space-y-1">
                     <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">Participants</h4>
                     {registrations.map((registration) => {
                       const isOwnRegistration = registration.userId === user?.uid;
