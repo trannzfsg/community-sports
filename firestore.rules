@@ -323,6 +323,28 @@ service cloud.firestore {
         && request.resource.data.skillLevel == resource.data.skillLevel;
     }
 
+    function approvalDocId(organiserId, playerId) {
+      return organiserId + "__" + playerId;
+    }
+
+    function organiserHasApprovedPlayer(organiserId, playerId) {
+      return exists(
+          /databases/$(database)/documents/organiserApprovals/$(approvalDocId(organiserId, playerId))
+        )
+        && get(
+          /databases/$(database)/documents/organiserApprovals/$(approvalDocId(organiserId, playerId))
+        ).data.status == "approved";
+    }
+
+    function signedInPlayerApprovedForOrganiser(organiserId) {
+      return isSignedIn() && organiserHasApprovedPlayer(organiserId, request.auth.uid);
+    }
+
+    function registrationUserNeedsApproval(userId) {
+      return exists(/databases/$(database)/documents/users/$(userId))
+        && get(/databases/$(database)/documents/users/$(userId)).data.role == "player";
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId)
         || ((isAdmin() || isOrganiser()) && partitionMatchesRequest(resource.data.dataPartition));
@@ -425,7 +447,9 @@ service cloud.firestore {
 
     match /sessions/{sessionId} {
       allow read: if (isAdmin() && partitionMatchesRequest(resource.data.dataPartition))
-        || (isPlayer() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isPlayer()
+          && partitionMatchesRequest(resource.data.dataPartition)
+          && signedInPlayerApprovedForOrganiser(resource.data.organiserId))
         || (isOrganiser() && partitionMatchesRequest(resource.data.dataPartition) && seriesOwnedByCurrentOrganiser());
       allow create: if ((isAdmin() || (isOrganiser() && newSeriesOwnedByCurrentOrganiser()))
         && partitionMatchesRequest(sessionPartitionFromData(request.resource.data))
@@ -443,7 +467,9 @@ service cloud.firestore {
 
     match /sessionEvents/{eventId} {
       allow read: if (isAdmin() && partitionMatchesRequest(resource.data.dataPartition))
-        || (isPlayer() && partitionMatchesRequest(resource.data.dataPartition))
+        || (isPlayer()
+          && partitionMatchesRequest(resource.data.dataPartition)
+          && signedInPlayerApprovedForOrganiser(resource.data.organiserId))
         || (isOrganiser() && partitionMatchesRequest(resource.data.dataPartition) && (eventOwnedByCurrentOrganiser() || eventBelongsToCurrentOrganiserBySeries()));
       allow create: if (isAdmin() || (isOrganiser() && newEventOwnedByCurrentOrganiser()))
         && partitionMatchesRequest(eventPartitionFromData(request.resource.data))
@@ -458,9 +484,13 @@ service cloud.firestore {
     match /registrations/{registrationId} {
       allow read: if isSignedIn() && partitionMatchesRequest(resource.data.dataPartition);
       allow create: if (isAdmin()
-          || newRegistrationForOrganiserEvent()
-          || newRegistrationForOrganiserSeries()
-          || (isSignedIn() && request.resource.data.userId == request.auth.uid))
+          || ((newRegistrationForOrganiserEvent() || newRegistrationForOrganiserSeries())
+            && (!registrationUserNeedsApproval(request.resource.data.userId)
+              || organiserHasApprovedPlayer(request.auth.uid, request.resource.data.userId)))
+          || ((isSignedIn() && request.resource.data.userId == request.auth.uid)
+            && signedInPlayerApprovedForOrganiser(
+              get(/databases/$(database)/documents/sessionEvents/$(request.resource.data.sessionEventId)).data.organiserId
+            )))
         && partitionMatchesRequest(registrationPartitionFromData(request.resource.data))
         && registrationDataMatchesPartition(request.resource.data)
         && !newRegistrationEventIsLocked();
@@ -527,6 +557,38 @@ service cloud.firestore {
           && !paymentEventIsLocked())
         || ((isSignedIn() && partitionMatchesRequest(paymentPartitionFromData(resource.data)) && paymentDataMatchesPartition(resource.data) && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()))
           && !paymentEventIsLocked());
+    }
+
+    match /organiserApprovals/{approvalId} {
+      allow read: if (isAdmin() && resource.data.dataPartition == requestPartition())
+        || (isOrganiser()
+          && resource.data.dataPartition == requestPartition()
+          && resource.data.organiserId == request.auth.uid)
+        || (isPlayer()
+          && resource.data.dataPartition == requestPartition()
+          && resource.data.playerId == request.auth.uid);
+
+      allow create: if (isPlayer()
+          && request.resource.data.dataPartition == requestPartition()
+          && request.resource.data.playerId == request.auth.uid
+          && request.resource.data.status == "pending"
+          && request.resource.data.organiserId is string
+          && exists(/databases/$(database)/documents/users/$(request.resource.data.organiserId))
+          && get(/databases/$(database)/documents/users/$(request.resource.data.organiserId)).data.role == "organiser"
+          && partitionForUserId(request.resource.data.organiserId) == requestPartition());
+
+      allow update: if (isAdmin()
+          && resource.data.dataPartition == requestPartition()
+          && request.resource.data.dataPartition == requestPartition())
+        || (isOrganiser()
+          && resource.data.dataPartition == requestPartition()
+          && request.resource.data.dataPartition == requestPartition()
+          && resource.data.organiserId == request.auth.uid
+          && request.resource.data.organiserId == resource.data.organiserId
+          && request.resource.data.playerId == resource.data.playerId
+          && request.resource.data.status in ["pending", "approved", "rejected"]);
+
+      allow delete: if (isAdmin() && resource.data.dataPartition == requestPartition());
     }
 
     match /{document=**} {

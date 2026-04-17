@@ -7,6 +7,22 @@
         { "fieldPath": "organiserId", "mode": "ASCENDING" },
         { "fieldPath": "dayOfWeek", "mode": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "organiserApprovals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "playerId", "mode": "ASCENDING" },
+        { "fieldPath": "dataPartition", "mode": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "organiserApprovals",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "organiserId", "mode": "ASCENDING" },
+        { "fieldPath": "dataPartition", "mode": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

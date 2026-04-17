@@ -27,6 +27,14 @@ import {
   getVisiblePlayersForOrganiser,
   type PlayerDirectoryEntry,
 } from "@/lib/players";
+import {
+  getOrganiserApprovalRequests,
+  getPlayerOrganiserApprovals,
+  requestOrganiserApproval,
+  updateOrganiserApprovalStatus,
+  type OrganiserApprovalRecord,
+} from "@/lib/organiser-approvals";
+import { getUsersByRole } from "@/lib/users";
 import type { AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
 import { getDashboardEventPresentation } from "@/lib/dashboard-event-state";
@@ -45,6 +53,12 @@ type UserProfile = {
   email?: string;
   role: AppRole;
   dataPartition?: DataPartition;
+};
+
+type OrganiserOption = {
+  id: string;
+  displayName: string;
+  email: string;
 };
 
 function requiresVerifiedEmail(user: User) {
@@ -98,6 +112,17 @@ export default function DashboardPage() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [paymentReferenceInputs, setPaymentReferenceInputs] = useState<Record<string, string>>({});
   const [editingReferenceId, setEditingReferenceId] = useState<string | null>(null);
+  const [playerOrganiserApprovals, setPlayerOrganiserApprovals] = useState<OrganiserApprovalRecord[]>([]);
+  const [availableOrganisers, setAvailableOrganisers] = useState<OrganiserOption[]>([]);
+  const [organiserApprovalRequests, setOrganiserApprovalRequests] = useState<OrganiserApprovalRecord[]>([]);
+
+  function splitIntoChunks<T>(items: T[], size: number) {
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+      chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -156,20 +181,67 @@ export default function DashboardPage() {
         console.log("[dashboard] loaded profile", { role: profileData.role });
         setProfile(profileData);
 
-        const seriesQuery =
-          profileData.role === "organiser"
-            ? query(
-                collection(db, "sessions"),
-                where("organiserId", "==", currentUser.uid),
-                where("dataPartition", "==", dataPartition),
-              )
-            : query(collection(db, "sessions"), where("dataPartition", "==", dataPartition));
+        let seriesItems: SessionSeries[] = [];
+        let approvedOrganiserIds = new Set<string>();
 
-        const seriesSnapshots = await getDocs(seriesQuery);
-        const seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
-          id: sessionDoc.id,
-          ...(sessionDoc.data() as Omit<SessionSeries, "id">),
-        })).sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek));
+        if (profileData.role === "organiser") {
+          const seriesSnapshots = await getDocs(
+            query(
+              collection(db, "sessions"),
+              where("organiserId", "==", currentUser.uid),
+              where("dataPartition", "==", dataPartition),
+            ),
+          );
+          seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
+            id: sessionDoc.id,
+            ...(sessionDoc.data() as Omit<SessionSeries, "id">),
+          })).sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek));
+        } else if (profileData.role === "player") {
+          const [approvals, organisers] = await Promise.all([
+            getPlayerOrganiserApprovals(db, currentUser.uid, dataPartition),
+            getUsersByRole(db, "organiser", dataPartition),
+          ]);
+          setPlayerOrganiserApprovals(approvals.sort((a, b) => a.organiserName.localeCompare(b.organiserName)));
+          setAvailableOrganisers(organisers.map((organiser) => ({
+            id: organiser.id,
+            displayName: organiser.displayName || organiser.email || "Organiser",
+            email: organiser.email || "",
+          })).sort((a, b) => a.displayName.localeCompare(b.displayName)));
+
+          approvedOrganiserIds = new Set(
+            approvals
+              .filter((approval) => approval.status === "approved")
+              .map((approval) => approval.organiserId),
+          );
+
+          if (approvedOrganiserIds.size) {
+            const organiserIdChunks = splitIntoChunks(Array.from(approvedOrganiserIds), 10);
+            const snapshotChunks = await Promise.all(
+              organiserIdChunks.map((chunk) => getDocs(
+                query(
+                  collection(db, "sessions"),
+                  where("organiserId", "in", chunk),
+                  where("dataPartition", "==", dataPartition),
+                ),
+              )),
+            );
+            seriesItems = snapshotChunks
+              .flatMap((snapshot) => snapshot.docs)
+              .map((sessionDoc) => ({
+                id: sessionDoc.id,
+                ...(sessionDoc.data() as Omit<SessionSeries, "id">),
+              }))
+              .sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek));
+          }
+        } else {
+          const seriesSnapshots = await getDocs(
+            query(collection(db, "sessions"), where("dataPartition", "==", dataPartition)),
+          );
+          seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
+            id: sessionDoc.id,
+            ...(sessionDoc.data() as Omit<SessionSeries, "id">),
+          })).sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek));
+        }
 
         const eventMap: Record<string, SessionEvent[]> = {};
         const registrationMap: Record<string, RegistrationItem[]> = {};
@@ -231,8 +303,23 @@ export default function DashboardPage() {
             if (nameCompare !== 0) return nameCompare;
             return a.email.localeCompare(b.email);
           }));
+
+          if (profileData.role === "organiser") {
+            const approvals = await getOrganiserApprovalRequests(db, currentUser.uid, dataPartition);
+            setOrganiserApprovalRequests(
+              approvals.sort((a, b) => a.playerName.localeCompare(b.playerName)),
+            );
+          } else {
+            setOrganiserApprovalRequests([]);
+          }
         } else {
           setPlayerDirectory([]);
+          setOrganiserApprovalRequests([]);
+        }
+
+        if (profileData.role !== "player") {
+          setPlayerOrganiserApprovals([]);
+          setAvailableOrganisers([]);
         }
 
         setSeriesList(seriesItems);
@@ -252,6 +339,22 @@ export default function DashboardPage() {
   const canManageSessions = useMemo(() => {
     return profile?.role === "admin" || profile?.role === "organiser";
   }, [profile?.role]);
+
+  const approvedOrganiserIdsForPlayer = useMemo(() => {
+    return new Set(
+      playerOrganiserApprovals
+        .filter((approval) => approval.status === "approved")
+        .map((approval) => approval.organiserId),
+    );
+  }, [playerOrganiserApprovals]);
+
+  const approvedPlayerIdsForOrganiser = useMemo(() => {
+    return new Set(
+      organiserApprovalRequests
+        .filter((approval) => approval.status === "approved")
+        .map((approval) => approval.playerId),
+    );
+  }, [organiserApprovalRequests]);
 
   async function refreshSeriesData(seriesId: string) {
     const eventSnapshots = await getDocs(
@@ -342,6 +445,10 @@ export default function DashboardPage() {
       const registrationId = buildRegistrationId(eventItem.id, user.uid);
       const existing = await getDoc(doc(db, "registrations", registrationId));
       if (existing.exists()) {
+        return;
+      }
+
+      if (!approvedOrganiserIdsForPlayer.has(series.organiserId)) {
         return;
       }
 
@@ -465,6 +572,14 @@ export default function DashboardPage() {
     );
     if (existing) return;
 
+    if (
+      profile?.role === "organiser"
+      && player.userId
+      && !approvedPlayerIdsForOrganiser.has(player.userId)
+    ) {
+      throw new Error("Player must be approved before being added to events.");
+    }
+
     const capacityState = getRegistrationCapacityState({
       capacity: eventItem.capacity,
       waitingListCapacity: eventItem.waitingListCapacity || series.waitingListCapacity || 0,
@@ -544,6 +659,56 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleRequestOrganiserApproval(organiser: OrganiserOption) {
+    if (!user || !profile) return;
+    setBusyKey(`request-approval-${organiser.id}`);
+    try {
+      await requestOrganiserApproval(db, {
+        organiserId: organiser.id,
+        organiserName: organiser.displayName,
+        playerId: user.uid,
+        playerName: profile.displayName || user.email || "Player",
+        playerEmail: user.email || "",
+        dataPartition: profile.dataPartition || "live",
+      });
+
+      const approvals = await getPlayerOrganiserApprovals(
+        db,
+        user.uid,
+        profile.dataPartition || "live",
+      );
+      setPlayerOrganiserApprovals(approvals.sort((a, b) => a.organiserName.localeCompare(b.organiserName)));
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleOrganiserApprovalDecision(
+    approval: OrganiserApprovalRecord,
+    status: "approved" | "rejected",
+  ) {
+    if (!user || !profile || profile.role !== "organiser") return;
+    setBusyKey(`${status}-approval-${approval.id}`);
+    try {
+      await updateOrganiserApprovalStatus(db, approval.id, status);
+      const approvals = await getOrganiserApprovalRequests(
+        db,
+        user.uid,
+        profile.dataPartition || "live",
+      );
+      setOrganiserApprovalRequests(
+        approvals.sort((a, b) => a.playerName.localeCompare(b.playerName)),
+      );
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  const pendingApprovalsForOrganiser = organiserApprovalRequests
+    .filter((approval) => approval.status === "pending");
+  const approvedApprovalsForPlayer = playerOrganiserApprovals
+    .filter((approval) => approval.status === "approved");
+
   if (loading) {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
@@ -587,8 +752,92 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {profile?.role === "organiser" ? (
+          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+            <h2 className="text-xl font-semibold">Player approval requests</h2>
+            <p className="mt-2 text-sm text-zinc-600">Approve players before they can view or register for your events.</p>
+            <div className="mt-4 space-y-3">
+              {pendingApprovalsForOrganiser.length ? pendingApprovalsForOrganiser.map((approval) => (
+                <div key={approval.id} className="rounded-2xl border border-zinc-200 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <div className="font-medium text-zinc-900">{approval.playerName}</div>
+                      <div className="text-sm text-zinc-500">{approval.playerEmail}</div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleOrganiserApprovalDecision(approval, "approved")}
+                        disabled={busyKey === `approved-approval-${approval.id}`}
+                        className="rounded-full border border-emerald-300 px-4 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {busyKey === `approved-approval-${approval.id}` ? "Approving..." : "Approve"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleOrganiserApprovalDecision(approval, "rejected")}
+                        disabled={busyKey === `rejected-approval-${approval.id}`}
+                        className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {busyKey === `rejected-approval-${approval.id}` ? "Rejecting..." : "Reject"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )) : <div className="text-sm text-zinc-500">No pending approval requests.</div>}
+            </div>
+          </div>
+        ) : null}
+
+        {profile?.role === "player" ? (
+          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+            <h2 className="text-xl font-semibold">Organiser approvals</h2>
+            <p className="mt-2 text-sm text-zinc-600">Request organiser approval before you can view or register for their events.</p>
+            <div className="mt-4 space-y-3">
+              {availableOrganisers.length ? availableOrganisers.map((organiser) => {
+                const approval = playerOrganiserApprovals.find((item) => item.organiserId === organiser.id);
+                const status = approval?.status || "none";
+                const isPending = status === "pending";
+                const isApproved = status === "approved";
+                const isRejected = status === "rejected";
+                const isRequesting = busyKey === `request-approval-${organiser.id}`;
+
+                return (
+                  <div key={organiser.id} className="rounded-2xl border border-zinc-200 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <div className="font-medium text-zinc-900">{organiser.displayName}</div>
+                        <div className="text-sm text-zinc-500">{organiser.email}</div>
+                        <div className="mt-1 text-xs text-zinc-500">
+                          Status: {isApproved ? "approved" : isPending ? "pending" : isRejected ? "rejected" : "not requested"}
+                        </div>
+                      </div>
+                      {isApproved ? (
+                        <span className="rounded-full bg-emerald-100 px-4 py-2 text-xs font-medium text-emerald-700">Approved</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleRequestOrganiserApproval(organiser)}
+                          disabled={isPending || isRequesting}
+                          className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isPending ? "Requested" : isRequesting ? "Requesting..." : "Request approval"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              }) : <div className="text-sm text-zinc-500">No organisers available in your partition yet.</div>}
+            </div>
+          </div>
+        ) : null}
+
         <section className="grid gap-4">
-          {seriesList.filter((series) => series.status !== "inactive").length ? (
+          {profile?.role === "player" && !approvedApprovalsForPlayer.length ? (
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
+              No events yet. Request organiser approval above to view and join events.
+            </div>
+          ) : seriesList.filter((series) => series.status !== "inactive").length ? (
             seriesList.filter((series) => series.status !== "inactive").map((series) => {
               const events = eventsBySeries[series.id] ?? [];
               const nextEvent = events.find((event) => event.eventDate === series.nextGameOn) ?? events.at(-1);
@@ -596,7 +845,22 @@ export default function DashboardPage() {
               const currentRegistration = nextEvent ? registrations.find((registration) => registration.userId === user?.uid) : undefined;
               const showStartsFrom = profile?.role !== "player";
               const visiblePlayersForSeries = playerDirectory.filter(
-                (player) => player.ownerOrganiserId === null || player.ownerOrganiserId === series.organiserId,
+                (player) => {
+                  if (player.ownerOrganiserId && player.ownerOrganiserId !== series.organiserId) {
+                    return false;
+                  }
+
+                  if (
+                    profile?.role === "organiser"
+                    && player.ownerOrganiserId === null
+                    && player.userId
+                    && !approvedPlayerIdsForOrganiser.has(player.userId)
+                  ) {
+                    return false;
+                  }
+
+                  return true;
+                },
               );
               const capacityState = getRegistrationCapacityState({
                 capacity: nextEvent?.capacity || series.capacity,
