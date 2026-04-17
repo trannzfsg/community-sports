@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
+import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import type { AppRole } from "@/lib/roles";
 import type { RegistrationItem, SessionEvent, SessionSeries } from "@/lib/session-series";
 
@@ -13,12 +14,26 @@ type UserProfile = {
   displayName?: string;
   email?: string;
   role: AppRole;
+  dataPartition?: DataPartition;
 };
 
 type EventWithRegistrations = {
   event: SessionEvent;
   registrations: RegistrationItem[];
 };
+
+function getSessionViewErrorMessage(error: unknown) {
+  if (
+    typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { code?: string }).code === "permission-denied"
+  ) {
+    return "You need organiser approval before viewing this session history.";
+  }
+
+  return error instanceof Error ? error.message : "Failed to load session history.";
+}
 
 function getTimestampMillis(value: unknown) {
   if (
@@ -69,6 +84,10 @@ function SessionViewPageInner() {
 
     const profileSnap = await getDoc(doc(db, "users", currentUser.uid));
     const profileData = profileSnap.data() as UserProfile | undefined;
+    const dataPartition = resolveDataPartition(
+      profileData?.email || currentUser.email || "",
+      profileData?.dataPartition || "live",
+    );
 
     if (profileData?.role === "organiser" && seriesData.organiserId !== currentUser.uid) {
       router.push("/dashboard");
@@ -76,7 +95,12 @@ function SessionViewPageInner() {
     }
 
     const eventsSnap = await getDocs(
-      query(collection(db, "sessionEvents"), where("sessionSeriesId", "==", seriesId)),
+      query(
+        collection(db, "sessionEvents"),
+        where("sessionSeriesId", "==", seriesId),
+        where("organiserId", "==", seriesData.organiserId),
+        where("dataPartition", "==", dataPartition),
+      ),
     );
 
     const rawEvents = eventsSnap.docs
@@ -86,7 +110,11 @@ function SessionViewPageInner() {
     const withRegistrations: EventWithRegistrations[] = await Promise.all(
       rawEvents.map(async (event) => {
         const regsSnap = await getDocs(
-          query(collection(db, "registrations"), where("sessionEventId", "==", event.id)),
+          query(
+            collection(db, "registrations"),
+            where("sessionEventId", "==", event.id),
+            where("dataPartition", "==", dataPartition),
+          ),
         );
         const registrations = regsSnap.docs
           .map((regDoc) => ({ id: regDoc.id, ...(regDoc.data() as Omit<RegistrationItem, "id">) }))
@@ -120,7 +148,7 @@ function SessionViewPageInner() {
         await loadData(currentUser);
       } catch (err) {
         console.error("[session-view] load failed:", err);
-        setLoadError(err instanceof Error ? err.message : "Failed to load session history.");
+        setLoadError(getSessionViewErrorMessage(err));
       } finally {
         setLoading(false);
       }

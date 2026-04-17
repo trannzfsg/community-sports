@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Add organiser approval as a required step before a registered player can view or join an organiser's events, enforce it across dashboard/direct event routes, require organiser approval before organiser-added registrations, and validate the full flow in Chrome with `player1@example.com` + `john@example.com`.
 - [x] Unify managed + registered identities into a single canonical account path: add server-side login linker to merge legacy email-keyed records into `users/{uid}` and migrate linked data (sessions/events/registrations/payments/players), stop recreating managed docs for registered users, and validate with `@example.com` sign-ins.
 - [x] Organiser dashboard: when add-player select has no available players, show guidance to use "Manage players" first.
 - [x] Refactor identity storage so registered auth profiles stay in `users/{uid}` only, managed/pending records move to `managedUsers/{email}`, and auth/profile logic always prefers registered user docs over managed fallbacks.
