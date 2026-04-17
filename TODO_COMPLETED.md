@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Fix organiser payment confirm-button UX: remove the misleading post-login permission warning for linked users, change the action label to `Confirm`, and keep `Confirmed` as the registration status wording.
 - [x] Fix admin Manage organisers and organiser Manage players screens showing empty lists, and verify with `admin@example.com` and `john@example.com`.
 - [x] Tighten event registration list spacing further by removing extra margin/padding so the compact mobile rows read like a dense list.
 - [x] Make event registration rows a strict one-line mobile layout, pushing secondary status/details/actions into expandable details while keeping the summary row single-line for both player and organiser event views.

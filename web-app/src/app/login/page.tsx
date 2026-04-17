@@ -121,8 +121,9 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
     }
   }
 
-  let managedUser = user.email ? await getManagedUserByEmail(db, user.email) : null;
-  if (!managedUser) {
+  const shouldLookupManagedUser = !snapshot.exists();
+  let managedUser = shouldLookupManagedUser && user.email ? await getManagedUserByEmail(db, user.email) : null;
+  if (shouldLookupManagedUser && !managedUser) {
     try {
       const pendingUser = await lookupPendingUserProfile(await user.getIdToken());
       if (pendingUser.email && pendingUser.role) {

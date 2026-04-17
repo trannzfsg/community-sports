@@ -16,6 +16,10 @@ function getConfirmationSummaryLabel(registration: RegistrationItem) {
   return registration.organiserPaid ? "OK" : "Check";
 }
 
+function getConfirmationStatusLabel(registration: RegistrationItem) {
+  return registration.organiserPaid ? "Confirmed" : "Not confirmed";
+}
+
 export default function EventRegistrationRow({
   registration,
   isOwnRegistration = false,
@@ -52,6 +56,7 @@ export default function EventRegistrationRow({
       <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2 text-[11px] text-zinc-500">
         <div>Email: {registration.playerEmail || "Manually added player"}</div>
         <div>Status: {isWaiting ? "Waiting list" : "Registered"}</div>
+        {!isWaiting ? <div>Confirmation: {getConfirmationStatusLabel(registration)}</div> : null}
         {skillLevel ? <div>Skill level: {skillLevel}</div> : null}
         {registration.paymentReference ? (
           <div>
