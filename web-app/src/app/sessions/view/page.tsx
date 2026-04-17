@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { onAuthStateChanged, type User } from "firebase/auth";
+import EventRegistrationRow from "@/components/event-registration-row";
 import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import type { AppRole } from "@/lib/roles";
@@ -283,35 +284,12 @@ function SessionViewPageInner() {
                     <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-zinc-500">Participants</h4>
                     {registrations.map((registration) => {
                       const isOwnRegistration = registration.userId === user?.uid;
-                      const isWaiting = registration.status === "waiting";
-                      const showCompactPlayerRow = !canManage && !isOwnRegistration;
                       return (
-                        <div key={registration.id} className={`rounded-xl p-3 ring-1 ${isOwnRegistration ? "bg-blue-50/30 ring-blue-300" : "bg-white ring-zinc-200"}`}>
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            {showCompactPlayerRow ? (
-                              <div className="text-sm font-medium text-zinc-900">{registration.playerName}</div>
-                            ) : (
-                              <div>
-                                <div className="text-sm font-medium text-zinc-900">
-                                  {registration.playerName}{isOwnRegistration ? " (you)" : ""}
-                                </div>
-                                <div className="text-xs text-zinc-500">{registration.playerEmail || "Manually added player"}</div>
-                                {isWaiting ? <div className="mt-0.5 text-xs text-zinc-500">Waiting list</div> : null}
-                                {canManage && registration.paymentReference ? (
-                                  <div className="mt-0.5 text-xs text-zinc-500">Payment ref: <span className="font-medium text-zinc-700">{registration.paymentReference}</span></div>
-                                ) : null}
-                              </div>
-                            )}
-                            <div className="flex flex-wrap gap-2 text-xs">
-                              <span className={`rounded-full px-3 py-1 font-medium ${registration.playerPaid ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-600"}`}>
-                                {registration.playerPaid ? "Paid" : "Not paid"}
-                              </span>
-                              <span className={`rounded-full px-3 py-1 font-medium ${registration.organiserPaid ? "bg-blue-100 text-blue-700" : "bg-zinc-100 text-zinc-600"}`}>
-                                {registration.organiserPaid ? "Confirmed" : "Not confirmed"}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
+                        <EventRegistrationRow
+                          key={registration.id}
+                          registration={registration}
+                          isOwnRegistration={isOwnRegistration}
+                        />
                       );
                     })}
                   </div>
