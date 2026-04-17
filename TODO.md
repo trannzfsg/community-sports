@@ -9,8 +9,8 @@
 - [ ] Recheck whether registered organisers are showing in the registered organiser section in admin user login, manage organiser screen. They didn't show before maybe due to the previous bug.
 - [x] Create a player test account (player1@example.com/testtest1234) and store in .env.test.local file.
 - [ ] Go through TODO_COMPLETED.md, analyse key features built, then build up TESTING.md using @example.com users. Also build up a TESTING_SMOKE.md using @example.com users for critical user flows (login, registration, organiser operating events and player operating registration/payment). Consolidate HUMAN_TEST_SCENARIOS.md and TESTING.md, both should be used for both AI and human testing.
-- [ ] Add to AGENTS.md: for small changes, execute TESTING_SMOKE.md automatically after deployment; for major feature changes, execute TESTING.md for full feature testing. 
-- [ ] Add to AGENTS.md: from now on, all changes needs to be implemented in its own git branch and tested thoroughly on local before merging to main and deploy to firebase, as we have real users already.
+- [x] Add to AGENTS.md: for small changes, execute TESTING_SMOKE.md automatically after deployment; for major feature changes, execute TESTING.md for full feature testing. 
+- [x] Add to AGENTS.md: from now on, all changes needs to be implemented in its own git branch and tested thoroughly on local before merging to main and deploy to firebase, as we have real users already.
 
 - [ ] **Integration with whatsapp - parked: when ready, execute [WHATSAPP_INTEGRATION_PLAN.md](C:/github/community_sports/community_sports/WHATSAPP_INTEGRATION_PLAN.md)**
   - [x] Stop implementation and produce a concrete implementation plan covering setup requirements, cost model, and test strategy.

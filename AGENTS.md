@@ -109,3 +109,9 @@ The frontend requires `web-app/.env.local` with Firebase API keys. See `web-app/
 Unit tests live in `web-app/tests/` and use the Node.js native test runner with `--experimental-strip-types` (no transpile step). Manual test scenarios are documented in `TESTING.md` and `HUMAN_TEST_SCENARIOS.md`. 
 
 Test credentials to use is in .evn.test.local file
+
+## Delivery Workflow
+
+- For small changes, run `TESTING_SMOKE.md` after deployment before marking the task complete.
+- For major feature changes, run `TESTING.md` (full checklist) after deployment before marking the task complete.
+- Implement each change in its own branch first, verify locally, then merge to `main` and deploy.
