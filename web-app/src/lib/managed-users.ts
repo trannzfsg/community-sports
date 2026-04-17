@@ -77,6 +77,21 @@ export async function getManagedUsersByRole(
   })).filter((managedUser) => managedUser.role === role);
 }
 
+export async function getManagedUsersInPartition(
+  db: Firestore,
+  dataPartition: DataPartition,
+) {
+  const snapshot = await getDocs(
+    query(collection(db, "managedUsers"), where("dataPartition", "==", dataPartition)),
+  );
+
+  return snapshot.docs.map((managedUserDoc) => ({
+    id: managedUserDoc.id,
+    ...(managedUserDoc.data() as Omit<ManagedUserRecord, "id">),
+    isPending: true,
+  }));
+}
+
 export async function upsertManagedUser(
   db: Firestore,
   input: {

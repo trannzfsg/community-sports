@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Fix admin Manage organisers and organiser Manage players screens showing empty lists, and verify with `admin@example.com` and `john@example.com`.
 - [x] Tighten event registration list spacing further by removing extra margin/padding so the compact mobile rows read like a dense list.
 - [x] Make event registration rows a strict one-line mobile layout, pushing secondary status/details/actions into expandable details while keeping the summary row single-line for both player and organiser event views.
 - [x] Add organiser approval as a required step before a registered player can view or join an organiser's events, enforce it across dashboard/direct event routes, require organiser approval before organiser-added registrations, and validate the full flow in Chrome with `player1@example.com` + `john@example.com`.

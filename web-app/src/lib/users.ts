@@ -21,6 +21,7 @@ export type UserRecord = {
   displayName?: string;
   email?: string;
   role: "player" | "organiser" | "admin";
+  status?: "active" | "inactive";
   dataPartition?: DataPartition;
   isPending?: boolean;
 };

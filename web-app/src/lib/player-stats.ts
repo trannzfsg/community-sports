@@ -150,33 +150,15 @@ export async function getVisiblePlayersForOrganiserManagement(
   dataPartition?: DataPartition,
 ) {
   const partition = resolveDataPartition(undefined, dataPartition);
-  const [ownedPlayersSnapshot, sharedPlayersSnapshot, sessionsSnapshot] = await Promise.all([
+  const [ownedPlayersSnapshot, sessionsSnapshot] = await Promise.all([
     getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", organiserId))),
-    getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", null))),
     getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition), where("organiserId", "==", organiserId))),
   ]);
-
-  const usersSnapshot = await getDocs(
-    query(collection(db, "users"), where("dataPartition", "==", partition)),
-  ).catch((error) => {
-    console.warn("[organiser players] users query fallback", error);
-    return null;
-  });
 
   const ownedPlayers = ownedPlayersSnapshot.docs.map((playerDoc) => ({
     id: playerDoc.id,
     ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
   })).filter((player) => (!player.dataPartition || player.dataPartition === partition) && player.ownerOrganiserId === organiserId);
-  const users = (usersSnapshot?.docs || []).map((userDoc) => ({
-    id: userDoc.id,
-    ...(userDoc.data() as {
-      email?: string;
-      status?: "active" | "inactive";
-      isPending?: boolean;
-      userId?: string | null;
-    }),
-  }));
-  const usersById = new Map(users.map((user) => [user.id, user]));
   const ownedSessionIds = new Set(sessionsSnapshot.docs.map((sessionDoc) => sessionDoc.id));
   const registrationsSnapshot = await getDocs(
     query(collection(db, "registrations"), where("dataPartition", "==", partition)),
@@ -187,17 +169,78 @@ export async function getVisiblePlayersForOrganiserManagement(
     ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
   })).filter((registration) => ownedSessionIds.has(registration.sessionSeriesId));
 
-  const sharedPlayers = sharedPlayersSnapshot.docs.map((playerDoc) => ({
-    id: playerDoc.id,
-    ...(playerDoc.data() as Omit<PlayerDirectoryEntry, "id">),
-  }));
   const playersById = new Map<string, PlayerDirectoryEntry>();
   for (const player of ownedPlayers) {
     playersById.set(player.id, player);
   }
-  for (const player of sharedPlayers) {
+
+  const registeredPlayerIds = Array.from(
+    new Set(
+      registeredEntries
+        .map((registration) => registration.userId)
+        .filter((userId) => !!userId),
+    ),
+  );
+
+  const [linkedPlayers, linkedUsers] = await Promise.all([
+    Promise.all(
+      registeredPlayerIds
+        .filter((playerId) => !playersById.has(playerId))
+        .map(async (playerId) => {
+          try {
+            const snapshot = await getDoc(doc(db, "players", playerId));
+            if (!snapshot.exists()) return null;
+            const player = {
+              id: snapshot.id,
+              ...(snapshot.data() as Omit<PlayerDirectoryEntry, "id">),
+            };
+            return (!player.dataPartition || player.dataPartition === partition) ? player : null;
+          } catch {
+            return null;
+          }
+        }),
+    ),
+    Promise.all(
+      Array.from(
+        new Set(
+          [
+            ...ownedPlayers.map((player) => player.userId).filter((userId): userId is string => !!userId),
+            ...registeredEntries
+              .map((registration) => registration.userId)
+              .filter((userId) => !!userId && !userId.startsWith("manual-player__")),
+          ],
+        ),
+      ).map(async (userId) => {
+        try {
+          const snapshot = await getDoc(doc(db, "users", userId));
+          if (!snapshot.exists()) return null;
+          const user = snapshot.data() as {
+            email?: string;
+            status?: "active" | "inactive";
+            displayName?: string;
+          };
+          const userPartition = resolveDataPartition(user.email || "", partition);
+          if (userPartition !== partition) return null;
+          return {
+            id: snapshot.id,
+            ...user,
+          };
+        } catch {
+          return null;
+        }
+      }),
+    ),
+  ]);
+
+  for (const player of linkedPlayers.filter((item): item is PlayerDirectoryEntry => item != null)) {
     playersById.set(player.id, player);
   }
+
+  const usersById = new Map(
+    linkedUsers
+      .filter((user): user is NonNullable<typeof user> => user != null)
+      .map((user) => [user.id, user]),
+  );
 
   const visiblePlayers = new Map<string, OrganiserVisiblePlayerRecord>();
 
@@ -245,18 +288,20 @@ export async function getVisiblePlayersForOrganiserManagement(
 
   for (const registration of registeredEntries) {
     const storedPlayer = playersById.get(registration.userId);
+    const linkedUser = registration.userId.startsWith("manual-player__")
+      ? null
+      : usersById.get(registration.userId);
     const key = buildVisiblePlayerKey({
-      email: storedPlayer?.email || registration.playerEmail,
+      email: storedPlayer?.email || linkedUser?.email || registration.playerEmail,
       fallback: storedPlayer?.id || buildFallbackPlayerKey(registration),
     });
     const existing = visiblePlayers.get(key);
     const gamesPlayedIncrement = isPlayedRegistration(registration) ? 1 : 0;
-    const displayName = storedPlayer?.displayName || registration.playerName || "Player";
-    const email = storedPlayer?.email || registration.playerEmail || "";
+    const displayName = storedPlayer?.displayName || linkedUser?.displayName || registration.playerName || "Player";
+    const email = storedPlayer?.email || linkedUser?.email || registration.playerEmail || "";
     const skillLevel = storedPlayer?.skillLevel || null;
     const ownerOrganiserId = storedPlayer?.ownerOrganiserId ?? null;
     const userId = storedPlayer?.userId || (registration.userId.startsWith("manual-player__") ? null : registration.userId);
-    const linkedUser = userId ? usersById.get(userId) : null;
     const status = linkedUser?.status || storedPlayer?.status || "active";
     const isOwnedPrivatePlayer = ownerOrganiserId === organiserId && !userId;
 

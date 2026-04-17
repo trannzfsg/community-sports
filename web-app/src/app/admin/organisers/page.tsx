@@ -7,7 +7,8 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
-import { getManagedUserByEmail, getManagedUsersByRole, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
+import { getManagedUserByEmail, getManagedUsersInPartition, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
+import { getAllUsers } from "@/lib/users";
 
 type UserProfile = {
   displayName?: string;
@@ -15,6 +16,13 @@ type UserProfile = {
   role: "player" | "organiser" | "admin";
   status?: "active" | "inactive";
   dataPartition?: DataPartition;
+};
+
+type RegisteredOrganiserRecord = {
+  id: string;
+  email?: string;
+  displayName?: string;
+  status?: "active" | "inactive";
 };
 
 export default function AdminOrganisersPage() {
@@ -31,11 +39,12 @@ export default function AdminOrganisersPage() {
   const [dataPartition, setDataPartition] = useState<DataPartition>("live");
 
   const loadOrganisers = useCallback(async (partition = dataPartition) => {
-    const [items, sessionsInPartition] = await Promise.all([
-      getManagedUsersByRole(db, "organiser", partition).catch(() => []),
+    const [managedUsersInPartition, sessionsInPartition, registeredUsersInPartition] = await Promise.all([
+      getManagedUsersInPartition(db, partition).catch(() => []),
       getDocs(query(collection(db, "sessions"), where("dataPartition", "==", partition))).catch(() => ({
         docs: [],
       } as { docs: Array<{ data: () => { organiserId?: string } }> })),
+      getAllUsers(db, partition).catch(() => []),
     ]);
 
     const organiserIdsFromSessions = Array.from(
@@ -46,47 +55,59 @@ export default function AdminOrganisersPage() {
       ),
     );
 
-    // Legacy repair: older organiser user docs can miss dataPartition, which makes them
-    // invisible to the partition-scoped organiser query. We backfill from session ownership.
-    await Promise.all(
-      organiserIdsFromSessions.map(async (organiserId) => {
+    const repairedUsers = await Promise.all(
+      organiserIdsFromSessions
+        .filter((organiserId) => !registeredUsersInPartition.some((user) => user.id === organiserId))
+        .map(async (organiserId) => {
         try {
-          await setDoc(doc(db, "users", organiserId), {
-            dataPartition: partition,
-            updatedAt: serverTimestamp(),
-          }, { merge: true });
+          const organiserSnapshot = await getDoc(doc(db, "users", organiserId));
+          if (!organiserSnapshot.exists()) {
+            return null;
+          }
+
+          const organiser = organiserSnapshot.data() as UserProfile;
+          const organiserPartition = resolveDataPartition(
+            organiser.email || "",
+            organiser.dataPartition || partition,
+          );
+          if (organiser.role !== "organiser" || organiserPartition !== partition) {
+            return null;
+          }
+
+          if (!organiser.dataPartition) {
+            await setDoc(doc(db, "users", organiserId), {
+              dataPartition: partition,
+              updatedAt: serverTimestamp(),
+            }, { merge: true });
+          }
+
+          return {
+            id: organiserId,
+            email: organiser.email,
+            displayName: organiser.displayName,
+            status: organiser.status,
+          };
         } catch {
-          // Ignore repair failures here; query below will still return what is readable.
+          return null;
         }
-      }),
-    );
-
-    const registeredOrganiserUsers = await getDocs(
-      query(collection(db, "users"), where("role", "==", "organiser"), where("dataPartition", "==", partition)),
-    ).catch(async () => {
-      // Fallback for environments where compound query/index or rule matching can fail.
-      const usersByPartition = await getDocs(
-        query(collection(db, "users"), where("dataPartition", "==", partition)),
-      );
-      return {
-        docs: usersByPartition.docs.filter((userDoc) => {
-          const data = userDoc.data() as { role?: string };
-          return data.role === "organiser";
         }),
-      } as typeof usersByPartition;
-    });
+    );
     const groupedByEmail = new Map<string, ManagedUserRecord[]>();
-    const registeredByEmail = new Map(
-      registeredOrganiserUsers.docs
-        .map((userDoc) => ({
-          id: userDoc.id,
-          ...(userDoc.data() as { email?: string; displayName?: string; status?: "active" | "inactive" }),
-        }))
+    const registeredByEmail = new Map<string, RegisteredOrganiserRecord>(
+      [
+        ...registeredUsersInPartition.filter((user) => user.role === "organiser"),
+        ...repairedUsers.filter((user): user is NonNullable<typeof user> => user != null),
+      ]
         .filter((user) => user.email)
-        .map((user) => [normalizeEmail(user.email || ""), user]),
+        .map((user) => [normalizeEmail(user.email || ""), {
+          id: user.id,
+          email: user.email,
+          displayName: user.displayName,
+          status: user.status,
+        }]),
     );
 
-    for (const item of items) {
+    for (const item of managedUsersInPartition.filter((managedUser) => managedUser.role === "organiser")) {
       const emailKey = normalizeEmail(item.email);
       const existing = groupedByEmail.get(emailKey);
       if (existing) {
