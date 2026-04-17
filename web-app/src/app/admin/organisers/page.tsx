@@ -56,6 +56,22 @@ export default function AdminOrganisersPage() {
       }
     }
 
+    // Include registered organiser accounts even if no managedUsers doc exists.
+    for (const [emailKey, registered] of registeredByEmail.entries()) {
+      if (groupedByEmail.has(emailKey)) continue;
+
+      groupedByEmail.set(emailKey, [{
+        id: registered.id,
+        email: registered.email || emailKey,
+        displayName: registered.displayName || registered.email || "Organiser",
+        role: "organiser",
+        status: registered.status || "active",
+        dataPartition: partition,
+        userId: registered.id,
+        isPending: false,
+      }]);
+    }
+
     const dedupedOrganisers = Array.from(groupedByEmail.values()).map((records) => {
       const primaryManagedRecord =
         records.find((record) => record.id === normalizeEmail(record.email))
