@@ -42,6 +42,7 @@ type SessionSeries = {
   dataPartition?: "test" | "live";
   status: string;
   copyRosterFromLastEvent?: boolean;
+  seriesMembershipEnabled?: boolean;
 };
 
 function EditSessionPageInner() {
@@ -70,6 +71,7 @@ function EditSessionPageInner() {
   const [waitingListCapacity, setWaitingListCapacity] = useState("0");
   const [status, setStatus] = useState("active");
   const [copyRosterFromLastEvent, setCopyRosterFromLastEvent] = useState(true);
+  const [seriesMembershipEnabled, setSeriesMembershipEnabled] = useState(false);
 
   const computedNextGameOn = useMemo(
     () => getSuggestedNextGameOn(dayOfWeek, startAt),
@@ -130,6 +132,7 @@ function EditSessionPageInner() {
       setWaitingListCapacity(String(session.waitingListCapacity || 0));
       setStatus(session.status);
       setCopyRosterFromLastEvent(session.copyRosterFromLastEvent ?? true);
+      setSeriesMembershipEnabled(session.seriesMembershipEnabled ?? false);
       setLoading(false);
     });
 
@@ -174,6 +177,7 @@ function EditSessionPageInner() {
         waitingListCapacity: Number(waitingListCapacity || 0),
         status,
         copyRosterFromLastEvent,
+        seriesMembershipEnabled,
       };
 
       await updateDoc(doc(db, "sessions", sessionId), updatedSeries);
@@ -328,6 +332,11 @@ function EditSessionPageInner() {
           <label className="flex items-start gap-3 md:col-span-2">
             <input type="checkbox" checked={copyRosterFromLastEvent} onChange={(event) => setCopyRosterFromLastEvent(event.target.checked)} className="mt-1 h-4 w-4" />
             <span className="text-sm text-zinc-700">Automatically copy the roster from the last event in this series when a new event is created.</span>
+          </label>
+
+          <label className="flex items-start gap-3 md:col-span-2">
+            <input type="checkbox" checked={seriesMembershipEnabled} onChange={(event) => setSeriesMembershipEnabled(event.target.checked)} className="mt-1 h-4 w-4" />
+            <span className="text-sm text-zinc-700">Allow players to request recurring series membership for automatic registration into future events.</span>
           </label>
 
           {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">{error}</div> : null}

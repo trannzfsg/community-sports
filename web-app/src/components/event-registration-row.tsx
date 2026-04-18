@@ -20,6 +20,14 @@ function getConfirmationStatusLabel(registration: RegistrationItem) {
   return registration.organiserPaid ? "Confirmed" : "Not confirmed";
 }
 
+function getRegistrationSourceLabel(registration: RegistrationItem) {
+  if (registration.source === "series-membership") return "Series member";
+  if (registration.source === "roster-copy") return "Roster copy";
+  if (registration.source === "organiser") return "Organiser added";
+  if (registration.source === "self") return "Self registered";
+  return null;
+}
+
 export default function EventRegistrationRow({
   registration,
   isOwnRegistration = false,
@@ -57,6 +65,9 @@ export default function EventRegistrationRow({
         <div>Email: {registration.playerEmail || "Manually added player"}</div>
         <div>Status: {isWaiting ? "Waiting list" : "Registered"}</div>
         {!isWaiting ? <div>Confirmation: {getConfirmationStatusLabel(registration)}</div> : null}
+        {getRegistrationSourceLabel(registration) ? (
+          <div>Source: {getRegistrationSourceLabel(registration)}</div>
+        ) : null}
         {skillLevel ? <div>Skill level: {skillLevel}</div> : null}
         {registration.paymentReference ? (
           <div>

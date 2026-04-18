@@ -9,8 +9,6 @@
   - [x] Seed the provided Telegram chat id for `tranzha83+test@gmail.com` and verify end-to-end delivery.
   - [x] Add a small profile button to send a Telegram test notification.
   - [x] Finish email notification delivery wiring and document the required SMTP configuration.
-- [ ] Member benefits. There needs to be a member system to organisers, as well as to a session series. The member to organiser can be after X number of games registered, you can get a predefined benefit. The member to a session series, will be the ability to register automatically to every event. Make some suggestions on how to implement this, plan and confirm with me before implementation.
-  - [x] Drafted architecture and phased plan in [MEMBER_BENEFITS_PLAN.md](C:/github/community_sports/community_sports/MEMBER_BENEFITS_PLAN.md).
 - [ ] Admin user exists in firestore players collection. They should be removed. The one currently in players collection is tranzha83@gmail.com. Also make sure when an admin user logs in, it doesn't get auto added to players collection.
 - [ ] We've fixed this for players, now we need to fix for organisers accounts too - Unify managed + registered identities into a single canonical account path: add server-side login linker to merge legacy email-keyed records into `users/{uid}` and migrate linked data (session series owned by organiser), stop recreating managed docs for registered users, and validate with `@example.com` sign-ins.
 - [ ] Recheck whether registered organisers are showing in the registered organiser section in admin user login, manage organiser screen. They didn't show before maybe due to the previous bug.

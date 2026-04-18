@@ -14,6 +14,7 @@ Use this checklist after every small deployment.
 - [ ] Player can see organiser approval section on dashboard and request approval.
 - [ ] Organiser can approve that player request on dashboard.
 - [ ] Approved player can see organiser events and register.
+- [ ] Approved player can request series membership, and organiser can approve it on the dashboard.
 - [ ] Organiser sees player registration in event list and can remove it.
 - [ ] Player can leave event and organiser list updates correctly.
 - [ ] Profile page loads for all three roles without permission errors.

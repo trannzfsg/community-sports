@@ -24,6 +24,14 @@ import { getDataPartitionForEmail, resolveDataPartition, shouldBypassEmailVerifi
 import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
 import { getManagedUserByEmail } from "@/lib/managed-users";
 import {
+  getSeriesMembershipsForPlayer,
+  getSeriesMembershipsForSeries,
+  requestSeriesMembership,
+  updateSeriesMembershipSkipNextEvent,
+  updateSeriesMembershipStatus,
+  type SeriesMembership,
+} from "@/lib/member-benefits";
+import {
   ensureSelfRegisteredPlayers,
   getVisiblePlayersForOrganiser,
   type PlayerDirectoryEntry,
@@ -116,6 +124,8 @@ export default function DashboardPage() {
   const [playerOrganiserApprovals, setPlayerOrganiserApprovals] = useState<OrganiserApprovalRecord[]>([]);
   const [availableOrganisers, setAvailableOrganisers] = useState<OrganiserOption[]>([]);
   const [organiserApprovalRequests, setOrganiserApprovalRequests] = useState<OrganiserApprovalRecord[]>([]);
+  const [playerSeriesMemberships, setPlayerSeriesMemberships] = useState<Record<string, SeriesMembership>>({});
+  const [seriesMembershipsBySeries, setSeriesMembershipsBySeries] = useState<Record<string, SeriesMembership[]>>({});
 
   function splitIntoChunks<T>(items: T[], size: number) {
     const chunks: T[][] = [];
@@ -327,6 +337,32 @@ export default function DashboardPage() {
           setAvailableOrganisers([]);
         }
 
+        if (profileData.role === "player") {
+          const memberships = await getSeriesMembershipsForPlayer(
+            db,
+            currentUser.uid,
+            dataPartition,
+          );
+          setPlayerSeriesMemberships(
+            Object.fromEntries(
+              memberships.map((membership) => [membership.seriesId, membership]),
+            ),
+          );
+          setSeriesMembershipsBySeries({});
+        } else if (profileData.role === "organiser" || profileData.role === "admin") {
+          const membershipEntries = await Promise.all(
+            seriesItems.map(async (series) => [
+              series.id,
+              await getSeriesMembershipsForSeries(db, series.id, series.organiserId, dataPartition),
+            ] as const),
+          );
+          setSeriesMembershipsBySeries(Object.fromEntries(membershipEntries));
+          setPlayerSeriesMemberships({});
+        } else {
+          setPlayerSeriesMemberships({});
+          setSeriesMembershipsBySeries({});
+        }
+
         setSeriesList(seriesItems);
         setEventsBySeries(eventMap);
         setRegistrationsByEvent(registrationMap);
@@ -404,6 +440,49 @@ export default function DashboardPage() {
     setRegistrationsByEvent((current) => ({ ...current, ...registrationMap }));
   }
 
+  async function refreshMembershipData(seriesId?: string) {
+    if (!profile || !user) return;
+
+    const dataPartition = profile.dataPartition || "live";
+    if (profile.role === "player") {
+      const memberships = await getSeriesMembershipsForPlayer(
+        db,
+        user.uid,
+        dataPartition,
+      );
+      setPlayerSeriesMemberships(
+        Object.fromEntries(
+          memberships.map((membership) => [membership.seriesId, membership]),
+        ),
+      );
+      return;
+    }
+
+    if (profile.role === "organiser" || profile.role === "admin") {
+      if (seriesId) {
+        const memberships = await getSeriesMembershipsForSeries(
+          db,
+          seriesId,
+          seriesList.find((series) => series.id === seriesId)?.organiserId || user.uid,
+          dataPartition,
+        );
+        setSeriesMembershipsBySeries((current) => ({
+          ...current,
+          [seriesId]: memberships,
+        }));
+        return;
+      }
+
+      const membershipEntries = await Promise.all(
+        seriesList.map(async (series) => [
+          series.id,
+          await getSeriesMembershipsForSeries(db, series.id, series.organiserId, dataPartition),
+        ] as const),
+      );
+      setSeriesMembershipsBySeries(Object.fromEntries(membershipEntries));
+    }
+  }
+
   async function handleCreateNextEvent(series: SessionSeries) {
     setBusyKey(series.id);
     try {
@@ -412,6 +491,7 @@ export default function DashboardPage() {
         nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
       });
       await refreshSeriesData(series.id, series.organiserId);
+      await refreshMembershipData(series.id);
     } finally {
       setBusyKey(null);
     }
@@ -478,6 +558,8 @@ export default function DashboardPage() {
         playerPaid: false,
         organiserPaid: false,
         status: capacityState.nextRegistrationStatus,
+        source: "self",
+        seriesMembershipId: null,
       };
 
       try {
@@ -626,6 +708,8 @@ export default function DashboardPage() {
       playerPaid: false,
       organiserPaid: false,
       status: capacityState.nextRegistrationStatus,
+      source: "organiser",
+      seriesMembershipId: null,
     };
 
     console.log("[addPlayerToEvent] writing registration", {
@@ -733,6 +817,50 @@ export default function DashboardPage() {
   const approvedApprovalsForPlayer = playerOrganiserApprovals
     .filter((approval) => approval.status === "approved");
 
+  async function handleRequestSeriesMembership(series: SessionSeries) {
+    if (!user || !profile) return;
+    setBusyKey(`request-membership-${series.id}`);
+    try {
+      await requestSeriesMembership(db, {
+        seriesId: series.id,
+        organiserId: series.organiserId,
+        playerId: user.uid,
+        playerName: profile.displayName || user.email || "Player",
+        playerEmail: user.email || "",
+        dataPartition: profile.dataPartition || "live",
+      });
+      await refreshMembershipData();
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleSeriesMembershipStatusChange(
+    membership: SeriesMembership,
+    status: SeriesMembership["status"],
+  ) {
+    setBusyKey(`${status}-membership-${membership.id}`);
+    try {
+      await updateSeriesMembershipStatus(db, membership.id, status);
+      await refreshMembershipData(membership.seriesId);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleSeriesMembershipSkipToggle(
+    membership: SeriesMembership,
+    nextValue: boolean,
+  ) {
+    setBusyKey(`skip-membership-${membership.id}`);
+    try {
+      await updateSeriesMembershipSkipNextEvent(db, membership.id, nextValue);
+      await refreshMembershipData(membership.seriesId);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   if (loading) {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
@@ -777,12 +905,12 @@ export default function DashboardPage() {
         </div>
 
         {profile?.role === "organiser" ? (
-          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="organiser-approval-requests">
             <h2 className="text-xl font-semibold">Player approval requests</h2>
             <p className="mt-2 text-sm text-zinc-600">Approve players before they can view or register for your events.</p>
             <div className="mt-4 space-y-3">
               {pendingApprovalsForOrganiser.length ? pendingApprovalsForOrganiser.map((approval) => (
-                <div key={approval.id} className="rounded-2xl border border-zinc-200 p-4">
+                <div key={approval.id} className="rounded-2xl border border-zinc-200 p-4" data-testid={`organiser-approval-request-${approval.id}`}>
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <div className="font-medium text-zinc-900">{approval.playerName}</div>
@@ -793,6 +921,7 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => void handleOrganiserApprovalDecision(approval, "approved")}
                         disabled={busyKey === `approved-approval-${approval.id}`}
+                        data-testid={`approve-organiser-approval-${approval.id}`}
                         className="rounded-full border border-emerald-300 px-4 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {busyKey === `approved-approval-${approval.id}` ? "Approving..." : "Approve"}
@@ -801,6 +930,7 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => void handleOrganiserApprovalDecision(approval, "rejected")}
                         disabled={busyKey === `rejected-approval-${approval.id}`}
+                        data-testid={`reject-organiser-approval-${approval.id}`}
                         className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         {busyKey === `rejected-approval-${approval.id}` ? "Rejecting..." : "Reject"}
@@ -814,7 +944,7 @@ export default function DashboardPage() {
         ) : null}
 
         {profile?.role === "player" ? (
-          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="player-organiser-approvals">
             <h2 className="text-xl font-semibold">Organiser approvals</h2>
             <p className="mt-2 text-sm text-zinc-600">Request organiser approval before you can view or register for their events.</p>
             <div className="mt-4 space-y-3">
@@ -827,7 +957,7 @@ export default function DashboardPage() {
                 const isRequesting = busyKey === `request-approval-${organiser.id}`;
 
                 return (
-                  <div key={organiser.id} className="rounded-2xl border border-zinc-200 p-4">
+                  <div key={organiser.id} className="rounded-2xl border border-zinc-200 p-4" data-testid={`player-organiser-approval-${organiser.id}`}>
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div>
                         <div className="font-medium text-zinc-900">{organiser.displayName}</div>
@@ -843,6 +973,7 @@ export default function DashboardPage() {
                           type="button"
                           onClick={() => void handleRequestOrganiserApproval(organiser)}
                           disabled={isPending || isRequesting}
+                          data-testid={`request-organiser-approval-${organiser.id}`}
                           className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isPending ? "Requested" : isRequesting ? "Requesting..." : "Request approval"}
@@ -901,6 +1032,16 @@ export default function DashboardPage() {
               const playerIsWaiting = currentRegistration?.status === "waiting";
               const playerCanJoin = !!nextEvent && capacityState.canAddMore;
               const nextEventIsOpen = !!nextEvent && (nextEvent.status || "active") === "active" && capacityState.canAddMore;
+              const currentSeriesMembership = playerSeriesMemberships[series.id];
+              const seriesMemberships = (seriesMembershipsBySeries[series.id] ?? []).slice().sort((a, b) => {
+                const statusOrder = ["pending", "active", "paused", "rejected", "cancelled"];
+                const statusCompare = statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status);
+                if (statusCompare !== 0) return statusCompare;
+                return a.playerName.localeCompare(b.playerName);
+              });
+              const showSeriesMembershipPanel = !!series.seriesMembershipEnabled
+                || !!currentSeriesMembership
+                || seriesMemberships.length > 0;
 
               const eventPresentation = getDashboardEventPresentation({
                 role: profile?.role,
@@ -915,7 +1056,7 @@ export default function DashboardPage() {
               const eventStateText = eventPresentation.stateText;
 
               return (
-                <article key={series.id} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
+                <article key={series.id} className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200" data-testid={`series-card-${series.id}`}>
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <div className="mb-2 flex flex-wrap items-center gap-2">
@@ -946,6 +1087,194 @@ export default function DashboardPage() {
                     <div><dt className="text-zinc-500">Series capacity</dt><dd>{series.capacity}</dd></div>
                     <div><dt className="text-zinc-500">Waiting list</dt><dd>{waitingListCapacity}</dd></div>
                   </dl>
+
+                  {showSeriesMembershipPanel ? (
+                    <div className="mt-4 rounded-2xl border border-zinc-200 p-4" data-testid={`series-membership-panel-${series.id}`}>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Series membership</h3>
+                          <p className="mt-1 text-sm text-zinc-600">
+                            {series.seriesMembershipEnabled
+                              ? "Recurring members are added first when the next event is created."
+                              : "Membership is currently disabled for this series."}
+                          </p>
+                        </div>
+                        {profile?.role === "player" ? (
+                          currentSeriesMembership ? (
+                            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700" data-testid={`series-membership-status-${series.id}`}>
+                              {currentSeriesMembership.status}
+                            </span>
+                          ) : series.seriesMembershipEnabled ? (
+                            <button
+                              type="button"
+                              onClick={() => void handleRequestSeriesMembership(series)}
+                              disabled={busyKey === `request-membership-${series.id}`}
+                              data-testid={`request-series-membership-${series.id}`}
+                              className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {busyKey === `request-membership-${series.id}` ? "Requesting..." : "Request membership"}
+                            </button>
+                          ) : null
+                        ) : null}
+                      </div>
+
+                      {profile?.role === "player" ? (
+                        currentSeriesMembership ? (
+                          <div className="mt-3 space-y-3">
+                            <div className="text-sm text-zinc-700">
+                              Total skips: {currentSeriesMembership.skipCount} · Recent 10 weeks: {currentSeriesMembership.recentTenWeekSkipCount || 0}
+                            </div>
+                            {currentSeriesMembership.status === "pending" ? (
+                              <div className="text-sm text-zinc-500">Your request is waiting for organiser approval.</div>
+                            ) : null}
+                            <div className="flex flex-wrap gap-2">
+                              {currentSeriesMembership.status === "active" || currentSeriesMembership.status === "paused" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSeriesMembershipSkipToggle(currentSeriesMembership, !currentSeriesMembership.skipNextEvent)}
+                                  disabled={busyKey === `skip-membership-${currentSeriesMembership.id}`}
+                                  data-testid={`toggle-series-membership-skip-${currentSeriesMembership.id}`}
+                                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {currentSeriesMembership.skipNextEvent ? "Undo next-event skip" : "Skip next event"}
+                                </button>
+                              ) : null}
+                              {currentSeriesMembership.status === "active" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSeriesMembershipStatusChange(currentSeriesMembership, "paused")}
+                                  disabled={busyKey === `paused-membership-${currentSeriesMembership.id}`}
+                                  data-testid={`pause-series-membership-${currentSeriesMembership.id}`}
+                                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Pause membership
+                                </button>
+                              ) : null}
+                              {currentSeriesMembership.status === "paused" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSeriesMembershipStatusChange(currentSeriesMembership, "active")}
+                                  disabled={busyKey === `active-membership-${currentSeriesMembership.id}`}
+                                  data-testid={`resume-series-membership-${currentSeriesMembership.id}`}
+                                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Resume membership
+                                </button>
+                              ) : null}
+                              {currentSeriesMembership.status !== "cancelled" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSeriesMembershipStatusChange(currentSeriesMembership, "cancelled")}
+                                  disabled={busyKey === `cancelled-membership-${currentSeriesMembership.id}`}
+                                  data-testid={`cancel-series-membership-${currentSeriesMembership.id}`}
+                                  className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Cancel membership
+                                </button>
+                              ) : null}
+                              {(currentSeriesMembership.status === "rejected" || currentSeriesMembership.status === "cancelled") && series.seriesMembershipEnabled ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleRequestSeriesMembership(series)}
+                                  disabled={busyKey === `request-membership-${series.id}`}
+                                  data-testid={`request-series-membership-${series.id}`}
+                                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  Request again
+                                </button>
+                              ) : null}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-3 text-sm text-zinc-500">
+                            {series.seriesMembershipEnabled
+                              ? "Request membership if you want the organiser to add you automatically to future events in this series."
+                              : "This series is not accepting new membership requests right now."}
+                          </div>
+                        )
+                      ) : null}
+
+                      {(profile?.role === "organiser" || profile?.role === "admin") ? (
+                        <div className="mt-4 space-y-3">
+                          {seriesMemberships.length ? seriesMemberships.map((membership) => (
+                            <div key={membership.id} className="rounded-2xl border border-zinc-200 p-4" data-testid={`series-membership-card-${membership.id}`}>
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <div className="font-medium text-zinc-900">{membership.playerName}</div>
+                                  <div className="text-sm text-zinc-500">{membership.playerEmail}</div>
+                                  <div className="mt-1 text-xs text-zinc-500">
+                                    Status: {membership.status} · Total skips: {membership.skipCount} · Recent 10 weeks: {membership.recentTenWeekSkipCount || 0}
+                                  </div>
+                                  {membership.skipNextEvent ? (
+                                    <div className="mt-1 text-xs font-medium text-amber-700">Will skip the next auto-registration.</div>
+                                  ) : null}
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  {membership.status === "pending" ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleSeriesMembershipStatusChange(membership, "active")}
+                                        disabled={busyKey === `active-membership-${membership.id}`}
+                                        data-testid={`approve-series-membership-${membership.id}`}
+                                        className="rounded-full border border-emerald-300 px-4 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        Approve
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleSeriesMembershipStatusChange(membership, "rejected")}
+                                        disabled={busyKey === `rejected-membership-${membership.id}`}
+                                        data-testid={`reject-series-membership-${membership.id}`}
+                                        className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        Reject
+                                      </button>
+                                    </>
+                                  ) : null}
+                                  {membership.status === "active" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSeriesMembershipStatusChange(membership, "paused")}
+                                      disabled={busyKey === `paused-membership-${membership.id}`}
+                                      data-testid={`pause-series-membership-${membership.id}`}
+                                      className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      Pause
+                                    </button>
+                                  ) : null}
+                                  {membership.status === "paused" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSeriesMembershipStatusChange(membership, "active")}
+                                      disabled={busyKey === `active-membership-${membership.id}`}
+                                      data-testid={`resume-series-membership-${membership.id}`}
+                                      className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      Resume
+                                    </button>
+                                  ) : null}
+                                  {membership.status !== "cancelled" ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSeriesMembershipStatusChange(membership, "cancelled")}
+                                      disabled={busyKey === `cancelled-membership-${membership.id}`}
+                                      data-testid={`cancel-series-membership-${membership.id}`}
+                                      className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                    >
+                                      Cancel
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          )) : (
+                            <div className="text-sm text-zinc-500">No members for this series yet.</div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
 
                   <div className={`mt-4 rounded-2xl p-4 ring-1 ${eventCardClass}`}>
                     <div className="flex flex-wrap items-center justify-between gap-3">

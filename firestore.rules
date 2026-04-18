@@ -112,6 +112,17 @@ service cloud.firestore {
       return data.get('dataPartition', partitionForUserId(data.userId));
     }
 
+    function organiserBenefitProgramPartitionFromData(data) {
+      return data.get('dataPartition', partitionForUserId(data.organiserId));
+    }
+
+    function seriesMembershipPartitionFromData(data) {
+      return data.get(
+        'dataPartition',
+        data.seriesId is string ? sessionPartitionById(data.seriesId) : null
+      );
+    }
+
     function emailPartitionMatches(partition, email) {
       return email is string && partition == partitionForEmail(email);
     }
@@ -172,6 +183,23 @@ service cloud.firestore {
       return data.userId is string
         && exists(/databases/$(database)/documents/users/$(data.userId))
         && notificationPreferencePartitionFromData(data) == partitionForUserId(data.userId);
+    }
+
+    function organiserBenefitProgramDataMatchesPartition(data) {
+      return data.organiserId is string
+        && exists(/databases/$(database)/documents/users/$(data.organiserId))
+        && organiserBenefitProgramPartitionFromData(data) == partitionForUserId(data.organiserId);
+    }
+
+    function seriesMembershipDataMatchesPartition(data) {
+      return data.seriesId is string
+        && data.organiserId is string
+        && data.playerId is string
+        && exists(/databases/$(database)/documents/sessions/$(data.seriesId))
+        && exists(/databases/$(database)/documents/users/$(data.playerId))
+        && get(/databases/$(database)/documents/sessions/$(data.seriesId)).data.organiserId == data.organiserId
+        && seriesMembershipPartitionFromData(data) == sessionPartitionById(data.seriesId)
+        && emailPartitionMatches(seriesMembershipPartitionFromData(data), data.playerEmail);
     }
 
     function partitionMatchesRequest(partition) {
@@ -363,6 +391,22 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(userId)).data.role == "player";
     }
 
+    function seriesMembershipOwnedByCurrentPlayer() {
+      return isSignedIn() && resource.data.playerId == request.auth.uid;
+    }
+
+    function newSeriesMembershipOwnedByCurrentPlayer() {
+      return isSignedIn() && request.resource.data.playerId == request.auth.uid;
+    }
+
+    function seriesMembershipOwnedByCurrentOrganiser() {
+      return isSignedIn() && resource.data.organiserId == request.auth.uid;
+    }
+
+    function newSeriesMembershipOwnedByCurrentOrganiser() {
+      return isSignedIn() && request.resource.data.organiserId == request.auth.uid;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId)
         || ((isAdmin() || isOrganiser()) && resource.data.dataPartition == requestPartition())
@@ -460,6 +504,22 @@ service cloud.firestore {
 
       allow delete: if (isAdmin() && partitionMatchesRequest(managedPartitionFromData(resource.data)))
         || (isOrganiser() && resource.data.role == 'player' && partitionMatchesRequest(managedPartitionFromData(resource.data)));
+    }
+
+    match /organiserBenefitPrograms/{organiserId} {
+      allow read: if isSignedIn()
+        && partitionMatchesRequest(partitionForUserId(organiserId));
+
+      allow create, update: if ((isAdmin())
+          || (isOrganiser() && organiserId == request.auth.uid))
+        && request.resource.data.organiserId == organiserId
+        && partitionMatchesRequest(organiserBenefitProgramPartitionFromData(request.resource.data))
+        && organiserBenefitProgramDataMatchesPartition(request.resource.data);
+
+      allow delete: if ((isAdmin())
+          || (isOrganiser() && organiserId == request.auth.uid))
+        && partitionMatchesRequest(organiserBenefitProgramPartitionFromData(resource.data))
+        && organiserBenefitProgramDataMatchesPartition(resource.data);
     }
 
     match /players/{playerId} {
@@ -599,6 +659,73 @@ service cloud.firestore {
           && !paymentEventIsLocked())
         || ((isSignedIn() && partitionMatchesRequest(paymentPartitionFromData(resource.data)) && paymentDataMatchesPartition(resource.data) && (resource.data.userId == request.auth.uid || paymentHasOwnedRegistration()))
           && !paymentEventIsLocked());
+    }
+
+    match /seriesMemberships/{membershipId} {
+      allow read: if (isAdmin() && resource.data.dataPartition == requestPartition())
+        || (isOrganiser()
+          && resource.data.dataPartition == requestPartition()
+          && resource.data.organiserId == request.auth.uid)
+        || (isSignedIn()
+          && resource.data.dataPartition == requestPartition()
+          && resource.data.playerId == request.auth.uid);
+
+      allow create: if (isAdmin()
+          || (isOrganiser() && newSeriesMembershipOwnedByCurrentOrganiser())
+          || (isPlayer()
+            && newSeriesMembershipOwnedByCurrentPlayer()
+            && request.resource.data.status == "pending"))
+        && partitionMatchesRequest(seriesMembershipPartitionFromData(request.resource.data))
+        && seriesMembershipDataMatchesPartition(request.resource.data);
+
+      allow update: if (isAdmin()
+          && resource.data.dataPartition == requestPartition()
+          && request.resource.data.dataPartition == requestPartition()
+          && request.resource.data.organiserId == resource.data.organiserId
+          && request.resource.data.playerId == resource.data.playerId
+          && request.resource.data.seriesId == resource.data.seriesId
+          && request.resource.data.playerEmail == resource.data.playerEmail
+          && exists(/databases/$(database)/documents/sessions/$(resource.data.seriesId))
+          && get(/databases/$(database)/documents/sessions/$(resource.data.seriesId)).data.organiserId == resource.data.organiserId)
+        || ((isSignedIn()
+            && resource.data.organiserId == request.auth.uid)
+          && resource.data.dataPartition == requestPartition()
+          && request.resource.data.dataPartition == requestPartition()
+          && request.resource.data.organiserId == resource.data.organiserId
+          && request.resource.data.playerId == resource.data.playerId
+          && request.resource.data.seriesId == resource.data.seriesId
+          && request.resource.data.playerEmail == resource.data.playerEmail
+          && request.resource.data.skipCount == resource.data.skipCount
+          && request.resource.data.skipDates == resource.data.skipDates
+          && request.resource.data.lastAutoRegisteredEventId == resource.data.lastAutoRegisteredEventId
+          && exists(/databases/$(database)/documents/sessions/$(resource.data.seriesId))
+          && get(/databases/$(database)/documents/sessions/$(resource.data.seriesId)).data.organiserId == resource.data.organiserId)
+        || ((isSignedIn()
+            && resource.data.playerId == request.auth.uid)
+          && resource.data.dataPartition == requestPartition()
+          && request.resource.data.dataPartition == requestPartition()
+          && request.resource.data.organiserId == resource.data.organiserId
+          && request.resource.data.playerId == resource.data.playerId
+          && request.resource.data.seriesId == resource.data.seriesId
+          && request.resource.data.playerEmail == resource.data.playerEmail
+          && request.resource.data.skipCount == resource.data.skipCount
+          && request.resource.data.skipDates == resource.data.skipDates
+          && request.resource.data.lastAutoRegisteredEventId == resource.data.lastAutoRegisteredEventId
+          && (
+            (resource.data.status == "pending" && request.resource.data.status == "pending")
+            || (resource.data.status == "active" && request.resource.data.status in ["active", "paused", "cancelled"])
+            || (resource.data.status == "paused" && request.resource.data.status in ["paused", "active", "cancelled"])
+            || (resource.data.status in ["rejected", "cancelled"] && request.resource.data.status == "pending")
+          )
+          && exists(/databases/$(database)/documents/sessions/$(resource.data.seriesId))
+          && get(/databases/$(database)/documents/sessions/$(resource.data.seriesId)).data.organiserId == resource.data.organiserId);
+
+      allow delete: if (isAdmin()
+          && partitionMatchesRequest(seriesMembershipPartitionFromData(resource.data))
+          && seriesMembershipDataMatchesPartition(resource.data))
+        || ((isOrganiser() && seriesMembershipOwnedByCurrentOrganiser())
+          && partitionMatchesRequest(seriesMembershipPartitionFromData(resource.data))
+          && seriesMembershipDataMatchesPartition(resource.data));
     }
 
     match /organiserApprovals/{approvalId} {

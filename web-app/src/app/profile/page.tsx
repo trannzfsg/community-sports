@@ -16,6 +16,12 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail, normalizeEmail } from "@/lib/managed-users";
 import {
+  getOrganiserBenefitProgram,
+  getOrganiserBenefitStatus,
+  saveOrganiserBenefitProgram,
+  type OrganiserBenefitProgram,
+} from "@/lib/member-benefits";
+import {
   buildDefaultNotificationPreferences,
   normalizeNotificationPreferences,
   type NotificationPreferences,
@@ -75,6 +81,9 @@ export default function ProfilePage() {
   const [role, setRole] = useState<UserProfile["role"]>("player");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [gamesPlayedByOrganiser, setGamesPlayedByOrganiser] = useState<OrganiserGameCount[]>([]);
+  const [organiserBenefitPrograms, setOrganiserBenefitPrograms] = useState<Record<string, OrganiserBenefitProgram>>({});
+  const [memberBenefitMinGames, setMemberBenefitMinGames] = useState("10");
+  const [memberBenefitInstructionText, setMemberBenefitInstructionText] = useState("");
   const [notificationPreferences, setNotificationPreferences] =
     useState<NotificationPreferences>(
       () => buildDefaultNotificationPreferences("", "live"),
@@ -251,6 +260,24 @@ export default function ProfilePage() {
         const visibleNotificationPreferences = applyNotificationFeatureFlags(
           nextNotificationPreferences,
         );
+        const nextGamesPlayedByOrganiser = userData.role === "player"
+          ? await getGamesPlayedByOrganiserForPlayer(
+            db,
+            user.uid,
+            resolvedPartition,
+          )
+          : [];
+        const benefitProgramEntries = userData.role === "player"
+          ? await Promise.all(
+            nextGamesPlayedByOrganiser.map(async (entry) => {
+              const program = await getOrganiserBenefitProgram(db, entry.organiserId);
+              return [entry.organiserId, program] as const;
+            }),
+          )
+          : [];
+        const ownBenefitProgram = userData.role === "organiser"
+          ? await getOrganiserBenefitProgram(db, refreshedUser.uid)
+          : null;
 
         setName(userData.displayName || "");
         setEmail(userData.email || refreshedUser.email || "");
@@ -258,15 +285,12 @@ export default function ProfilePage() {
         setSkillLevel(nextSkillLevel);
         setNotificationPreferences(visibleNotificationPreferences);
         setSavedNotificationPreferences(visibleNotificationPreferences);
-        setGamesPlayedByOrganiser(
-          userData.role === "player"
-            ? await getGamesPlayedByOrganiserForPlayer(
-              db,
-              user.uid,
-              resolvedPartition,
-            )
-            : [],
-        );
+        setGamesPlayedByOrganiser(nextGamesPlayedByOrganiser);
+        setOrganiserBenefitPrograms(Object.fromEntries(
+          benefitProgramEntries.filter((entry): entry is [string, OrganiserBenefitProgram] => !!entry[1]),
+        ));
+        setMemberBenefitMinGames(String(ownBenefitProgram?.minGamesRequired ?? 10));
+        setMemberBenefitInstructionText(ownBenefitProgram?.benefitInstructionText || "");
 
         console.log("[profile] load success", {
           uid: refreshedUser.uid,
@@ -388,6 +412,15 @@ export default function ProfilePage() {
         ...serializableNotificationPreferences,
         updatedAt: serverTimestamp(),
       }, { merge: true });
+
+      if (role === "organiser") {
+        await saveOrganiserBenefitProgram(db, {
+          organiserId: user.uid,
+          minGamesRequired: Math.max(1, Number(memberBenefitMinGames || 10)),
+          benefitInstructionText: memberBenefitInstructionText.trim(),
+          dataPartition: getDataPartitionForEmail(normalizedCurrentEmail),
+        });
+      }
 
       setCurrentUser(auth.currentUser);
       setName(trimmedName);
@@ -920,6 +953,37 @@ export default function ProfilePage() {
             ) : null}
           </div>
 
+          {role === "organiser" ? (
+            <div className="rounded-2xl border border-zinc-200 p-4">
+              <h2 className="text-base font-semibold text-zinc-900">Member benefits</h2>
+              <p className="mt-1 text-sm text-zinc-500">
+                Configure when your organiser loyalty benefit becomes available and what players should do once they qualify.
+              </p>
+              <div className="mt-4 grid gap-4">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-zinc-700">Minimum confirmed games</span>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={memberBenefitMinGames}
+                    onChange={(event) => setMemberBenefitMinGames(event.target.value)}
+                    className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-zinc-700">Benefit instruction text</span>
+                  <textarea
+                    value={memberBenefitInstructionText}
+                    onChange={(event) => setMemberBenefitInstructionText(event.target.value)}
+                    className="min-h-28 w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
+                    placeholder="Example: Once you reach this milestone, message me to claim your member benefit."
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+
           {role === "player" ? (
             <>
               <label className="block">
@@ -941,17 +1005,39 @@ export default function ProfilePage() {
                       <tr>
                         <th className="pb-2 pr-4 font-medium">Organiser</th>
                         <th className="pb-2 font-medium">Games played</th>
+                        <th className="pb-2 pl-4 font-medium">Benefit</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {gamesPlayedByOrganiser.length ? gamesPlayedByOrganiser.map((entry) => (
-                        <tr key={entry.organiserId} className="border-t border-zinc-100">
-                          <td className="py-2 pr-4 text-zinc-900">{entry.organiserName}</td>
-                          <td className="py-2 text-zinc-700">{entry.gamesPlayed}</td>
-                        </tr>
-                      )) : (
+                      {gamesPlayedByOrganiser.length ? gamesPlayedByOrganiser.map((entry) => {
+                        const program = organiserBenefitPrograms[entry.organiserId];
+                        const benefitStatus = program
+                          ? getOrganiserBenefitStatus({
+                            confirmedGames: entry.gamesPlayed,
+                            minGamesRequired: program.minGamesRequired,
+                          })
+                          : null;
+
+                        return (
+                          <tr key={entry.organiserId} className="border-t border-zinc-100">
+                            <td className="py-2 pr-4 text-zinc-900">{entry.organiserName}</td>
+                            <td className="py-2 text-zinc-700">{entry.gamesPlayed}</td>
+                            <td className="py-2 pl-4 text-zinc-700">
+                              {program ? (
+                                benefitStatus?.qualified ? (
+                                  <span className="text-emerald-700">{program.benefitInstructionText || "Qualified"}</span>
+                                ) : (
+                                  <span>{benefitStatus?.remainingGames} more confirmed game{benefitStatus?.remainingGames === 1 ? "" : "s"}</span>
+                                )
+                              ) : (
+                                <span className="text-zinc-400">Not configured</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      }) : (
                         <tr>
-                          <td colSpan={2} className="py-2 text-zinc-500">No confirmed games yet.</td>
+                          <td colSpan={3} className="py-2 text-zinc-500">No confirmed games yet.</td>
                         </tr>
                       )}
                     </tbody>

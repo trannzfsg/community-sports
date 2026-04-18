@@ -1,5 +1,17 @@
 # To-Do List - Completed tasks
 
+- [x] Member benefits. There needs to be a member system to organisers, as well as to a session series. The member to organiser can be after X number of games registered, you can get a predefined benefit. The member to a session series, will be the ability to register automatically to every event. Make some suggestions on how to implement this, plan and confirm with me before implementation.
+  - [x] Drafted architecture and phased plan in [MEMBER_BENEFITS_PLAN.md](C:/github/community_sports/community_sports/MEMBER_BENEFITS_PLAN.md).
+  - [x] Refined the plan with server-side membership processing, organiser approval alignment, waiting-list behavior, and rollout decisions to confirm before implementation.
+  - [x] Add data model, Firestore rules, and helper library support for organiser benefit programs and series memberships.
+  - [x] Implement player membership requests plus organiser approval flow for series memberships.
+  - [x] Implement membership-priority auto-registration on new event creation before roster copy.
+  - [x] Track member skips, including total skips and rolling recent 10 week skips.
+  - [x] Add organiser and player UI so organisers can manage members per series and players can see which series they belong to.
+  - [x] Add configurable organiser-profile member-benefit instruction text.
+  - [x] Add a repeatable browser smoke script and stable selectors for the series-membership request and organiser approval flow.
+  - [x] Create or confirm a permanent `@example.com` player account for the smoke flow and store it in `.env.test.local`.
+  - [x] Finish the last manual/browser smoke pass for player request and organiser approval using `@example.com` accounts.
 - [x] Hide email notifications behind a feature flag for now, leaving Telegram as the only visible notification channel.
   - [x] Add a safe-off email notification feature flag in frontend and Functions config.
   - [x] Remove email from the Profile notification UI while forcing backend delivery to ignore email when the flag is off.

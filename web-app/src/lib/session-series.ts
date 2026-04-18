@@ -13,6 +13,126 @@ import type { DayOfWeek, TypeOfSport } from "./session-options";
 
 type DataPartition = "test" | "live";
 
+function normalizeSkipDates(skipDates: string[], maxEntries = 104) {
+  return Array.from(new Set(
+    skipDates
+      .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
+      .sort((a, b) => a.localeCompare(b)),
+  )).slice(-maxEntries);
+}
+
+function planEventRegistrations(input: {
+  capacity: number;
+  waitingListCapacity?: number;
+  activeMemberships: Array<{
+    id: string;
+    playerId: string;
+    playerName: string;
+    playerEmail: string;
+    skipNextEvent?: boolean;
+    joinedOrder?: number;
+  }>;
+  previousRegistrations: Array<{
+    userId: string;
+    playerName: string;
+    playerEmail: string;
+    createdOrder?: number;
+  }>;
+}) {
+  const plannedRegistrations: Array<{
+    userId: string;
+    playerName: string;
+    playerEmail: string;
+    source: "series-membership" | "roster-copy";
+    seriesMembershipId?: string | null;
+    status: "registered" | "waiting";
+  }> = [];
+  const skippedMembershipIds: string[] = [];
+  const reservedMembershipPlayerIds = new Set(
+    input.activeMemberships.map((membership) => membership.playerId),
+  );
+
+  const pushPlannedRegistration = (entry: {
+    userId: string;
+    playerName: string;
+    playerEmail: string;
+    source: "series-membership" | "roster-copy";
+    seriesMembershipId?: string | null;
+  }) => {
+    const bookedCount = plannedRegistrations.filter((item) => item.status === "registered").length;
+    const waitingCount = plannedRegistrations.filter((item) => item.status === "waiting").length;
+    const waitingListCapacity = Math.max(0, input.waitingListCapacity || 0);
+    const nextStatus: "registered" | "waiting" | null = bookedCount < input.capacity
+      ? "registered"
+      : waitingCount < waitingListCapacity
+        ? "waiting"
+        : null;
+
+    if (!nextStatus) {
+      return;
+    }
+
+    plannedRegistrations.push({
+      ...entry,
+      status: nextStatus,
+    });
+  };
+
+  input.activeMemberships
+    .slice()
+    .sort((a, b) => {
+      const aOrder = a.joinedOrder ?? 0;
+      const bOrder = b.joinedOrder ?? 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.playerName.localeCompare(b.playerName);
+    })
+    .forEach((membership) => {
+      if (membership.skipNextEvent) {
+        skippedMembershipIds.push(membership.id);
+        return;
+      }
+
+      pushPlannedRegistration({
+        userId: membership.playerId,
+        playerName: membership.playerName,
+        playerEmail: membership.playerEmail,
+        source: "series-membership",
+        seriesMembershipId: membership.id,
+      });
+    });
+
+  input.previousRegistrations
+    .slice()
+    .sort((a, b) => {
+      const aOrder = a.createdOrder ?? 0;
+      const bOrder = b.createdOrder ?? 0;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.playerName.localeCompare(b.playerName);
+    })
+    .forEach((registration) => {
+      if (reservedMembershipPlayerIds.has(registration.userId)) {
+        return;
+      }
+
+      if (plannedRegistrations.some((item) => item.userId === registration.userId)) {
+        return;
+      }
+
+      pushPlannedRegistration({
+        userId: registration.userId,
+        playerName: registration.playerName,
+        playerEmail: registration.playerEmail,
+        source: "roster-copy",
+        seriesMembershipId: null,
+      });
+    });
+
+  return {
+    plannedRegistrations,
+    skippedMembershipIds,
+  };
+}
+
 export type SessionSeries = {
   id: string;
   title: string;
@@ -31,6 +151,7 @@ export type SessionSeries = {
   dataPartition?: DataPartition;
   status: string;
   copyRosterFromLastEvent?: boolean;
+  seriesMembershipEnabled?: boolean;
 };
 
 export type SessionEvent = {
@@ -67,6 +188,8 @@ export type RegistrationItem = {
   organiserPaid: boolean;
   paymentReference?: string | null;
   status?: "registered" | "waiting";
+  source?: "self" | "organiser" | "roster-copy" | "series-membership";
+  seriesMembershipId?: string | null;
   createdAt?: unknown;
 };
 
@@ -243,61 +366,129 @@ export async function createSessionEventForSeries(
     });
   }
 
-  let copiedCount = 0;
+  const previousEventsSnapshot = await getDocs(
+    query(
+      collection(db, "sessionEvents"),
+      where("sessionSeriesId", "==", series.id),
+      where("dataPartition", "==", series.dataPartition || "live"),
+    ),
+  );
 
-  if (series.copyRosterFromLastEvent) {
-    const previousEventsSnapshot = await getDocs(
+  const previousEvents = previousEventsSnapshot.docs
+    .map((eventDoc) => ({
+      id: eventDoc.id,
+      ...(eventDoc.data() as Omit<SessionEvent, "id">),
+    }))
+    .filter((event) => event.id !== eventId && event.eventDate < eventDate)
+    .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+
+  const lastEvent = previousEvents.at(-1);
+  const previousRegistrations = lastEvent && series.copyRosterFromLastEvent
+    ? await getDocs(
       query(
-        collection(db, "sessionEvents"),
-        where("sessionSeriesId", "==", series.id),
+        collection(db, "registrations"),
+        where("sessionEventId", "==", lastEvent.id),
         where("dataPartition", "==", series.dataPartition || "live"),
       ),
+    )
+    : null;
+  const seriesMembershipsSnapshot = series.seriesMembershipEnabled
+    ? await getDocs(
+      query(
+        collection(db, "seriesMemberships"),
+        where("seriesId", "==", series.id),
+        where("organiserId", "==", series.organiserId),
+        where("dataPartition", "==", series.dataPartition || "live"),
+      ),
+    )
+    : null;
+
+  const membershipsById = new Map(
+    (seriesMembershipsSnapshot?.docs || []).map((membershipDoc) => [
+      membershipDoc.id,
+      membershipDoc.data() as {
+        playerId: string;
+        playerName: string;
+        playerEmail: string;
+        status: string;
+        skipNextEvent?: boolean;
+        skipCount?: number;
+        skipDates?: string[];
+        createdAt?: unknown;
+      },
+    ]),
+  );
+
+  const { plannedRegistrations, skippedMembershipIds } = planEventRegistrations({
+    capacity: series.capacity,
+    waitingListCapacity: series.waitingListCapacity || 0,
+    activeMemberships: Array.from(membershipsById.entries())
+      .filter(([, membership]) => membership.status === "active")
+      .map(([id, membership]) => ({
+        id,
+        playerId: membership.playerId,
+        playerName: membership.playerName,
+        playerEmail: membership.playerEmail,
+        skipNextEvent: !!membership.skipNextEvent,
+        joinedOrder: getTimestampMillis(membership.createdAt),
+      })),
+    previousRegistrations: (previousRegistrations?.docs || []).map((registrationDoc) => {
+      const registration = registrationDoc.data() as Omit<RegistrationItem, "id">;
+      return {
+        userId: registration.userId,
+        playerName: registration.playerName,
+        playerEmail: registration.playerEmail,
+        createdOrder: getTimestampMillis(registration.createdAt),
+      };
+    }),
+  });
+
+  for (const registration of plannedRegistrations) {
+    await setDoc(
+      doc(db, "registrations", buildRegistrationId(eventId, registration.userId)),
+      {
+        sessionEventId: eventId,
+        sessionSeriesId: series.id,
+        userId: registration.userId,
+        playerName: registration.playerName,
+        playerEmail: registration.playerEmail,
+        dataPartition: series.dataPartition,
+        playerPaid: false,
+        organiserPaid: false,
+        status: registration.status,
+        source: registration.source,
+        seriesMembershipId: registration.seriesMembershipId || null,
+        createdAt: serverTimestamp(),
+      },
     );
-
-    const previousEvents = previousEventsSnapshot.docs
-      .map((eventDoc) => ({
-        id: eventDoc.id,
-        ...(eventDoc.data() as Omit<SessionEvent, "id">),
-      }))
-      .filter((event) => event.id !== eventId && event.eventDate < eventDate)
-      .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-
-    const lastEvent = previousEvents.at(-1);
-
-    if (lastEvent) {
-      const previousRegistrationsSnapshot = await getDocs(
-        query(
-          collection(db, "registrations"),
-          where("sessionEventId", "==", lastEvent.id),
-          where("dataPartition", "==", series.dataPartition || "live"),
-        ),
-      );
-
-      for (const registrationDoc of previousRegistrationsSnapshot.docs) {
-        const registration = registrationDoc.data() as Omit<RegistrationItem, "id">;
-        await setDoc(
-          doc(db, "registrations", buildRegistrationId(eventId, registration.userId)),
-          {
-            sessionEventId: eventId,
-            sessionSeriesId: series.id,
-            userId: registration.userId,
-            playerName: registration.playerName,
-            playerEmail: registration.playerEmail,
-            dataPartition: registration.dataPartition || series.dataPartition,
-            playerPaid: false,
-            organiserPaid: false,
-            status: "registered",
-            createdAt: serverTimestamp(),
-          },
-        );
-        copiedCount += 1;
-      }
-    }
   }
 
-  if (copiedCount > 0) {
-    await rebalanceEventRegistrations(db, eventId, series.capacity, series.dataPartition);
+  for (const membershipId of skippedMembershipIds) {
+    const existingMembership = membershipsById.get(membershipId);
+    if (!existingMembership) continue;
+
+    await setDoc(doc(db, "seriesMemberships", membershipId), {
+      skipNextEvent: false,
+      skipCount: Math.max(0, existingMembership.skipCount || 0) + 1,
+      skipDates: normalizeSkipDates([
+        ...(existingMembership.skipDates || []),
+        eventDate,
+      ]),
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
   }
+
+  for (const registration of plannedRegistrations.filter((item) => item.source === "series-membership" && item.seriesMembershipId)) {
+    await setDoc(doc(db, "seriesMemberships", String(registration.seriesMembershipId)), {
+      lastAutoRegisteredEventId: eventId,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
+  }
+
+  await setDoc(eventRef, {
+    bookedCount: plannedRegistrations.filter((registration) => registration.status === "registered").length,
+    waitingCount: plannedRegistrations.filter((registration) => registration.status === "waiting").length,
+  }, { merge: true });
 
   return eventId;
 }

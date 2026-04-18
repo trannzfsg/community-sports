@@ -45,6 +45,7 @@ export default function NewSessionPage() {
   const [waitingListCapacity, setWaitingListCapacity] = useState("0");
   const [status, setStatus] = useState("active");
   const [copyRosterFromLastEvent, setCopyRosterFromLastEvent] = useState(true);
+  const [seriesMembershipEnabled, setSeriesMembershipEnabled] = useState(false);
   const [createNextEventNow, setCreateNextEventNow] = useState(true);
   const computedNextGameOn = useMemo(
     () => getSuggestedNextGameOn(dayOfWeek, startAt),
@@ -124,6 +125,7 @@ export default function NewSessionPage() {
         dataPartition,
         status,
         copyRosterFromLastEvent,
+        seriesMembershipEnabled,
         createdAt: serverTimestamp(),
       });
 
@@ -146,6 +148,7 @@ export default function NewSessionPage() {
           dataPartition,
           status,
           copyRosterFromLastEvent,
+          seriesMembershipEnabled,
         };
         await createSessionEventForSeries(db, series, nextGameOn);
       }
@@ -275,6 +278,11 @@ export default function NewSessionPage() {
           <label className="flex items-start gap-3 md:col-span-2">
             <input type="checkbox" checked={copyRosterFromLastEvent} onChange={(event) => setCopyRosterFromLastEvent(event.target.checked)} className="mt-1 h-4 w-4" />
             <span className="text-sm text-zinc-700">Automatically copy the roster from the last event in this series when a new event is created.</span>
+          </label>
+
+          <label className="flex items-start gap-3 md:col-span-2">
+            <input type="checkbox" checked={seriesMembershipEnabled} onChange={(event) => setSeriesMembershipEnabled(event.target.checked)} className="mt-1 h-4 w-4" />
+            <span className="text-sm text-zinc-700">Allow players to request recurring series membership for automatic registration into future events.</span>
           </label>
 
           <label className="flex items-start gap-3 md:col-span-2">

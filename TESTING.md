@@ -20,6 +20,7 @@
 - [ ] Open next event hides the create-next-event button
 - [ ] Full event shows full styling for organisers
 - [ ] Player sees joined / available / not available states correctly
+- [ ] Membership-enabled series show the series membership panel for players and organisers
 
 ## Registrations
 - [ ] Player can register self
@@ -38,3 +39,10 @@
 - [ ] Player paid button label is correct
 - [ ] Organiser confirmation label is correct
 - [ ] No `effective: pending` badge remains in UI
+
+## Series Membership
+- [ ] Player can request organiser approval and see the pending state
+- [ ] Organiser can approve the player's organiser approval request
+- [ ] Approved player can request series membership from the dashboard
+- [ ] Organiser can approve the series membership request
+- [ ] Approved player sees active membership controls and skip stats on the dashboard
