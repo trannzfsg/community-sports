@@ -59,19 +59,6 @@ async function waitForDashboard(page) {
   await page.getByText(/^Dashboard$/).waitFor({ state: "visible", timeout: 30_000 });
 }
 
-async function waitForLoginForm(page) {
-  await page.waitForURL((url) => {
-    const pathname = new URL(url).pathname;
-    return pathname === "/" || pathname === "/login";
-  }, { timeout: 30_000 });
-  await page.locator('input[type="email"]').waitFor({ state: "visible", timeout: 30_000 });
-}
-
-async function logout(page) {
-  await page.goto(`${baseUrl}/logout`, { waitUntil: "load" });
-  await waitForLoginForm(page);
-}
-
 async function attemptLogin(page, email, password) {
   await page.goto(`${baseUrl}/login`, { waitUntil: "load" });
   await page.locator('input[type="email"]').fill(email);
@@ -90,7 +77,6 @@ async function attemptLogin(page, email, password) {
 async function ensurePlayerAccount(page) {
   const loginResult = await attemptLogin(page, playerEmail, playerPassword);
   if (loginResult === "dashboard") {
-    await logout(page);
     return "existing";
   }
 
@@ -101,7 +87,6 @@ async function ensurePlayerAccount(page) {
   await page.locator('input[type="password"]').fill(playerPassword);
   await page.getByRole("button", { name: "Create account" }).click();
   await waitForDashboard(page);
-  await logout(page);
   return "created";
 }
 
@@ -160,9 +145,11 @@ async function waitForPlayerMembershipCard(page, seriesCard) {
 }
 
 async function createMembershipEnabledSeries(page) {
-  await page.goto(`${baseUrl}/sessions/new`, { waitUntil: "load" });
-  await page.getByLabel("Series title").fill(seriesTitle);
-  await page.getByLabel("Location").fill(seriesLocation);
+  await page.getByRole("link", { name: "Create session series" }).click();
+  await page.waitForURL(/\/sessions\/new(?:\?|$)/, { timeout: 30_000 });
+  await page.getByText("Create a session series").waitFor({ state: "visible", timeout: 30_000 });
+  await page.locator('input[placeholder="Monday Social Badminton"]').fill(seriesTitle);
+  await page.locator('input[placeholder="Community Hall Court 1"]').fill(seriesLocation);
   await page.locator('label:has-text("First session on") button').click();
   await page.getByRole("button", { name: "Today", exact: true }).click();
   const membershipCheckbox = page.getByLabel("Allow players to request recurring series membership for automatic registration into future events.");
@@ -266,38 +253,31 @@ async function main() {
     await withPage(browser, async (page) => {
       await login(page, organiserEmail, organiserPassword);
       await createMembershipEnabledSeries(page);
-      await logout(page);
     });
 
     summary.organiserApproval = await withPage(browser, async (page) => {
       await login(page, playerEmail, playerPassword);
-      const result = await ensureOrganiserApproval(page);
-      await logout(page);
-      return result;
+      return ensureOrganiserApproval(page);
     });
 
     await withPage(browser, async (page) => {
       await login(page, organiserEmail, organiserPassword);
       await approveOrganiserRequest(page);
-      await logout(page);
     });
 
     await withPage(browser, async (page) => {
       await login(page, playerEmail, playerPassword);
       await requestSeriesMembership(page);
-      await logout(page);
     });
 
     await withPage(browser, async (page) => {
       await login(page, organiserEmail, organiserPassword);
       await approveSeriesMembership(page);
-      await logout(page);
     });
 
     await withPage(browser, async (page) => {
       await login(page, playerEmail, playerPassword);
       await verifyPlayerMembershipActive(page);
-      await logout(page);
     });
 
     console.log(JSON.stringify({
