@@ -9,6 +9,7 @@ import {
   onDocumentUpdated,
 } from "firebase-functions/v2/firestore";
 import {onSchedule} from "firebase-functions/v2/scheduler";
+import {EMAIL_NOTIFICATIONS_ENABLED} from "./feature-flags.js";
 
 const adminApp = getApps().length ? getApps()[0] : initializeApp();
 const firestore = getFirestore(adminApp);
@@ -245,7 +246,10 @@ function getEligibleChannels(context: RecipientContext) {
       "private";
 
   return {
-    email: !!preferences?.email?.enabled && !!context.email,
+    email:
+      EMAIL_NOTIFICATIONS_ENABLED &&
+      !!preferences?.email?.enabled &&
+      !!context.email,
     telegram:
       !!preferences?.telegram?.enabled && telegramChatId.length > 0,
     telegramChatId,
@@ -510,7 +514,8 @@ export const deliverNotificationEvent = onDocumentCreated(
     const recipientEmail = trimString(notificationEvent.recipientEmail);
     const telegramChatId = trimString(notificationEvent.telegramChatId);
     const telegramEnabled = !!notificationEvent.channels?.telegram;
-    const emailEnabled = !!notificationEvent.channels?.email;
+    const emailEnabled =
+      EMAIL_NOTIFICATIONS_ENABLED && !!notificationEvent.channels?.email;
     const delivery: Record<string, unknown> = {
       telegram: {
         status: "disabled",

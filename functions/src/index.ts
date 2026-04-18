@@ -5,6 +5,7 @@ import {getApps, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import type {Request, Response} from "express";
+import {EMAIL_NOTIFICATIONS_ENABLED} from "./feature-flags.js";
 
 setGlobalOptions({maxInstances: 10});
 
@@ -831,6 +832,13 @@ export const sendNotificationTest = onRequest(async (request, response) => {
     }
 
     if (channel === "email") {
+      if (!EMAIL_NOTIFICATIONS_ENABLED) {
+        response.status(403).json({
+          error: "Email notifications are currently disabled.",
+        });
+        return;
+      }
+
       const emailEnabled = preferences?.email?.enabled === true;
       if (!emailEnabled) {
         response.status(400).json({

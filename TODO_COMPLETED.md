@@ -1,5 +1,8 @@
 # To-Do List - Completed tasks
 
+- [x] Hide email notifications behind a feature flag for now, leaving Telegram as the only visible notification channel.
+  - [x] Add a safe-off email notification feature flag in frontend and Functions config.
+  - [x] Remove email from the Profile notification UI while forcing backend delivery to ignore email when the flag is off.
 - [x] Fix organiser payment confirm-button UX: remove the misleading post-login permission warning for linked users, change the action label to `Confirm`, and keep `Confirmed` as the registration status wording.
 - [x] Fix admin Manage organisers and organiser Manage players screens showing empty lists, and verify with `admin@example.com` and `john@example.com`.
 - [x] Tighten event registration list spacing further by removing extra margin/padding so the compact mobile rows read like a dense list.

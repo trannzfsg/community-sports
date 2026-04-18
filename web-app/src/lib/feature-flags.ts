@@ -1,0 +1,2 @@
+export const EMAIL_NOTIFICATIONS_ENABLED =
+  process.env.NEXT_PUBLIC_ENABLE_EMAIL_NOTIFICATIONS === "true";

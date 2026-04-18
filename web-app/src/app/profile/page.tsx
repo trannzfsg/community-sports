@@ -20,6 +20,7 @@ import {
   normalizeNotificationPreferences,
   type NotificationPreferences,
 } from "@/lib/notification-preferences";
+import { EMAIL_NOTIFICATIONS_ENABLED } from "@/lib/feature-flags";
 import {
   changeExampleUserEmailDirectly,
   clearPendingEmailChange,
@@ -46,6 +47,21 @@ function serializeNotificationPreferencesForComparison(
   delete comparablePreferences.createdAt;
   delete comparablePreferences.updatedAt;
   return JSON.stringify(comparablePreferences);
+}
+
+function applyNotificationFeatureFlags(
+  preferences: NotificationPreferences,
+): NotificationPreferences {
+  if (EMAIL_NOTIFICATIONS_ENABLED) {
+    return preferences;
+  }
+
+  return {
+    ...preferences,
+    email: {
+      enabled: false,
+    },
+  };
 }
 
 export default function ProfilePage() {
@@ -232,13 +248,16 @@ export default function ProfilePage() {
             dataPartition: resolvedPartition,
           },
         );
+        const visibleNotificationPreferences = applyNotificationFeatureFlags(
+          nextNotificationPreferences,
+        );
 
         setName(userData.displayName || "");
         setEmail(userData.email || refreshedUser.email || "");
         setRole(userData.role);
         setSkillLevel(nextSkillLevel);
-        setNotificationPreferences(nextNotificationPreferences);
-        setSavedNotificationPreferences(nextNotificationPreferences);
+        setNotificationPreferences(visibleNotificationPreferences);
+        setSavedNotificationPreferences(visibleNotificationPreferences);
         setGamesPlayedByOrganiser(
           userData.role === "player"
             ? await getGamesPlayedByOrganiserForPlayer(
@@ -357,8 +376,11 @@ export default function ProfilePage() {
           dataPartition: getDataPartitionForEmail(normalizedCurrentEmail),
         },
       );
+      const visibleNotificationPreferences = applyNotificationFeatureFlags(
+        nextNotificationPreferences,
+      );
       const serializableNotificationPreferences = {
-        ...nextNotificationPreferences,
+        ...visibleNotificationPreferences,
       };
       delete serializableNotificationPreferences.createdAt;
       delete serializableNotificationPreferences.updatedAt;
@@ -370,8 +392,8 @@ export default function ProfilePage() {
       setCurrentUser(auth.currentUser);
       setName(trimmedName);
       setEmail(normalizedCurrentEmail);
-      setNotificationPreferences(nextNotificationPreferences);
-      setSavedNotificationPreferences(nextNotificationPreferences);
+      setNotificationPreferences(visibleNotificationPreferences);
+      setSavedNotificationPreferences(visibleNotificationPreferences);
       setMessage("Profile saved.");
       console.log("[profile] save success");
     } catch (error) {
@@ -683,27 +705,7 @@ export default function ProfilePage() {
               updates you want.
             </p>
 
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="flex items-start gap-3 rounded-2xl border border-zinc-200 px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={notificationPreferences.email.enabled}
-                  onChange={(event) =>
-                    setNotificationPreferences((current) => ({
-                      ...current,
-                      email: {
-                        ...current.email,
-                        enabled: event.target.checked,
-                      },
-                    }))}
-                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
-                />
-                <span>
-                  <span className="block text-sm font-medium text-zinc-900">Email notifications</span>
-                  <span className="mt-1 block text-sm text-zinc-500">Uses your profile email address.</span>
-                </span>
-              </label>
-
+            <div className="mt-4 grid gap-4">
               <label className="flex items-start gap-3 rounded-2xl border border-zinc-200 px-4 py-3">
                 <input
                   type="checkbox"
