@@ -16,12 +16,18 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getManagedUserByEmail, normalizeEmail } from "@/lib/managed-users";
 import {
+  buildDefaultNotificationPreferences,
+  normalizeNotificationPreferences,
+  type NotificationPreferences,
+} from "@/lib/notification-preferences";
+import {
   changeExampleUserEmailDirectly,
   clearPendingEmailChange,
   readPendingEmailChange,
   rememberPendingEmailChange,
   syncProfileEmailChange,
 } from "@/lib/profile-email-change";
+import { sendNotificationTest } from "@/lib/notification-test";
 import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import { getGamesPlayedByOrganiserForPlayer, type OrganiserGameCount } from "@/lib/player-stats";
@@ -32,6 +38,15 @@ type UserProfile = {
   role: "player" | "organiser" | "admin";
   dataPartition?: DataPartition;
 };
+
+function serializeNotificationPreferencesForComparison(
+  preferences: NotificationPreferences,
+) {
+  const comparablePreferences = { ...preferences };
+  delete comparablePreferences.createdAt;
+  delete comparablePreferences.updatedAt;
+  return JSON.stringify(comparablePreferences);
+}
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -44,12 +59,21 @@ export default function ProfilePage() {
   const [role, setRole] = useState<UserProfile["role"]>("player");
   const [skillLevel, setSkillLevel] = useState<SkillLevel | "">("");
   const [gamesPlayedByOrganiser, setGamesPlayedByOrganiser] = useState<OrganiserGameCount[]>([]);
+  const [notificationPreferences, setNotificationPreferences] =
+    useState<NotificationPreferences>(
+      () => buildDefaultNotificationPreferences("", "live"),
+    );
+  const [savedNotificationPreferences, setSavedNotificationPreferences] =
+    useState<NotificationPreferences>(
+      () => buildDefaultNotificationPreferences("", "live"),
+    );
   const [message, setMessage] = useState("");
   const [changingEmail, setChangingEmail] = useState(false);
   const [refreshingProfile, setRefreshingProfile] = useState(false);
   const [reauthPassword, setReauthPassword] = useState("");
   const [reauthenticating, setReauthenticating] = useState(false);
   const [recentLoginRequired, setRecentLoginRequired] = useState(false);
+  const [sendingTestTelegram, setSendingTestTelegram] = useState(false);
 
   function isRecentLoginError(error: unknown) {
     return typeof error === "object"
@@ -117,7 +141,11 @@ export default function ProfilePage() {
         const refreshedUser = auth.currentUser || user;
         setCurrentUser(user);
 
-        const userSnapshot = await getDoc(doc(db, "users", refreshedUser.uid));
+        const [userSnapshot, notificationPreferencesSnapshot] =
+          await Promise.all([
+            getDoc(doc(db, "users", refreshedUser.uid)),
+            getDoc(doc(db, "notificationPreferences", refreshedUser.uid)),
+          ]);
 
         console.log("[profile] firestore snapshots", {
           uid: refreshedUser.uid,
@@ -185,23 +213,38 @@ export default function ProfilePage() {
 
         if (cancelled) return;
 
+        const resolvedPartition = resolveDataPartition(
+          userData.email || refreshedUser.email || "",
+          userData.dataPartition || "live",
+        );
         const playerSnapshot = userData.role === "player"
           ? await getDoc(doc(db, "players", refreshedUser.uid))
           : null;
         const nextSkillLevel = userData.role === "player"
           ? (playerSnapshot?.data()?.skillLevel as SkillLevel | undefined) || ""
           : "";
+        const nextNotificationPreferences = normalizeNotificationPreferences(
+          notificationPreferencesSnapshot.exists() ?
+            notificationPreferencesSnapshot.data() :
+            null,
+          {
+            userId: refreshedUser.uid,
+            dataPartition: resolvedPartition,
+          },
+        );
 
         setName(userData.displayName || "");
         setEmail(userData.email || refreshedUser.email || "");
         setRole(userData.role);
         setSkillLevel(nextSkillLevel);
+        setNotificationPreferences(nextNotificationPreferences);
+        setSavedNotificationPreferences(nextNotificationPreferences);
         setGamesPlayedByOrganiser(
           userData.role === "player"
             ? await getGamesPlayedByOrganiserForPlayer(
               db,
               user.uid,
-              resolveDataPartition(userData.email || refreshedUser.email || "", userData.dataPartition || "live"),
+              resolvedPartition,
             )
             : [],
         );
@@ -277,6 +320,15 @@ export default function ProfilePage() {
         throw new Error("Email is required.");
       }
 
+      if (
+        notificationPreferences.telegram.enabled &&
+        !notificationPreferences.telegram.chatId.trim()
+      ) {
+        throw new Error(
+          "Telegram chat ID is required when Telegram notifications are enabled.",
+        );
+      }
+
       await setDoc(doc(db, "users", user.uid), {
         displayName: trimmedName,
         email: normalizedCurrentEmail,
@@ -298,9 +350,28 @@ export default function ProfilePage() {
         }, { merge: true });
       }
 
+      const nextNotificationPreferences = normalizeNotificationPreferences(
+        notificationPreferences,
+        {
+          userId: user.uid,
+          dataPartition: getDataPartitionForEmail(normalizedCurrentEmail),
+        },
+      );
+      const serializableNotificationPreferences = {
+        ...nextNotificationPreferences,
+      };
+      delete serializableNotificationPreferences.createdAt;
+      delete serializableNotificationPreferences.updatedAt;
+      await setDoc(doc(db, "notificationPreferences", user.uid), {
+        ...serializableNotificationPreferences,
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
       setCurrentUser(auth.currentUser);
       setName(trimmedName);
       setEmail(normalizedCurrentEmail);
+      setNotificationPreferences(nextNotificationPreferences);
+      setSavedNotificationPreferences(nextNotificationPreferences);
       setMessage("Profile saved.");
       console.log("[profile] save success");
     } catch (error) {
@@ -308,6 +379,57 @@ export default function ProfilePage() {
       setMessage(error instanceof Error ? error.message : "Failed to save profile.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSendTestTelegram() {
+    const user = currentUser || auth.currentUser;
+    if (!user) {
+      setMessage("You are no longer signed in.");
+      return;
+    }
+
+    if (!notificationPreferences.telegram.enabled) {
+      setMessage("Turn on Telegram notifications first.");
+      return;
+    }
+
+    if (!notificationPreferences.telegram.chatId.trim()) {
+      setMessage("Telegram chat ID is required before sending a test.");
+      return;
+    }
+
+    if (
+      serializeNotificationPreferencesForComparison(notificationPreferences) !==
+      serializeNotificationPreferencesForComparison(savedNotificationPreferences)
+    ) {
+      setMessage(
+        "Save profile first so the Telegram test uses your latest notification settings.",
+      );
+      return;
+    }
+
+    setSendingTestTelegram(true);
+    setMessage("");
+
+    try {
+      const idToken = await user.getIdToken(true);
+      await sendNotificationTest({
+        idToken,
+        channel: "telegram",
+      });
+      setMessage(
+        "Telegram test queued. Check @NotificationsCommunitySportsBot.",
+      );
+    } catch (error) {
+      console.error("[profile] telegram test failed", error);
+      setMessage(
+        error instanceof Error ?
+          error.message :
+          "Failed to queue the Telegram test.",
+      );
+    } finally {
+      setSendingTestTelegram(false);
     }
   }
 
@@ -455,6 +577,11 @@ export default function ProfilePage() {
     );
   }
 
+  const showOrganiserNotificationSettings =
+    role === "organiser" || role === "admin";
+  const showPlayerNotificationSettings =
+    role === "player" || role === "admin";
+
   return (
     <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
       <div className="mx-auto max-w-2xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
@@ -545,6 +672,248 @@ export default function ProfilePage() {
                       ? "Confirm password and continue"
                       : "Confirm sign-in and continue"}
                 </button>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-zinc-200 p-4">
+            <h2 className="text-base font-semibold text-zinc-900">Notifications</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Notifications stay off until you enable a channel and choose the
+              updates you want.
+            </p>
+
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <label className="flex items-start gap-3 rounded-2xl border border-zinc-200 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.email.enabled}
+                  onChange={(event) =>
+                    setNotificationPreferences((current) => ({
+                      ...current,
+                      email: {
+                        ...current.email,
+                        enabled: event.target.checked,
+                      },
+                    }))}
+                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-zinc-900">Email notifications</span>
+                  <span className="mt-1 block text-sm text-zinc-500">Uses your profile email address.</span>
+                </span>
+              </label>
+
+              <label className="flex items-start gap-3 rounded-2xl border border-zinc-200 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={notificationPreferences.telegram.enabled}
+                  onChange={(event) =>
+                    setNotificationPreferences((current) => ({
+                      ...current,
+                      telegram: {
+                        ...current.telegram,
+                        enabled: event.target.checked,
+                      },
+                    }))}
+                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                />
+                <span>
+                  <span className="block text-sm font-medium text-zinc-900">Telegram notifications</span>
+                  <span className="mt-1 block text-sm text-zinc-500">Requires your chat ID and the shared bot to be added.</span>
+                </span>
+              </label>
+            </div>
+
+            <div className="mt-4">
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-zinc-700">Telegram chat ID</span>
+                <input
+                  value={notificationPreferences.telegram.chatId}
+                  onChange={(event) =>
+                    setNotificationPreferences((current) => ({
+                      ...current,
+                      telegram: {
+                        ...current.telegram,
+                        chatId: event.target.value,
+                      },
+                    }))}
+                  className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500"
+                  placeholder="123456789"
+                />
+                <span className="mt-2 block text-sm text-zinc-500">
+                  Private chat only for now. Open @NotificationsCommunitySportsBot,
+                  press Start, send any message, then use Telegram&apos;s
+                  `getUpdates` response chat id here.
+                </span>
+              </label>
+              <button
+                type="button"
+                onClick={() => void handleSendTestTelegram()}
+                disabled={sendingTestTelegram || saving}
+                className="mt-3 rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {sendingTestTelegram ? "Queueing Telegram test..." : "Send test Telegram"}
+              </button>
+            </div>
+
+            {showOrganiserNotificationSettings ? (
+              <div className="mt-4 rounded-2xl border border-zinc-200 p-4">
+                <h3 className="text-sm font-semibold text-zinc-900">Organiser alerts</h3>
+                <div className="mt-3 grid gap-3">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.organiser.approvalRequested}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          organiser: {
+                            ...current.organiser,
+                            approvalRequested: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">Player requests approval</span>
+                  </label>
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.organiser.playerRegistered}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          organiser: {
+                            ...current.organiser,
+                            playerRegistered: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">Player registers for an event</span>
+                  </label>
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.organiser.playerRemoved}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          organiser: {
+                            ...current.organiser,
+                            playerRemoved: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">Player removes registration</span>
+                  </label>
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.organiser.paymentReferenceUpdated}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          organiser: {
+                            ...current.organiser,
+                            paymentReferenceUpdated: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">Player submits or updates payment reference</span>
+                  </label>
+                </div>
+              </div>
+            ) : null}
+
+            {showPlayerNotificationSettings ? (
+              <div className="mt-4 rounded-2xl border border-zinc-200 p-4">
+                <h3 className="text-sm font-semibold text-zinc-900">Player alerts</h3>
+                <div className="mt-3 grid gap-3">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.player.approvalApproved}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          player: {
+                            ...current.player,
+                            approvalApproved: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">Organiser approves you</span>
+                  </label>
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.player.paymentDueSoon}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          player: {
+                            ...current.player,
+                            paymentDueSoon: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">Payment still outstanding 15 minutes before start</span>
+                  </label>
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.player.movedFromWaitlist}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          player: {
+                            ...current.player,
+                            movedFromWaitlist: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">Moved from waiting list to registered</span>
+                  </label>
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.player.paymentConfirmed}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          player: {
+                            ...current.player,
+                            paymentConfirmed: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">Organiser confirms payment</span>
+                  </label>
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={notificationPreferences.player.newEventOpened}
+                      onChange={(event) =>
+                        setNotificationPreferences((current) => ({
+                          ...current,
+                          player: {
+                            ...current.player,
+                            newEventOpened: event.target.checked,
+                          },
+                        }))}
+                      className="mt-1 h-4 w-4 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-500"
+                    />
+                    <span className="text-sm text-zinc-700">A new event opens in a series you previously joined</span>
+                  </label>
+                </div>
               </div>
             ) : null}
           </div>

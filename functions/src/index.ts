@@ -760,3 +760,145 @@ export const lookupPendingUserProfile = onRequest(async (request, response) => {
     response.status(500).json({error: "Failed to resolve pending user role."});
   }
 });
+
+export const sendNotificationTest = onRequest(async (request, response) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const channel = request.body?.channel === "email" ? "email" : "telegram";
+    const [userSnapshot, preferencesSnapshot] = await Promise.all([
+      firestore.doc(`users/${uid}`).get(),
+      firestore.doc(`notificationPreferences/${uid}`).get(),
+    ]);
+
+    if (!userSnapshot.exists) {
+      response.status(404).json({error: "User profile not found."});
+      return;
+    }
+
+    if (!preferencesSnapshot.exists) {
+      response.status(400).json({
+        error: "Save your notification preferences before sending a test.",
+      });
+      return;
+    }
+
+    const userData = userSnapshot.data() || {};
+    const preferences = preferencesSnapshot.data() || {};
+    const recipientEmail = typeof userData.email === "string" ?
+      userData.email.trim().toLowerCase() :
+      "";
+    const recipientDisplayName = typeof userData.displayName === "string" &&
+      userData.displayName.trim() ?
+      userData.displayName.trim() :
+      recipientEmail || uid;
+    const dataPartition = typeof userData.dataPartition === "string" &&
+      userData.dataPartition === "test" ?
+      "test" :
+      "live";
+
+    if (channel === "telegram") {
+      const telegramEnabled = preferences?.telegram?.enabled === true;
+      const telegramChatId = typeof preferences?.telegram?.chatId === "string" ?
+        preferences.telegram.chatId.trim() :
+        "";
+
+      if (!telegramEnabled) {
+        response.status(400).json({
+          error: "Enable Telegram notifications in Profile first.",
+        });
+        return;
+      }
+
+      if (!telegramChatId) {
+        response.status(400).json({
+          error: "Telegram chat ID is required before sending a test.",
+        });
+        return;
+      }
+    }
+
+    if (channel === "email") {
+      const emailEnabled = preferences?.email?.enabled === true;
+      if (!emailEnabled) {
+        response.status(400).json({
+          error: "Enable email notifications in Profile first.",
+        });
+        return;
+      }
+
+      if (!recipientEmail) {
+        response.status(400).json({
+          error: "A profile email is required before sending an email test.",
+        });
+        return;
+      }
+    }
+
+    const eventId = `manual_test_${channel}_${Date.now()}`;
+    await firestore.doc(`notificationEvents/${eventId}`).set({
+      title:
+        channel === "telegram" ?
+          "Community Sports Telegram test" :
+          "Community Sports email test",
+      body:
+        `Hi ${recipientDisplayName}, this is a test ${channel} notification ` +
+        "from your Community Sports profile settings.",
+      recipientUserId: uid,
+      recipientEmail,
+      dataPartition,
+      sourceCollection: "manual",
+      sourceId: eventId,
+      idempotencyKey: eventId,
+      channels: {
+        email: channel === "email",
+        telegram: channel === "telegram",
+      },
+      telegramChatId:
+        channel === "telegram" &&
+        typeof preferences?.telegram?.chatId === "string" ?
+          preferences.telegram.chatId.trim() :
+          null,
+      telegramChatType: channel === "telegram" ? "private" : null,
+      status: "pending",
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true});
+
+    response.status(200).json({
+      queued: true,
+      eventId,
+      channel,
+    });
+  } catch (error) {
+    logger.error("Notification test queueing failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({
+      error: "Failed to queue the test notification.",
+    });
+  }
+});
+
+export {
+  deliverNotificationEvent,
+  queueApprovalApprovedNotification,
+  queueApprovalRequestedNotification,
+  queueNewEventOpenedNotifications,
+  queuePaymentDueSoonNotifications,
+  queueRegistrationCreatedNotification,
+  queueRegistrationDeletedNotification,
+  queueRegistrationUpdatedNotifications,
+} from "./notifications.js";

@@ -108,6 +108,10 @@ service cloud.firestore {
       return data.get('dataPartition', partitionForUserId(data.organiserId));
     }
 
+    function notificationPreferencePartitionFromData(data) {
+      return data.get('dataPartition', partitionForUserId(data.userId));
+    }
+
     function emailPartitionMatches(partition, email) {
       return email is string && partition == partitionForEmail(email);
     }
@@ -162,6 +166,12 @@ service cloud.firestore {
           get(/databases/$(database)/documents/registrations/$(data.registrationId)).data
         )
         && emailPartitionMatches(paymentPartitionFromData(data), data.playerEmail);
+    }
+
+    function notificationPreferenceDataMatchesPartition(data) {
+      return data.userId is string
+        && exists(/databases/$(database)/documents/users/$(data.userId))
+        && notificationPreferencePartitionFromData(data) == partitionForUserId(data.userId);
     }
 
     function partitionMatchesRequest(partition) {
@@ -400,6 +410,27 @@ service cloud.firestore {
         ;
 
       allow delete: if isAdmin() && partitionMatchesRequest(userPartitionFromData(resource.data));
+    }
+
+    match /notificationPreferences/{userId} {
+      allow read: if isOwner(userId)
+        || (isAdmin()
+          && exists(/databases/$(database)/documents/users/$(userId))
+          && partitionMatchesRequest(partitionForUserId(userId)));
+
+      allow create, update: if (isAdmin() || isOwner(userId))
+        && request.resource.data.userId == userId
+        && partitionMatchesRequest(
+          notificationPreferencePartitionFromData(request.resource.data)
+        )
+        && notificationPreferenceDataMatchesPartition(request.resource.data);
+
+      allow delete: if isOwner(userId)
+        || (isAdmin()
+          && partitionMatchesRequest(
+            notificationPreferencePartitionFromData(resource.data)
+          )
+          && notificationPreferenceDataMatchesPartition(resource.data));
     }
 
     match /managedUsers/{managedUserId} {
