@@ -37,9 +37,20 @@ type DatePickerProps = {
   onChange: (value: string) => void;
   required?: boolean;
   min?: string;
+  placeholder?: string;
+  allowClear?: boolean;
+  clearLabel?: string;
 };
 
-export default function DatePicker({ value, onChange, required, min }: DatePickerProps) {
+export default function DatePicker({
+  value,
+  onChange,
+  required,
+  min,
+  placeholder = "Select date",
+  allowClear = false,
+  clearLabel = "Clear",
+}: DatePickerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const selectedDate = parseDateParts(value);
   const minDate = parseDateParts(min);
@@ -113,7 +124,7 @@ export default function DatePicker({ value, onChange, required, min }: DatePicke
         className="flex w-full items-center justify-between rounded-xl border border-zinc-300 bg-white px-4 py-3 text-left outline-none transition focus:border-zinc-500"
       >
         <span className={value ? "text-zinc-900" : "text-zinc-400"}>
-          {value ? formatDisplayDate(value) : "Select date"}
+          {value ? formatDisplayDate(value) : placeholder}
         </span>
         <span className="text-sm text-zinc-500">📅</span>
       </button>
@@ -180,18 +191,32 @@ export default function DatePicker({ value, onChange, required, min }: DatePicke
           </div>
 
           <div className="mt-4 flex items-center justify-between text-sm">
-            <button
-              type="button"
-              onClick={() => {
-                const today = new Date();
-                onChange(toIsoDate(today));
-                setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
-                setOpen(false);
-              }}
-              className="font-medium text-blue-600 hover:underline"
-            >
-              Today
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  const today = new Date();
+                  onChange(toIsoDate(today));
+                  setVisibleMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+                  setOpen(false);
+                }}
+                className="font-medium text-blue-600 hover:underline"
+              >
+                Today
+              </button>
+              {allowClear ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange("");
+                    setOpen(false);
+                  }}
+                  className="font-medium text-zinc-600 hover:underline"
+                >
+                  {clearLabel}
+                </button>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={() => setOpen(false)}

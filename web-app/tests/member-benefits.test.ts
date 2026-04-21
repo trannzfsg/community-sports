@@ -30,6 +30,7 @@ test("recent skip count only includes the last 10 weeks", () => {
 
 test("event planning gives active members priority before roster copy", () => {
   const result = planEventRegistrations({
+    eventDate: "2026-04-21",
     capacity: 2,
     waitingListCapacity: 1,
     activeMemberships: [
@@ -38,6 +39,7 @@ test("event planning gives active members priority before roster copy", () => {
         playerId: "player-1",
         playerName: "Member One",
         playerEmail: "member1@example.com",
+        status: "active",
         joinedOrder: 1,
       },
       {
@@ -45,6 +47,7 @@ test("event planning gives active members priority before roster copy", () => {
         playerId: "player-2",
         playerName: "Member Two",
         playerEmail: "member2@example.com",
+        status: "active",
         skipNextEvent: true,
         joinedOrder: 2,
       },
@@ -70,18 +73,77 @@ test("event planning gives active members priority before roster copy", () => {
     result.plannedRegistrations.map((registration) => ({
       userId: registration.userId,
       source: registration.source,
+      playerPaid: registration.playerPaid,
+      organiserPaid: registration.organiserPaid,
       status: registration.status,
     })),
     [
       {
         userId: "player-1",
         source: "series-membership",
+        playerPaid: false,
+        organiserPaid: false,
         status: "registered",
       },
       {
         userId: "player-3",
         source: "roster-copy",
+        playerPaid: false,
+        organiserPaid: false,
         status: "registered",
+      },
+    ],
+  );
+});
+
+test("event planning respects membership dates and auto-paid windows", () => {
+  const result = planEventRegistrations({
+    eventDate: "2026-04-21",
+    capacity: 3,
+    waitingListCapacity: 0,
+    activeMemberships: [
+      {
+        id: "series-1__future-member",
+        playerId: "future-member",
+        playerName: "Future Member",
+        playerEmail: "future@example.com",
+        status: "active",
+        startDate: "2026-04-25",
+        joinedOrder: 1,
+      },
+      {
+        id: "series-1__ended-member",
+        playerId: "ended-member",
+        playerName: "Ended Member",
+        playerEmail: "ended@example.com",
+        status: "active",
+        endDate: "2026-04-20",
+        joinedOrder: 2,
+      },
+      {
+        id: "series-1__paid-member",
+        playerId: "paid-member",
+        playerName: "Paid Member",
+        playerEmail: "paid@example.com",
+        status: "active",
+        autoPaidUntilDate: "2026-04-30",
+        joinedOrder: 3,
+      },
+    ],
+    previousRegistrations: [],
+  });
+
+  assert.deepEqual(
+    result.plannedRegistrations.map((registration) => ({
+      userId: registration.userId,
+      playerPaid: registration.playerPaid,
+      organiserPaid: registration.organiserPaid,
+    })),
+    [
+      {
+        userId: "paid-member",
+        playerPaid: true,
+        organiserPaid: true,
       },
     ],
   );

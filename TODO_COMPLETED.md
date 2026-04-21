@@ -1,5 +1,9 @@
 # To-Do List - Completed tasks
 
+- [x] Display start date of membership for each player. Then allow organiser to specify an end date for session series membership. If the end date is not specified, the members will always be members until organiser cancels them. If the end date is specified, the membership automatically ends after the end date. Also allow organiser to specify whether players are automatically "paid" and "received" status when entering into membership - as some session series allow bulk pre-payment until a certain date, to guarantee registration.
+  - [x] Add series-level default membership start/end/auto-paid dates in session create/edit flows.
+  - [x] Add organiser-managed per-member membership date overrides and display those dates in the dashboard membership panel.
+  - [x] Make event auto-registration respect membership start/end dates and auto-mark membership registrations as paid/received through the configured date.
 - [x] Change status in events from "Paid" "OK" to "Paid" "Received".
 - [x] Add to configuration that the remote site has a custom domain: sports.tranzha.com. Use this domain for remote testing instead of community-sports-6584e.web.app.
   - [x] Update the live remote-origin configuration to use `sports.tranzha.com`.

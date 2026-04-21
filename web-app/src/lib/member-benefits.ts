@@ -36,6 +36,10 @@ export type SeriesMembership = {
   playerName: string;
   playerEmail: string;
   status: SeriesMembershipStatus;
+  startDate?: string | null;
+  endDate?: string | null;
+  autoPaidUntilDate?: string | null;
+  approvedAtDate?: string | null;
   skipNextEvent: boolean;
   skipCount: number;
   skipDates: string[];
@@ -43,6 +47,7 @@ export type SeriesMembership = {
   lastAutoRegisteredEventId?: string | null;
   dataPartition: DataPartition;
   createdAt?: unknown;
+  updatedAt?: unknown;
 };
 
 type PlannedRegistrationInput = {
@@ -51,6 +56,8 @@ type PlannedRegistrationInput = {
   playerEmail: string;
   source: "series-membership" | "roster-copy";
   seriesMembershipId?: string | null;
+  playerPaid?: boolean;
+  organiserPaid?: boolean;
 };
 
 export type PlannedRegistration = PlannedRegistrationInput & {
@@ -71,6 +78,53 @@ export function normalizeSkipDates(skipDates: string[], maxEntries = 104) {
       .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value))
       .sort((a, b) => a.localeCompare(b)),
   )).slice(-maxEntries);
+}
+
+export function normalizeDateOnly(value?: string | null) {
+  if (!value) return null;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+export function resolveSeriesMembershipStartDate(input: {
+  approvalDate: string;
+  membershipStartDate?: string | null;
+  seriesDefaultStartDate?: string | null;
+}) {
+  return normalizeDateOnly(input.membershipStartDate)
+    ?? normalizeDateOnly(input.seriesDefaultStartDate)
+    ?? input.approvalDate;
+}
+
+export function isSeriesMembershipActiveForEvent(input: {
+  status: SeriesMembershipStatus | string;
+  eventDate: string;
+  startDate?: string | null;
+  endDate?: string | null;
+}) {
+  if (input.status !== "active") {
+    return false;
+  }
+
+  const startDate = normalizeDateOnly(input.startDate);
+  const endDate = normalizeDateOnly(input.endDate);
+
+  if (startDate && input.eventDate < startDate) {
+    return false;
+  }
+
+  if (endDate && input.eventDate > endDate) {
+    return false;
+  }
+
+  return true;
+}
+
+export function shouldAutoMarkMembershipRegistrationPaid(input: {
+  eventDate: string;
+  autoPaidUntilDate?: string | null;
+}) {
+  const autoPaidUntilDate = normalizeDateOnly(input.autoPaidUntilDate);
+  return !!autoPaidUntilDate && input.eventDate <= autoPaidUntilDate;
 }
 
 function parseDateOnly(value: string) {
@@ -106,6 +160,7 @@ export function getOrganiserBenefitStatus(input: {
 }
 
 export function planEventRegistrations(input: {
+  eventDate: string;
   capacity: number;
   waitingListCapacity?: number;
   activeMemberships: Array<{
@@ -113,6 +168,10 @@ export function planEventRegistrations(input: {
     playerId: string;
     playerName: string;
     playerEmail: string;
+    status: SeriesMembershipStatus;
+    startDate?: string | null;
+    endDate?: string | null;
+    autoPaidUntilDate?: string | null;
     skipNextEvent?: boolean;
     joinedOrder?: number;
   }>;
@@ -125,9 +184,7 @@ export function planEventRegistrations(input: {
 }) {
   const planned: PlannedRegistration[] = [];
   const skippedMembershipIds: string[] = [];
-  const reservedMembershipPlayerIds = new Set(
-    input.activeMemberships.map((membership) => membership.playerId),
-  );
+  const reservedMembershipPlayerIds = new Set<string>();
 
   const orderedMemberships = [...input.activeMemberships].sort((a, b) => {
     const aOrder = a.joinedOrder ?? 0;
@@ -152,15 +209,33 @@ export function planEventRegistrations(input: {
 
     planned.push({
       ...entry,
+      playerPaid: entry.playerPaid ?? false,
+      organiserPaid: entry.organiserPaid ?? false,
       status: nextStatus,
     });
   };
 
   orderedMemberships.forEach((membership) => {
     if (membership.skipNextEvent) {
+      reservedMembershipPlayerIds.add(membership.playerId);
       skippedMembershipIds.push(membership.id);
       return;
     }
+
+    if (!isSeriesMembershipActiveForEvent({
+      status: membership.status,
+      eventDate: input.eventDate,
+      startDate: membership.startDate,
+      endDate: membership.endDate,
+    })) {
+      return;
+    }
+
+    reservedMembershipPlayerIds.add(membership.playerId);
+    const shouldAutoPay = shouldAutoMarkMembershipRegistrationPaid({
+      eventDate: input.eventDate,
+      autoPaidUntilDate: membership.autoPaidUntilDate,
+    });
 
     pushPlannedRegistration({
       userId: membership.playerId,
@@ -168,6 +243,8 @@ export function planEventRegistrations(input: {
       playerEmail: membership.playerEmail,
       source: "series-membership",
       seriesMembershipId: membership.id,
+      playerPaid: shouldAutoPay,
+      organiserPaid: shouldAutoPay,
     });
   });
 
@@ -296,6 +373,10 @@ export async function requestSeriesMembership(
     playerName: string;
     playerEmail: string;
     dataPartition: DataPartition;
+    startDate?: string | null;
+    endDate?: string | null;
+    autoPaidUntilDate?: string | null;
+    approvedAtDate?: string | null;
   },
 ) {
   const membershipId = buildSeriesMembershipId(input.seriesId, input.playerId);
@@ -326,6 +407,10 @@ export async function requestSeriesMembership(
     playerName: input.playerName,
     playerEmail: input.playerEmail,
     status: "pending",
+    startDate: normalizeDateOnly(input.startDate) ?? existingData?.startDate ?? null,
+    endDate: normalizeDateOnly(input.endDate) ?? existingData?.endDate ?? null,
+    autoPaidUntilDate: normalizeDateOnly(input.autoPaidUntilDate) ?? existingData?.autoPaidUntilDate ?? null,
+    approvedAtDate: normalizeDateOnly(input.approvedAtDate) ?? existingData?.approvedAtDate ?? null,
     skipNextEvent: false,
     skipCount: existingData?.skipCount ?? 0,
     skipDates: existingData?.skipDates ?? [],
@@ -335,6 +420,39 @@ export async function requestSeriesMembership(
     updatedAt: serverTimestamp(),
   }, { merge: true });
   return membershipId;
+}
+
+export async function updateSeriesMembershipSettings(
+  db: Firestore,
+  membershipId: string,
+  input: {
+    startDate?: string | null;
+    endDate?: string | null;
+    autoPaidUntilDate?: string | null;
+    approvedAtDate?: string | null;
+  },
+) {
+  const updates: Record<string, string | null | unknown> = {
+    updatedAt: serverTimestamp(),
+  };
+
+  if (Object.prototype.hasOwnProperty.call(input, "startDate")) {
+    updates.startDate = normalizeDateOnly(input.startDate) ?? null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, "endDate")) {
+    updates.endDate = normalizeDateOnly(input.endDate) ?? null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, "autoPaidUntilDate")) {
+    updates.autoPaidUntilDate = normalizeDateOnly(input.autoPaidUntilDate) ?? null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, "approvedAtDate")) {
+    updates.approvedAtDate = normalizeDateOnly(input.approvedAtDate) ?? null;
+  }
+
+  await updateDoc(doc(db, "seriesMemberships", membershipId), updates);
 }
 
 export async function updateSeriesMembershipStatus(

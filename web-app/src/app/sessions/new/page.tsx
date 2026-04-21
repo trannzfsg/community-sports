@@ -46,6 +46,9 @@ export default function NewSessionPage() {
   const [status, setStatus] = useState("active");
   const [copyRosterFromLastEvent, setCopyRosterFromLastEvent] = useState(true);
   const [seriesMembershipEnabled, setSeriesMembershipEnabled] = useState(false);
+  const [seriesMembershipDefaultStartDate, setSeriesMembershipDefaultStartDate] = useState("");
+  const [seriesMembershipDefaultEndDate, setSeriesMembershipDefaultEndDate] = useState("");
+  const [seriesMembershipAutoPaidUntilDate, setSeriesMembershipAutoPaidUntilDate] = useState("");
   const [createNextEventNow, setCreateNextEventNow] = useState(true);
   const computedNextGameOn = useMemo(
     () => getSuggestedNextGameOn(dayOfWeek, startAt),
@@ -126,6 +129,9 @@ export default function NewSessionPage() {
         status,
         copyRosterFromLastEvent,
         seriesMembershipEnabled,
+        seriesMembershipDefaultStartDate: seriesMembershipDefaultStartDate || null,
+        seriesMembershipDefaultEndDate: seriesMembershipDefaultEndDate || null,
+        seriesMembershipAutoPaidUntilDate: seriesMembershipAutoPaidUntilDate || null,
         createdAt: serverTimestamp(),
       });
 
@@ -149,6 +155,9 @@ export default function NewSessionPage() {
           status,
           copyRosterFromLastEvent,
           seriesMembershipEnabled,
+          seriesMembershipDefaultStartDate: seriesMembershipDefaultStartDate || null,
+          seriesMembershipDefaultEndDate: seriesMembershipDefaultEndDate || null,
+          seriesMembershipAutoPaidUntilDate: seriesMembershipAutoPaidUntilDate || null,
         };
         await createSessionEventForSeries(db, series, nextGameOn);
       }
@@ -284,6 +293,48 @@ export default function NewSessionPage() {
             <input type="checkbox" checked={seriesMembershipEnabled} onChange={(event) => setSeriesMembershipEnabled(event.target.checked)} className="mt-1 h-4 w-4" />
             <span className="text-sm text-zinc-700">Allow players to request recurring series membership for automatic registration into future events.</span>
           </label>
+
+          {seriesMembershipEnabled ? (
+            <div className="rounded-2xl border border-zinc-200 p-4 md:col-span-2">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Membership defaults</h2>
+              <p className="mt-2 text-sm text-zinc-600">
+                Leave the start date blank to use the organiser approval date. Leave the end date blank for open-ended membership. If auto paid is set, auto-registered members are marked as paid and received through that event date.
+              </p>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-zinc-700">Default member start date</span>
+                  <DatePicker
+                    value={seriesMembershipDefaultStartDate}
+                    onChange={setSeriesMembershipDefaultStartDate}
+                    allowClear
+                    placeholder="Use approval date"
+                    clearLabel="Use approval date"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-zinc-700">Default member end date</span>
+                  <DatePicker
+                    value={seriesMembershipDefaultEndDate}
+                    onChange={setSeriesMembershipDefaultEndDate}
+                    allowClear
+                    min={seriesMembershipDefaultStartDate || undefined}
+                    placeholder="No end date"
+                    clearLabel="No end date"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium text-zinc-700">Auto paid and received until</span>
+                  <DatePicker
+                    value={seriesMembershipAutoPaidUntilDate}
+                    onChange={setSeriesMembershipAutoPaidUntilDate}
+                    allowClear
+                    placeholder="No auto-paid date"
+                    clearLabel="No auto-paid date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
 
           <label className="flex items-start gap-3 md:col-span-2">
             <input type="checkbox" checked={createNextEventNow} onChange={(event) => setCreateNextEventNow(event.target.checked)} className="mt-1 h-4 w-4" />

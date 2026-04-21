@@ -26,7 +26,9 @@ import { getManagedUserByEmail } from "@/lib/managed-users";
 import {
   getSeriesMembershipsForPlayer,
   getSeriesMembershipsForSeries,
+  resolveSeriesMembershipStartDate,
   requestSeriesMembership,
+  updateSeriesMembershipSettings,
   updateSeriesMembershipSkipNextEvent,
   updateSeriesMembershipStatus,
   type SeriesMembership,
@@ -70,6 +72,12 @@ type OrganiserOption = {
   email: string;
 };
 
+type MembershipDraft = {
+  startDate: string;
+  endDate: string;
+  autoPaidUntilDate: string;
+};
+
 function requiresVerifiedEmail(user: User) {
   return user.providerData.some((provider) => provider.providerId === "password")
     && !shouldBypassEmailVerification(user.email || "");
@@ -108,6 +116,55 @@ function withDerivedEventCounts(
   };
 }
 
+function getDateOnlyFromTimestamp(value: unknown) {
+  return value instanceof Timestamp ? value.toDate().toISOString().slice(0, 10) : null;
+}
+
+function formatDateOnly(value?: string | null) {
+  if (!value) return "None";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+}
+
+function buildMembershipDraft(membership: SeriesMembership): MembershipDraft {
+  return {
+    startDate: membership.startDate ?? "",
+    endDate: membership.endDate ?? "",
+    autoPaidUntilDate: membership.autoPaidUntilDate ?? "",
+  };
+}
+
+function getEffectiveMembershipStartDate(
+  membership: SeriesMembership,
+  series: SessionSeries,
+) {
+  const approvalDate = membership.approvedAtDate
+    || getDateOnlyFromTimestamp(membership.createdAt)
+    || new Date().toISOString().slice(0, 10);
+
+  return resolveSeriesMembershipStartDate({
+    approvalDate,
+    membershipStartDate: membership.startDate,
+    seriesDefaultStartDate: series.seriesMembershipDefaultStartDate,
+  });
+}
+
+function getEffectiveMembershipEndDate(
+  membership: SeriesMembership,
+  series: SessionSeries,
+) {
+  return membership.endDate ?? series.seriesMembershipDefaultEndDate ?? null;
+}
+
+function getEffectiveMembershipAutoPaidUntilDate(
+  membership: SeriesMembership,
+  series: SessionSeries,
+) {
+  return membership.autoPaidUntilDate ?? series.seriesMembershipAutoPaidUntilDate ?? null;
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -126,6 +183,7 @@ export default function DashboardPage() {
   const [organiserApprovalRequests, setOrganiserApprovalRequests] = useState<OrganiserApprovalRecord[]>([]);
   const [playerSeriesMemberships, setPlayerSeriesMemberships] = useState<Record<string, SeriesMembership>>({});
   const [seriesMembershipsBySeries, setSeriesMembershipsBySeries] = useState<Record<string, SeriesMembership[]>>({});
+  const [membershipDraftsById, setMembershipDraftsById] = useState<Record<string, MembershipDraft>>({});
 
   function splitIntoChunks<T>(items: T[], size: number) {
     const chunks: T[][] = [];
@@ -134,6 +192,14 @@ export default function DashboardPage() {
     }
     return chunks;
   }
+
+  useEffect(() => {
+    const nextDrafts: Record<string, MembershipDraft> = {};
+    Object.values(seriesMembershipsBySeries).flat().forEach((membership) => {
+      nextDrafts[membership.id] = buildMembershipDraft(membership);
+    });
+    setMembershipDraftsById(nextDrafts);
+  }, [seriesMembershipsBySeries]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -835,12 +901,54 @@ export default function DashboardPage() {
     }
   }
 
+  function handleMembershipDraftChange(
+    membershipId: string,
+    field: keyof MembershipDraft,
+    value: string,
+  ) {
+    setMembershipDraftsById((current) => ({
+      ...current,
+      [membershipId]: {
+        ...(current[membershipId] || { startDate: "", endDate: "", autoPaidUntilDate: "" }),
+        [field]: value,
+      },
+    }));
+  }
+
+  async function handleSeriesMembershipDetailsSave(membership: SeriesMembership) {
+    setBusyKey(`save-membership-${membership.id}`);
+    try {
+      const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+      await updateSeriesMembershipSettings(db, membership.id, {
+        startDate: draft.startDate || null,
+        endDate: draft.endDate || null,
+        autoPaidUntilDate: draft.autoPaidUntilDate || null,
+      });
+      await refreshMembershipData(membership.seriesId);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function handleSeriesMembershipStatusChange(
     membership: SeriesMembership,
     status: SeriesMembership["status"],
   ) {
     setBusyKey(`${status}-membership-${membership.id}`);
     try {
+      if (profile?.role === "organiser" || profile?.role === "admin") {
+        const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+
+        await updateSeriesMembershipSettings(db, membership.id, {
+          startDate: draft.startDate || null,
+          endDate: draft.endDate || null,
+          autoPaidUntilDate: draft.autoPaidUntilDate || null,
+          approvedAtDate: status === "active"
+            ? (membership.approvedAtDate || new Date().toISOString().slice(0, 10))
+            : membership.approvedAtDate,
+        });
+      }
+
       await updateSeriesMembershipStatus(db, membership.id, status);
       await refreshMembershipData(membership.seriesId);
     } finally {
@@ -1042,6 +1150,21 @@ export default function DashboardPage() {
               const showSeriesMembershipPanel = !!series.seriesMembershipEnabled
                 || !!currentSeriesMembership
                 || seriesMemberships.length > 0;
+              const currentMembershipApprovedAt = currentSeriesMembership?.approvedAtDate
+                || getDateOnlyFromTimestamp(currentSeriesMembership?.createdAt);
+              const currentMembershipStartDate = currentSeriesMembership
+                ? resolveSeriesMembershipStartDate({
+                  approvalDate: currentMembershipApprovedAt || new Date().toISOString().slice(0, 10),
+                  membershipStartDate: currentSeriesMembership.startDate,
+                  seriesDefaultStartDate: series.seriesMembershipDefaultStartDate,
+                })
+                : null;
+              const currentMembershipEndDate = currentSeriesMembership?.endDate
+                ?? series.seriesMembershipDefaultEndDate
+                ?? null;
+              const currentMembershipAutoPaidUntilDate = currentSeriesMembership?.autoPaidUntilDate
+                ?? series.seriesMembershipAutoPaidUntilDate
+                ?? null;
 
               const eventPresentation = getDashboardEventPresentation({
                 role: profile?.role,
@@ -1098,6 +1221,13 @@ export default function DashboardPage() {
                               ? "Recurring members are added first when the next event is created."
                               : "Membership is currently disabled for this series."}
                           </p>
+                          {series.seriesMembershipEnabled ? (
+                            <p className="mt-2 text-xs text-zinc-500">
+                              Defaults: start {formatDateOnly(series.seriesMembershipDefaultStartDate || null) === "None" ? "uses approval date" : formatDateOnly(series.seriesMembershipDefaultStartDate || null)}
+                              {" · "}end {formatDateOnly(series.seriesMembershipDefaultEndDate || null)}
+                              {" · "}auto paid {formatDateOnly(series.seriesMembershipAutoPaidUntilDate || null)}
+                            </p>
+                          ) : null}
                         </div>
                         {profile?.role === "player" ? (
                           currentSeriesMembership ? (
@@ -1123,6 +1253,11 @@ export default function DashboardPage() {
                           <div className="mt-3 space-y-3">
                             <div className="text-sm text-zinc-700">
                               Total skips: {currentSeriesMembership.skipCount} · Recent 10 weeks: {currentSeriesMembership.recentTenWeekSkipCount || 0}
+                            </div>
+                            <div className="text-sm text-zinc-700">
+                              Start: {currentMembershipStartDate ? formatDateOnly(currentMembershipStartDate) : "Pending approval"}
+                              {" · "}End: {formatDateOnly(currentMembershipEndDate)}
+                              {" · "}Auto paid: {formatDateOnly(currentMembershipAutoPaidUntilDate)}
                             </div>
                             {currentSeriesMembership.status === "pending" ? (
                               <div className="text-sm text-zinc-500">Your request is waiting for organiser approval.</div>
@@ -1196,20 +1331,72 @@ export default function DashboardPage() {
 
                       {(profile?.role === "organiser" || profile?.role === "admin") ? (
                         <div className="mt-4 space-y-3">
-                          {seriesMemberships.length ? seriesMemberships.map((membership) => (
-                            <div key={membership.id} className="rounded-2xl border border-zinc-200 p-4" data-testid={`series-membership-card-${membership.id}`}>
-                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          {seriesMemberships.length ? seriesMemberships.map((membership) => {
+                            const membershipDraft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+                            const effectiveStartDate = getEffectiveMembershipStartDate(membership, series);
+                            const effectiveEndDate = getEffectiveMembershipEndDate(membership, series);
+                            const effectiveAutoPaidUntilDate = getEffectiveMembershipAutoPaidUntilDate(membership, series);
+
+                            return (
+                              <div key={membership.id} className="rounded-2xl border border-zinc-200 p-4" data-testid={`series-membership-card-${membership.id}`}>
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
                                   <div className="font-medium text-zinc-900">{membership.playerName}</div>
                                   <div className="text-sm text-zinc-500">{membership.playerEmail}</div>
                                   <div className="mt-1 text-xs text-zinc-500">
                                     Status: {membership.status} · Total skips: {membership.skipCount} · Recent 10 weeks: {membership.recentTenWeekSkipCount || 0}
                                   </div>
+                                  <div className="mt-1 text-xs text-zinc-500">
+                                    Start: {formatDateOnly(effectiveStartDate)}
+                                    {" · "}End: {formatDateOnly(effectiveEndDate)}
+                                    {" · "}Auto paid: {formatDateOnly(effectiveAutoPaidUntilDate)}
+                                  </div>
                                   {membership.skipNextEvent ? (
                                     <div className="mt-1 text-xs font-medium text-amber-700">Will skip the next auto-registration.</div>
                                   ) : null}
                                 </div>
+                                  <div className="mt-3 grid gap-3 md:grid-cols-3">
+                                    <label className="block text-xs text-zinc-600">
+                                      <span className="mb-1 block font-medium text-zinc-700">Member start override</span>
+                                      <input
+                                        type="date"
+                                        value={membershipDraft.startDate}
+                                        onChange={(event) => handleMembershipDraftChange(membership.id, "startDate", event.target.value)}
+                                        className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                                      />
+                                      <span className="mt-1 block text-[11px] text-zinc-500">Blank uses the series default start date, then approval date.</span>
+                                    </label>
+                                    <label className="block text-xs text-zinc-600">
+                                      <span className="mb-1 block font-medium text-zinc-700">Member end override</span>
+                                      <input
+                                        type="date"
+                                        value={membershipDraft.endDate}
+                                        min={membershipDraft.startDate || undefined}
+                                        onChange={(event) => handleMembershipDraftChange(membership.id, "endDate", event.target.value)}
+                                        className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                                      />
+                                      <span className="mt-1 block text-[11px] text-zinc-500">Blank means the membership stays active until cancelled.</span>
+                                    </label>
+                                    <label className="block text-xs text-zinc-600">
+                                      <span className="mb-1 block font-medium text-zinc-700">Auto paid override</span>
+                                      <input
+                                        type="date"
+                                        value={membershipDraft.autoPaidUntilDate}
+                                        onChange={(event) => handleMembershipDraftChange(membership.id, "autoPaidUntilDate", event.target.value)}
+                                        className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                                      />
+                                      <span className="mt-1 block text-[11px] text-zinc-500">Blank uses the series default auto-paid date.</span>
+                                    </label>
+                                  </div>
                                 <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSeriesMembershipDetailsSave(membership)}
+                                    disabled={busyKey === `save-membership-${membership.id}`}
+                                    className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {busyKey === `save-membership-${membership.id}` ? "Saving..." : "Save details"}
+                                  </button>
                                   {membership.status === "pending" ? (
                                     <>
                                       <button
@@ -1268,7 +1455,7 @@ export default function DashboardPage() {
                                 </div>
                               </div>
                             </div>
-                          )) : (
+                          )}) : (
                             <div className="text-sm text-zinc-500">No members for this series yet.</div>
                           )}
                         </div>

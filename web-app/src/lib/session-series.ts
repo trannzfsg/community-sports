@@ -22,6 +22,7 @@ function normalizeSkipDates(skipDates: string[], maxEntries = 104) {
 }
 
 function planEventRegistrations(input: {
+  eventDate: string;
   capacity: number;
   waitingListCapacity?: number;
   activeMemberships: Array<{
@@ -29,6 +30,10 @@ function planEventRegistrations(input: {
     playerId: string;
     playerName: string;
     playerEmail: string;
+    status: "pending" | "active" | "paused" | "cancelled" | "rejected";
+    startDate?: string | null;
+    endDate?: string | null;
+    autoPaidUntilDate?: string | null;
     skipNextEvent?: boolean;
     joinedOrder?: number;
   }>;
@@ -45,12 +50,12 @@ function planEventRegistrations(input: {
     playerEmail: string;
     source: "series-membership" | "roster-copy";
     seriesMembershipId?: string | null;
+    playerPaid: boolean;
+    organiserPaid: boolean;
     status: "registered" | "waiting";
   }> = [];
   const skippedMembershipIds: string[] = [];
-  const reservedMembershipPlayerIds = new Set(
-    input.activeMemberships.map((membership) => membership.playerId),
-  );
+  const reservedMembershipPlayerIds = new Set<string>();
 
   const pushPlannedRegistration = (entry: {
     userId: string;
@@ -58,6 +63,8 @@ function planEventRegistrations(input: {
     playerEmail: string;
     source: "series-membership" | "roster-copy";
     seriesMembershipId?: string | null;
+    playerPaid?: boolean;
+    organiserPaid?: boolean;
   }) => {
     const bookedCount = plannedRegistrations.filter((item) => item.status === "registered").length;
     const waitingCount = plannedRegistrations.filter((item) => item.status === "waiting").length;
@@ -74,6 +81,8 @@ function planEventRegistrations(input: {
 
     plannedRegistrations.push({
       ...entry,
+      playerPaid: entry.playerPaid ?? false,
+      organiserPaid: entry.organiserPaid ?? false,
       status: nextStatus,
     });
   };
@@ -88,9 +97,25 @@ function planEventRegistrations(input: {
     })
     .forEach((membership) => {
       if (membership.skipNextEvent) {
+        reservedMembershipPlayerIds.add(membership.playerId);
         skippedMembershipIds.push(membership.id);
         return;
       }
+
+      if (membership.status !== "active") {
+        return;
+      }
+
+      if (membership.startDate && input.eventDate < membership.startDate) {
+        return;
+      }
+
+      if (membership.endDate && input.eventDate > membership.endDate) {
+        return;
+      }
+
+      const shouldAutoPay = !!membership.autoPaidUntilDate && input.eventDate <= membership.autoPaidUntilDate;
+      reservedMembershipPlayerIds.add(membership.playerId);
 
       pushPlannedRegistration({
         userId: membership.playerId,
@@ -98,6 +123,8 @@ function planEventRegistrations(input: {
         playerEmail: membership.playerEmail,
         source: "series-membership",
         seriesMembershipId: membership.id,
+        playerPaid: shouldAutoPay,
+        organiserPaid: shouldAutoPay,
       });
     });
 
@@ -152,6 +179,9 @@ export type SessionSeries = {
   status: string;
   copyRosterFromLastEvent?: boolean;
   seriesMembershipEnabled?: boolean;
+  seriesMembershipDefaultStartDate?: string | null;
+  seriesMembershipDefaultEndDate?: string | null;
+  seriesMembershipAutoPaidUntilDate?: string | null;
 };
 
 export type SessionEvent = {
@@ -213,6 +243,36 @@ export function buildSessionEventId(seriesId: string, eventDate: string) {
 
 export function buildRegistrationId(eventId: string, userId: string) {
   return `${eventId}__${encodeURIComponent(userId).replaceAll("%", "_")}`;
+}
+
+function buildPaymentId(registrationId: string) {
+  return `payment__${registrationId}`;
+}
+
+async function syncPaymentRecordForRegistration(
+  db: Firestore,
+  series: SessionSeries,
+  eventItem: SessionEvent,
+  registration: RegistrationItem,
+) {
+  const effectivePaid = !!(registration.playerPaid || registration.organiserPaid);
+  await setDoc(doc(db, "payments", buildPaymentId(registration.id)), {
+    sessionSeriesId: registration.sessionSeriesId,
+    sessionEventId: registration.sessionEventId,
+    registrationId: registration.id,
+    organiserId: eventItem.organiserId || series.organiserId,
+    userId: registration.userId,
+    playerName: registration.playerName,
+    playerEmail: registration.playerEmail,
+    dataPartition: registration.dataPartition || series.dataPartition,
+    amount: eventItem.defaultPriceCasual ?? series.defaultPriceCasual,
+    playerPaid: !!registration.playerPaid,
+    organiserPaid: !!registration.organiserPaid,
+    paymentReference: registration.paymentReference ?? null,
+    effectivePaid,
+    status: effectivePaid ? "paid" : "pending",
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 }
 
 export function getRegistrationCapacityState(input: {
@@ -411,6 +471,10 @@ export async function createSessionEventForSeries(
         playerName: string;
         playerEmail: string;
         status: string;
+        startDate?: string | null;
+        endDate?: string | null;
+        autoPaidUntilDate?: string | null;
+        approvedAtDate?: string | null;
         skipNextEvent?: boolean;
         skipCount?: number;
         skipDates?: string[];
@@ -420,15 +484,19 @@ export async function createSessionEventForSeries(
   );
 
   const { plannedRegistrations, skippedMembershipIds } = planEventRegistrations({
+    eventDate,
     capacity: series.capacity,
     waitingListCapacity: series.waitingListCapacity || 0,
     activeMemberships: Array.from(membershipsById.entries())
-      .filter(([, membership]) => membership.status === "active")
       .map(([id, membership]) => ({
         id,
         playerId: membership.playerId,
         playerName: membership.playerName,
         playerEmail: membership.playerEmail,
+        status: membership.status as "pending" | "active" | "paused" | "cancelled" | "rejected",
+        startDate: membership.startDate ?? series.seriesMembershipDefaultStartDate ?? membership.approvedAtDate ?? null,
+        endDate: membership.endDate ?? series.seriesMembershipDefaultEndDate ?? null,
+        autoPaidUntilDate: membership.autoPaidUntilDate ?? series.seriesMembershipAutoPaidUntilDate ?? null,
         skipNextEvent: !!membership.skipNextEvent,
         joinedOrder: getTimestampMillis(membership.createdAt),
       })),
@@ -453,14 +521,50 @@ export async function createSessionEventForSeries(
         playerName: registration.playerName,
         playerEmail: registration.playerEmail,
         dataPartition: series.dataPartition,
-        playerPaid: false,
-        organiserPaid: false,
+        playerPaid: registration.playerPaid,
+        organiserPaid: registration.organiserPaid,
         status: registration.status,
         source: registration.source,
         seriesMembershipId: registration.seriesMembershipId || null,
         createdAt: serverTimestamp(),
       },
     );
+
+    await syncPaymentRecordForRegistration(db, series, {
+      id: eventId,
+      sessionSeriesId: series.id,
+      organiserId: series.organiserId,
+      organiserName: series.organiserName,
+      title: series.title,
+      typeOfSport: series.typeOfSport,
+      location: series.location,
+      dayOfWeek: series.dayOfWeek,
+      eventDate,
+      startAt: series.startAt,
+      endAt: series.endAt,
+      defaultPriceCasual: series.defaultPriceCasual,
+      capacity: series.capacity,
+      waitingListCapacity: series.waitingListCapacity || 0,
+      bookedCount: 0,
+      waitingCount: 0,
+      dataPartition: series.dataPartition,
+      status: "active",
+    }, {
+      id: buildRegistrationId(eventId, registration.userId),
+      sessionEventId: eventId,
+      sessionSeriesId: series.id,
+      userId: registration.userId,
+      playerName: registration.playerName,
+      playerEmail: registration.playerEmail,
+      dataPartition: series.dataPartition,
+      playerPaid: registration.playerPaid,
+      organiserPaid: registration.organiserPaid,
+      paymentReference: null,
+      status: registration.status,
+      source: registration.source,
+      seriesMembershipId: registration.seriesMembershipId || null,
+      createdAt: undefined,
+    });
   }
 
   for (const membershipId of skippedMembershipIds) {

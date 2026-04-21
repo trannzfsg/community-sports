@@ -674,7 +674,11 @@ service cloud.firestore {
           || (isOrganiser() && newSeriesMembershipOwnedByCurrentOrganiser())
           || (isPlayer()
             && newSeriesMembershipOwnedByCurrentPlayer()
-            && request.resource.data.status == "pending"))
+            && request.resource.data.status == "pending"
+            && request.resource.data.startDate == null
+            && request.resource.data.endDate == null
+            && request.resource.data.autoPaidUntilDate == null
+            && request.resource.data.approvedAtDate == null))
         && partitionMatchesRequest(seriesMembershipPartitionFromData(request.resource.data))
         && seriesMembershipDataMatchesPartition(request.resource.data);
 
@@ -691,15 +695,12 @@ service cloud.firestore {
             && resource.data.organiserId == request.auth.uid)
           && resource.data.dataPartition == requestPartition()
           && request.resource.data.dataPartition == requestPartition()
-          && request.resource.data.organiserId == resource.data.organiserId
-          && request.resource.data.playerId == resource.data.playerId
-          && request.resource.data.seriesId == resource.data.seriesId
-          && request.resource.data.playerEmail == resource.data.playerEmail
-          && request.resource.data.skipCount == resource.data.skipCount
-          && request.resource.data.skipDates == resource.data.skipDates
-          && request.resource.data.lastAutoRegisteredEventId == resource.data.lastAutoRegisteredEventId
-          && exists(/databases/$(database)/documents/sessions/$(resource.data.seriesId))
-          && get(/databases/$(database)/documents/sessions/$(resource.data.seriesId)).data.organiserId == resource.data.organiserId)
+            && request.resource.data.organiserId == resource.data.organiserId
+            && request.resource.data.playerId == resource.data.playerId
+            && request.resource.data.seriesId == resource.data.seriesId
+            && request.resource.data.playerEmail == resource.data.playerEmail
+            && exists(/databases/$(database)/documents/sessions/$(resource.data.seriesId))
+            && get(/databases/$(database)/documents/sessions/$(resource.data.seriesId)).data.organiserId == resource.data.organiserId)
         || ((isSignedIn()
             && resource.data.playerId == request.auth.uid)
           && resource.data.dataPartition == requestPartition()
