@@ -13,7 +13,7 @@ function getPaymentSummaryLabel(registration: RegistrationItem) {
 }
 
 function getConfirmationSummaryLabel(registration: RegistrationItem) {
-  return registration.organiserPaid ? "OK" : "Check";
+  return registration.organiserPaid ? "Received" : "Check";
 }
 
 function getConfirmationStatusLabel(registration: RegistrationItem) {

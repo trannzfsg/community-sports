@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Change status in events from "Paid" "OK" to "Paid" "Received".
 - [x] Add to configuration that the remote site has a custom domain: sports.tranzha.com. Use this domain for remote testing instead of community-sports-6584e.web.app.
   - [x] Update the live remote-origin configuration to use `sports.tranzha.com`.
   - [x] Rebuild the Functions output so checked-in compiled files stay in sync.
