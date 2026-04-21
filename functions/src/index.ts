@@ -599,6 +599,7 @@ export const linkRegisteredUserData = onRequest(async (request, response) => {
 
     let inheritedSkillLevel: string | null = null;
     let inheritedStatus = "active";
+    let canonicalPlayerHandled = false;
     for (const playerDoc of sameEmailPlayersSnapshot.docs) {
       const player = playerDoc.data() || {};
       if (!inheritedSkillLevel && typeof player.skillLevel === "string") {
@@ -609,17 +610,23 @@ export const linkRegisteredUserData = onRequest(async (request, response) => {
       }
 
       if (playerDoc.id === uid) {
-        await playerDoc.ref.set({
-          ownerOrganiserId: null,
-          userId: uid,
-          displayName,
-          email: signedInEmail,
-          dataPartition: partition,
-          source: "self-registered",
-          status: inheritedStatus,
-          skillLevel: inheritedSkillLevel,
-          updatedAt: FieldValue.serverTimestamp(),
-        }, {merge: true});
+        canonicalPlayerHandled = true;
+        if (preferredRole === "player") {
+          await playerDoc.ref.set({
+            ownerOrganiserId: null,
+            userId: uid,
+            displayName,
+            email: signedInEmail,
+            dataPartition: partition,
+            source: "self-registered",
+            status: inheritedStatus,
+            skillLevel: inheritedSkillLevel,
+            updatedAt: FieldValue.serverTimestamp(),
+          }, {merge: true});
+        } else {
+          await playerDoc.ref.delete();
+          movedStats.players += 1;
+        }
         continue;
       }
 
@@ -656,17 +663,26 @@ export const linkRegisteredUserData = onRequest(async (request, response) => {
       movedStats.players += 1;
     }
 
-    await firestore.doc(`players/${uid}`).set({
-      ownerOrganiserId: null,
-      userId: uid,
-      displayName,
-      email: signedInEmail,
-      dataPartition: partition,
-      source: "self-registered",
-      status: inheritedStatus,
-      skillLevel: inheritedSkillLevel,
-      updatedAt: FieldValue.serverTimestamp(),
-    }, {merge: true});
+    const canonicalPlayerRef = firestore.doc(`players/${uid}`);
+    if (preferredRole === "player") {
+      await canonicalPlayerRef.set({
+        ownerOrganiserId: null,
+        userId: uid,
+        displayName,
+        email: signedInEmail,
+        dataPartition: partition,
+        source: "self-registered",
+        status: inheritedStatus,
+        skillLevel: inheritedSkillLevel,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    } else if (!canonicalPlayerHandled) {
+      const canonicalPlayerSnapshot = await canonicalPlayerRef.get();
+      if (canonicalPlayerSnapshot.exists) {
+        await canonicalPlayerRef.delete();
+        movedStats.players += 1;
+      }
+    }
 
     for (const legacyId of legacyIds) {
       const legacyUserRef = firestore.doc(`users/${legacyId}`);

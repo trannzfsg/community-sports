@@ -1,5 +1,8 @@
 # To-Do List
 
+- [ ] Admin user exists in firestore players collection. They should be removed. The one currently in players collection is tranzha83@gmail.com. Also make sure when an admin user logs in, it doesn't get auto added to players collection.
+  - [ ] Verify whether the live stray admin player record still exists and remove it if found.
+  - [ ] Stop admin login/profile flows from recreating or keeping a self-registered player directory record.
 - [ ] Notifications. The organiser needs to have notifications. This is needed for player requesting approval, player register to event, player remove themself from event, player enter pay reference. While a website cannot post notifications direction onto the phone, what's the cheapest way to enable notifications through another tool (e.g. discord or facebook messenger or something even simpler)? Whatsapp might be the best, but it costs a lot. I'm looking for cheapest long term options. Plan this out and confirm with me on next steps.
   - [x] Drafted options and rollout plan in [NOTIFICATIONS_OPTIONS_PLAN.md](C:/github/community_sports/community_sports/NOTIFICATIONS_OPTIONS_PLAN.md).
   - [x] Replace the Architecture TBAs in [NOTIFICATIONS_OPTIONS_PLAN.md](C:/github/community_sports/community_sports/NOTIFICATIONS_OPTIONS_PLAN.md) with the updated server-side trigger and data-model design.
@@ -9,7 +12,6 @@
   - [x] Seed the provided Telegram chat id for `tranzha83+test@gmail.com` and verify end-to-end delivery.
   - [x] Add a small profile button to send a Telegram test notification.
   - [x] Finish email notification delivery wiring and document the required SMTP configuration.
-- [ ] Admin user exists in firestore players collection. They should be removed. The one currently in players collection is tranzha83@gmail.com. Also make sure when an admin user logs in, it doesn't get auto added to players collection.
 - [ ] We've fixed this for players, now we need to fix for organisers accounts too - Unify managed + registered identities into a single canonical account path: add server-side login linker to merge legacy email-keyed records into `users/{uid}` and migrate linked data (session series owned by organiser), stop recreating managed docs for registered users, and validate with `@example.com` sign-ins.
 - [ ] Recheck whether registered organisers are showing in the registered organiser section in admin user login, manage organiser screen. They didn't show before maybe due to the previous bug.
   - [x] Added fallback merge logic so registered organisers appear even when no `managedUsers` record exists.

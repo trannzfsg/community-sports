@@ -36,8 +36,13 @@ import {
 } from "@/lib/profile-email-change";
 import { sendNotificationTest } from "@/lib/notification-test";
 import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
+import { shouldSyncSelfRegisteredPlayerDirectoryEntry } from "@/lib/player-directory-sync";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import { getGamesPlayedByOrganiserForPlayer, type OrganiserGameCount } from "@/lib/player-stats";
+import {
+  removeSelfRegisteredPlayerDirectoryEntry,
+  upsertSelfRegisteredPlayerDirectoryEntry,
+} from "@/lib/players";
 
 type UserProfile = {
   displayName?: string;
@@ -380,17 +385,16 @@ export default function ProfilePage() {
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
-      if (role === "player") {
-        await setDoc(doc(db, "players", user.uid), {
-          ownerOrganiserId: null,
-          userId: user.uid,
-          displayName: trimmedName,
-          email: normalizedCurrentEmail,
-          dataPartition: getDataPartitionForEmail(normalizedCurrentEmail),
-          source: "self-registered",
-          skillLevel: skillLevel || null,
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
+      if (shouldSyncSelfRegisteredPlayerDirectoryEntry(role)) {
+        await upsertSelfRegisteredPlayerDirectoryEntry(
+          db,
+          user.uid,
+          normalizedCurrentEmail,
+          trimmedName,
+          skillLevel || null,
+        );
+      } else if (role === "admin") {
+        await removeSelfRegisteredPlayerDirectoryEntry(db, user.uid);
       }
 
       const nextNotificationPreferences = normalizeNotificationPreferences(

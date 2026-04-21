@@ -194,6 +194,50 @@ export async function promoteManualPlayerToSelfRegistered(
   );
 }
 
+export async function upsertSelfRegisteredPlayerDirectoryEntry(
+  db: Firestore,
+  userId: string,
+  email: string,
+  displayName: string,
+  skillLevel?: SkillLevel | null,
+) {
+  const normalizedEmail = normalizePlayerEmail(email);
+
+  await setDoc(
+    doc(db, "players", userId),
+    {
+      ownerOrganiserId: null,
+      userId,
+      displayName: displayName.trim(),
+      email: normalizedEmail,
+      dataPartition: getDataPartitionForEmail(normalizedEmail),
+      source: "self-registered",
+      skillLevel: skillLevel ?? null,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  );
+}
+
+export async function removeSelfRegisteredPlayerDirectoryEntry(
+  db: Firestore,
+  userId: string,
+) {
+  const playerRef = doc(db, "players", userId);
+  const playerSnapshot = await getDoc(playerRef);
+  if (!playerSnapshot.exists()) {
+    return false;
+  }
+
+  const existing = playerSnapshot.data() as Omit<PlayerDirectoryEntry, "id">;
+  if (existing.ownerOrganiserId != null) {
+    return false;
+  }
+
+  await deleteDoc(playerRef);
+  return true;
+}
+
 export async function migrateManualPlayersToSelfRegistered(
   db: Firestore,
   userId: string,

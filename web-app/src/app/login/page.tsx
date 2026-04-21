@@ -18,10 +18,16 @@ import { getDataPartitionForEmail, shouldBypassEmailVerification } from "@/lib/d
 import { getManagedUserByEmail } from "@/lib/managed-users";
 import { linkRegisteredUserData } from "@/lib/account-link";
 import { resolveAuthProfile } from "@/lib/auth-profile";
+import { shouldSyncSelfRegisteredPlayerDirectoryEntry } from "@/lib/player-directory-sync";
 import { lookupPendingUserProfile } from "@/lib/pending-user-lookup";
 import { lookupPasswordResetEligibility } from "@/lib/password-reset";
 import { syncProfileEmailChange } from "@/lib/profile-email-change";
-import { migrateManualPlayersToSelfRegistered, promoteManualPlayerToSelfRegistered } from "@/lib/players";
+import {
+  migrateManualPlayersToSelfRegistered,
+  promoteManualPlayerToSelfRegistered,
+  removeSelfRegisteredPlayerDirectoryEntry,
+  upsertSelfRegisteredPlayerDirectoryEntry,
+} from "@/lib/players";
 
 type AppUserRole = "player" | "organiser" | "admin";
 
@@ -30,18 +36,6 @@ type UserProfile = {
   email?: string;
   role?: AppUserRole;
 };
-
-async function upsertPlayerDirectoryEntry(userId: string, name: string, userEmail: string) {
-  await setDoc(doc(db, "players", userId), {
-    ownerOrganiserId: null,
-    userId,
-    displayName: name,
-    email: userEmail,
-    dataPartition: getDataPartitionForEmail(userEmail),
-    source: "self-registered",
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
-}
 
 function requiresVerifiedEmail(user: User) {
   return user.providerData.some((provider) => provider.providerId === "password")
@@ -163,11 +157,14 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   }, { merge: true });
   console.log("[auth] users/{uid} written with role:", resolved.role);
 
-  if (resolved.role === "player") {
+  if (shouldSyncSelfRegisteredPlayerDirectoryEntry(resolved.role)) {
     await migrateManualPlayersToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
     await promoteManualPlayerToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
-    await upsertPlayerDirectoryEntry(user.uid, resolved.displayName, resolved.email);
+    await upsertSelfRegisteredPlayerDirectoryEntry(db, user.uid, resolved.email, resolved.displayName);
     console.log("[auth] player directory updated");
+  } else if (resolved.role === "admin") {
+    const removed = await removeSelfRegisteredPlayerDirectoryEntry(db, user.uid);
+    console.log("[auth] admin player directory cleanup", { removed });
   }
 
   console.log("[auth] ensureUserProfileForAuthUser complete", { role: resolved.role });
