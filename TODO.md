@@ -1,6 +1,5 @@
 # To-Do List
 
-- [ ] Change status in events from "Paid" "OK" to "Paid" "Received".
 - [ ] Display start date of membership for each player. Then allow organiser to specify an end date for session series membership. If the end date is not specified, the members will always be members until organiser cancels them. If the end date is specified, the membership automatically ends after the end date. Also allow organiser to specify whether players are automatically "paid" and "received" status when entering into membership - as some session series allow bulk pre-payment until a certain date, to guarantee registration. 
 - [ ] Notifications. The organiser needs to have notifications. This is needed for player requesting approval, player register to event, player remove themself from event, player enter pay reference. While a website cannot post notifications direction onto the phone, what's the cheapest way to enable notifications through another tool (e.g. discord or facebook messenger or something even simpler)? Whatsapp might be the best, but it costs a lot. I'm looking for cheapest long term options. Plan this out and confirm with me on next steps.
   - [x] Drafted options and rollout plan in [NOTIFICATIONS_OPTIONS_PLAN.md](C:/github/community_sports/community_sports/NOTIFICATIONS_OPTIONS_PLAN.md).
