@@ -1,5 +1,9 @@
 # To-Do List - Completed tasks
 
+- [x] Add to configuration that the remote site has a custom domain: sports.tranzha.com. Use this domain for remote testing instead of community-sports-6584e.web.app.
+  - [x] Update the live remote-origin configuration to use `sports.tranzha.com`.
+  - [x] Rebuild the Functions output so checked-in compiled files stay in sync.
+  - [x] Verify the remote flow in a browser against the custom domain.
 - [x] Member benefits. There needs to be a member system to organisers, as well as to a session series. The member to organiser can be after X number of games registered, you can get a predefined benefit. The member to a session series, will be the ability to register automatically to every event. Make some suggestions on how to implement this, plan and confirm with me before implementation.
   - [x] Drafted architecture and phased plan in [MEMBER_BENEFITS_PLAN.md](C:/github/community_sports/community_sports/MEMBER_BENEFITS_PLAN.md).
   - [x] Refined the plan with server-side membership processing, organiser approval alignment, waiting-list behavior, and rollout decisions to confirm before implementation.

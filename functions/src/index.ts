@@ -13,7 +13,6 @@ const adminApp = getApps().length ? getApps()[0] : initializeApp();
 const firestore = getFirestore(adminApp);
 const allowedOrigins = new Set([
   "http://localhost:3000",
-  "https://community-sports-6584e.web.app",
   "https://community-sports-6584e.firebaseapp.com",
   "https://sports.tranzha.com",
 ]);
