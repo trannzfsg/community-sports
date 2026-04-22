@@ -1,7 +1,6 @@
 # To-Do List
 
 - [x] Create a player test account (player1@example.com/testtest1234) and store in .env.test.local file.
-- [ ] Go through TODO_COMPLETED.md, analyse key features built, then build up TESTING.md using @example.com users. Also build up a TESTING_SMOKE.md using @example.com users for critical user flows (login, registration, organiser operating events and player operating registration/payment). Consolidate HUMAN_TEST_SCENARIOS.md and TESTING.md, both should be used for both AI and human testing.
 - [x] Add to AGENTS.md: for small changes, execute TESTING_SMOKE.md automatically after deployment; for major feature changes, execute TESTING.md for full feature testing. 
 - [x] Add to AGENTS.md: from now on, all changes needs to be implemented in its own git branch and tested thoroughly on local before merging to main and deploy to firebase, as we have real users already.
 

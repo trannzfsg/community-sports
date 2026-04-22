@@ -1,5 +1,10 @@
 # To-Do List - Completed tasks
 
+- [x] Go through TODO_COMPLETED.md, analyse key features built, then build up TESTING.md using @example.com users. Also build up a TESTING_SMOKE.md using @example.com users for critical user flows (login, registration, organiser operating events and player operating registration/payment). Consolidate HUMAN_TEST_SCENARIOS.md and TESTING.md, both should be used for both AI and human testing.
+  - [x] Audit the current testing docs against completed features and remove overlaps or stale steps.
+  - [x] Rewrite `TESTING.md` into a full end-to-end checklist using `@example.com` accounts where possible.
+  - [x] Rewrite `TESTING_SMOKE.md` into a short critical-path checklist for deployment validation.
+  - [x] Consolidate `HUMAN_TEST_SCENARIOS.md` with the updated full checklist so both human and AI runs use the same source of truth.
 - [x] We've fixed this for players, now we need to fix for organisers accounts too - Unify managed + registered identities into a single canonical account path: add server-side login linker to merge legacy email-keyed records into `users/{uid}` and migrate linked data (session series owned by organiser), stop recreating managed docs for registered users, and validate with `@example.com` sign-ins.
   - [x] Stop admin organiser management flows from recreating `managedUsers/{email}` docs for registered organisers.
   - [x] Keep registered organisers visible and editable in admin organiser management without relying on managed docs.

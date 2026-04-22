@@ -1,24 +1,35 @@
 # Smoke Test Checklist (`@example.com`)
 
-Use this checklist after every small deployment.
+Use this checklist after every small deployment. Keep it short, but do not skip the final browser pass on [sports.tranzha.com](https://sports.tranzha.com).
 
 ## Accounts
+
 - Admin: `admin@example.com` / `testtest1234`
 - Organiser: `john@example.com` / `testtest1234`
 - Player: `player1@example.com` / `testtest1234`
+- Membership player: `memberbenefits@example.com` / `testtest1234`
 
-## Critical Flows
-- [ ] Login works for admin, organiser, and player (lands on dashboard without permission errors).
-- [ ] Admin can open Manage organisers and Manage players pages without Firestore permission errors.
-- [ ] Organiser can open Manage players page and dashboard without Firestore permission errors.
-- [ ] Player can see organiser approval section on dashboard and request approval.
-- [ ] Organiser can approve that player request on dashboard.
-- [ ] Approved player can see organiser events and register.
-- [ ] Approved player can request series membership, and organiser can approve it on the dashboard.
-- [ ] Organiser sees player registration in event list and can remove it.
-- [ ] Player can leave event and organiser list updates correctly.
-- [ ] Profile page loads for all three roles without permission errors.
+## Preconditions
+
+- Reuse an active `@example.com` series owned by `john@example.com` with an open next event.
+- Reuse an active membership-enabled `@example.com` series owned by `john@example.com`.
+
+## Critical flow
+
+- [ ] `admin@example.com` can sign in, land on `/dashboard`, and open both `Manage organisers` and `Manage players`.
+- [ ] `john@example.com` can sign in, land on `/dashboard`, open `Manage players`, and open `/profile`.
+- [ ] `player1@example.com` can sign in, land on `/dashboard`, and open `/profile`.
+- [ ] `memberbenefits@example.com` can request organiser approval if still unapproved, or already shows an approved state if the fixture is pre-approved.
+- [ ] `john@example.com` can approve that organiser request from the dashboard when needed.
+- [ ] An approved player can register into the open event.
+- [ ] That player can enter a payment reference.
+- [ ] `john@example.com` can see the registration, see the payment reference, and click `Confirm` so the row shows `Received`.
+- [ ] The player can leave the event, or the organiser can remove the player, and the registration list updates immediately without permission errors.
+- [ ] Approved player can open the series membership panel and either request membership or still see the expected active membership state.
+- [ ] `john@example.com` can open `View all events` for a series without runtime or permission errors.
 
 ## Guardrails
-- [ ] No duplicate user identities are created for the same email after sign-in.
-- [ ] No role regression (organiser/admin must not become player).
+
+- [ ] No duplicate identity is created for the same email after sign-in.
+- [ ] Admin and organiser accounts do not regress to player role.
+- [ ] `@example.com` users stay inside the test partition.
