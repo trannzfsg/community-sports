@@ -1,5 +1,12 @@
 # To-Do List - Completed tasks
 
+- [x] We've fixed this for players, now we need to fix for organisers accounts too - Unify managed + registered identities into a single canonical account path: add server-side login linker to merge legacy email-keyed records into `users/{uid}` and migrate linked data (session series owned by organiser), stop recreating managed docs for registered users, and validate with `@example.com` sign-ins.
+  - [x] Stop admin organiser management flows from recreating `managedUsers/{email}` docs for registered organisers.
+  - [x] Keep registered organisers visible and editable in admin organiser management without relying on managed docs.
+  - [x] Validate the organiser login-linking and admin organiser screen flow with `@example.com` accounts.
+- [x] Recheck whether registered organisers are showing in the registered organiser section in admin user login, manage organiser screen. They didn't show before maybe due to the previous bug.
+  - [x] Added fallback merge logic so registered organisers appear even when no `managedUsers` record exists.
+  - [x] Reverified `john@example.com` appears in Registered organisers after stale managed-doc cleanup.
 - [x] Notifications. The organiser needs to have notifications. This is needed for player requesting approval, player register to event, player remove themself from event, player enter pay reference. While a website cannot post notifications direction onto the phone, what's the cheapest way to enable notifications through another tool (e.g. discord or facebook messenger or something even simpler)? Whatsapp might be the best, but it costs a lot. I'm looking for cheapest long term options. Plan this out and confirm with me on next steps.
   - [x] Drafted options and rollout plan in [NOTIFICATIONS_OPTIONS_PLAN.md](C:/github/community_sports/community_sports/NOTIFICATIONS_OPTIONS_PLAN.md).
   - [x] Replace the Architecture TBAs in [NOTIFICATIONS_OPTIONS_PLAN.md](C:/github/community_sports/community_sports/NOTIFICATIONS_OPTIONS_PLAN.md) with the updated server-side trigger and data-model design.

@@ -1,8 +1,5 @@
 # To-Do List
 
-- [ ] We've fixed this for players, now we need to fix for organisers accounts too - Unify managed + registered identities into a single canonical account path: add server-side login linker to merge legacy email-keyed records into `users/{uid}` and migrate linked data (session series owned by organiser), stop recreating managed docs for registered users, and validate with `@example.com` sign-ins.
-- [ ] Recheck whether registered organisers are showing in the registered organiser section in admin user login, manage organiser screen. They didn't show before maybe due to the previous bug.
-  - [x] Added fallback merge logic so registered organisers appear even when no `managedUsers` record exists.
 - [x] Create a player test account (player1@example.com/testtest1234) and store in .env.test.local file.
 - [ ] Go through TODO_COMPLETED.md, analyse key features built, then build up TESTING.md using @example.com users. Also build up a TESTING_SMOKE.md using @example.com users for critical user flows (login, registration, organiser operating events and player operating registration/payment). Consolidate HUMAN_TEST_SCENARIOS.md and TESTING.md, both should be used for both AI and human testing.
 - [x] Add to AGENTS.md: for small changes, execute TESTING_SMOKE.md automatically after deployment; for major feature changes, execute TESTING.md for full feature testing. 

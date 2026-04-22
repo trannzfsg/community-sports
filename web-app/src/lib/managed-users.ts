@@ -39,6 +39,10 @@ export function buildManagedUserId(email: string) {
   return normalizeEmail(email);
 }
 
+export function shouldPersistManagedUserRecord(userId?: string | null) {
+  return !(userId && userId.trim());
+}
+
 export async function getManagedUserByEmail(db: Firestore, email: string) {
   const normalized = normalizeEmail(email);
   if (!normalized) return null;
@@ -128,4 +132,10 @@ export async function upsertManagedUser(
   }
 
   return id;
+}
+
+export async function deleteManagedUserByEmail(db: Firestore, email: string) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return;
+  await deleteDoc(doc(db, "managedUsers", buildManagedUserId(normalizedEmail)));
 }

@@ -7,7 +7,15 @@ import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
-import { getManagedUserByEmail, getManagedUsersInPartition, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
+import {
+  deleteManagedUserByEmail,
+  getManagedUserByEmail,
+  getManagedUsersInPartition,
+  normalizeEmail,
+  shouldPersistManagedUserRecord,
+  upsertManagedUser,
+  type ManagedUserRecord,
+} from "@/lib/managed-users";
 import { getAllUsers } from "@/lib/users";
 
 type UserProfile = {
@@ -142,12 +150,25 @@ export default function AdminOrganisersPage() {
       const registeredRecord = registeredByEmail.get(normalizeEmail(primaryManagedRecord.email || linkedRecord?.email || "")) || null;
       const mergedStatus = records.some((record) => record.status === "inactive") ? "inactive" : "active";
 
+      if (registeredRecord) {
+        return {
+          id: registeredRecord.id,
+          email: registeredRecord.email || primaryManagedRecord.email || linkedRecord?.email || "",
+          displayName: registeredRecord.displayName || primaryManagedRecord.displayName || linkedRecord?.displayName || registeredRecord.email || "Organiser",
+          role: "organiser",
+          status: registeredRecord.status || mergedStatus,
+          dataPartition: partition,
+          userId: registeredRecord.id,
+          isPending: false,
+        } satisfies ManagedUserRecord;
+      }
+
       return {
         ...primaryManagedRecord,
-        email: primaryManagedRecord.email || linkedRecord?.email || registeredRecord?.email || "",
-        displayName: primaryManagedRecord.displayName || linkedRecord?.displayName || registeredRecord?.displayName || primaryManagedRecord.email,
-        userId: primaryManagedRecord.userId || linkedRecord?.userId || registeredRecord?.id || null,
-        status: registeredRecord?.status || mergedStatus,
+        email: primaryManagedRecord.email || linkedRecord?.email || "",
+        displayName: primaryManagedRecord.displayName || linkedRecord?.displayName || primaryManagedRecord.email,
+        userId: primaryManagedRecord.userId || linkedRecord?.userId || null,
+        status: mergedStatus,
       } satisfies ManagedUserRecord;
     });
 
@@ -245,17 +266,22 @@ export default function AdminOrganisersPage() {
         }
       }
 
-      await upsertManagedUser(db, {
-        id: organiser.id,
-        email: normalizedNextEmail,
-        displayName: trimmedDisplayName,
-        role: "organiser",
-        status: organiser.status,
-        userId: organiser.userId ?? null,
-      });
-
-      if (organiser.userId) {
-        await setDoc(doc(db, "users", organiser.userId), {
+      if (shouldPersistManagedUserRecord(organiser.userId)) {
+        await upsertManagedUser(db, {
+          id: organiser.id,
+          email: normalizedNextEmail,
+          displayName: trimmedDisplayName,
+          role: "organiser",
+          status: organiser.status,
+          userId: organiser.userId ?? null,
+        });
+      } else {
+        const registeredUserId = organiser.userId;
+        if (!registeredUserId) {
+          throw new Error("Registered organiser is missing a linked user id.");
+        }
+        await deleteManagedUserByEmail(db, normalizedNextEmail);
+        await setDoc(doc(db, "users", registeredUserId), {
           displayName: trimmedDisplayName,
           email: normalizedNextEmail,
           updatedAt: serverTimestamp(),
@@ -276,19 +302,24 @@ export default function AdminOrganisersPage() {
     setError("");
 
     try {
-      await updateDoc(doc(db, "managedUsers", organiser.id), {
-        status: "inactive",
-        updatedAt: serverTimestamp(),
-      });
-
-      if (organiser.userId) {
-        await setDoc(doc(db, "users", organiser.userId), {
+      if (shouldPersistManagedUserRecord(organiser.userId)) {
+        await updateDoc(doc(db, "managedUsers", organiser.id), {
+          status: "inactive",
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        const registeredUserId = organiser.userId;
+        if (!registeredUserId) {
+          throw new Error("Registered organiser is missing a linked user id.");
+        }
+        await deleteManagedUserByEmail(db, organiser.email);
+        await setDoc(doc(db, "users", registeredUserId), {
           status: "inactive",
           updatedAt: serverTimestamp(),
         }, { merge: true });
 
         const seriesSnapshot = await getDocs(
-          query(collection(db, "sessions"), where("organiserId", "==", organiser.userId), where("dataPartition", "==", dataPartition)),
+          query(collection(db, "sessions"), where("organiserId", "==", registeredUserId), where("dataPartition", "==", dataPartition)),
         );
 
         await Promise.all(
@@ -309,19 +340,24 @@ export default function AdminOrganisersPage() {
     setError("");
 
     try {
-      await setDoc(doc(db, "managedUsers", organiser.id), {
-        status: "active",
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-
-      if (organiser.userId) {
-        await setDoc(doc(db, "users", organiser.userId), {
+      if (shouldPersistManagedUserRecord(organiser.userId)) {
+        await setDoc(doc(db, "managedUsers", organiser.id), {
+          status: "active",
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } else {
+        const registeredUserId = organiser.userId;
+        if (!registeredUserId) {
+          throw new Error("Registered organiser is missing a linked user id.");
+        }
+        await deleteManagedUserByEmail(db, organiser.email);
+        await setDoc(doc(db, "users", registeredUserId), {
           status: "active",
           updatedAt: serverTimestamp(),
         }, { merge: true });
 
         const seriesSnapshot = await getDocs(
-          query(collection(db, "sessions"), where("organiserId", "==", organiser.userId), where("dataPartition", "==", dataPartition)),
+          query(collection(db, "sessions"), where("organiserId", "==", registeredUserId), where("dataPartition", "==", dataPartition)),
         );
 
         await Promise.all(
