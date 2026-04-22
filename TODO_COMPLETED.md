@@ -1,5 +1,6 @@
 # To-Do List - Completed tasks
 
+- [x] Merge `HUMAN_TEST_SCENARIOS.md` into `TESTING.md` so there is a single testing document with a short scenario-view summary at the top.
 - [x] Go through TODO_COMPLETED.md, analyse key features built, then build up TESTING.md using @example.com users. Also build up a TESTING_SMOKE.md using @example.com users for critical user flows (login, registration, organiser operating events and player operating registration/payment). Consolidate HUMAN_TEST_SCENARIOS.md and TESTING.md, both should be used for both AI and human testing.
   - [x] Audit the current testing docs against completed features and remove overlaps or stale steps.
   - [x] Rewrite `TESTING.md` into a full end-to-end checklist using `@example.com` accounts where possible.

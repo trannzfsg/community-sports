@@ -2,6 +2,19 @@
 
 Use this checklist after major feature work, cross-role fixes, or any change that touches shared data, permissions, or core booking flows. Run locally first, then repeat the relevant final pass on [sports.tranzha.com](https://sports.tranzha.com).
 
+## Scenario view
+
+Use this section when you want the checklist grouped by end-to-end user journeys instead of feature areas. Run the linked checklist sections underneath each scenario.
+
+- Visitor to signed-in user: `F01`, `F10`
+- Admin manages organisers and players: `F02`, `F03`, `X01`, `X04`
+- Organiser manages private and registered players: `F03`
+- Player approval to event registration: `F05`, `F06`
+- Waiting list promotion: `F07`
+- Membership-driven recurring registration: `F08`
+- Organiser operates the series lifecycle: `F04`, `F09`
+- Profile, email, and notification recovery: `F10`, `X02`, `X03`
+
 ## Shared rules
 
 - Stay inside the `@example.com` test partition unless a step explicitly asks `admin@example.com` to compare test and live visibility.
