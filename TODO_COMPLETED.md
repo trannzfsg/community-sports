@@ -1,5 +1,14 @@
 # To-Do List - Completed tasks
 
+- [x] Notifications. The organiser needs to have notifications. This is needed for player requesting approval, player register to event, player remove themself from event, player enter pay reference. While a website cannot post notifications direction onto the phone, what's the cheapest way to enable notifications through another tool (e.g. discord or facebook messenger or something even simpler)? Whatsapp might be the best, but it costs a lot. I'm looking for cheapest long term options. Plan this out and confirm with me on next steps.
+  - [x] Drafted options and rollout plan in [NOTIFICATIONS_OPTIONS_PLAN.md](C:/github/community_sports/community_sports/NOTIFICATIONS_OPTIONS_PLAN.md).
+  - [x] Replace the Architecture TBAs in [NOTIFICATIONS_OPTIONS_PLAN.md](C:/github/community_sports/community_sports/NOTIFICATIONS_OPTIONS_PLAN.md) with the updated server-side trigger and data-model design.
+  - [x] Add profile-managed notification preferences for email and Telegram.
+  - [x] Scaffold Firebase Functions notification event generation for approval, registration, payment, and next-event triggers.
+  - [x] Add actual Telegram delivery from queued notification events, with private-chat-first validation in profile settings.
+  - [x] Seed the provided Telegram chat id for `tranzha83+test@gmail.com` and verify end-to-end delivery.
+  - [x] Add a small profile button to send a Telegram test notification.
+  - [x] Finish email notification delivery wiring and document the required SMTP configuration.
 - [x] Admin user exists in firestore players collection. They should be removed. The one currently in players collection is tranzha83@gmail.com. Also make sure when an admin user logs in, it doesn't get auto added to players collection.
   - [x] Verified there is no current live `players` record for `tranzha83@gmail.com`.
   - [x] Stopped admin login/profile flows from recreating or keeping a self-registered player directory record, including the server-side login linker.
