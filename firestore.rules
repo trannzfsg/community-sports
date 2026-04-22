@@ -756,7 +756,15 @@ service cloud.firestore {
           && resource.data.organiserId == request.auth.uid
           && request.resource.data.organiserId == resource.data.organiserId
           && request.resource.data.playerId == resource.data.playerId
-          && request.resource.data.status in ["pending", "approved", "rejected"]);
+          && request.resource.data.status in ["pending", "approved", "rejected"])
+        || (isPlayer()
+          && partitionMatchesRequest(approvalPartitionFromData(resource.data))
+          && partitionMatchesRequest(approvalPartitionFromData(request.resource.data))
+          && resource.data.playerId == request.auth.uid
+          && request.resource.data.playerId == resource.data.playerId
+          && request.resource.data.organiserId == resource.data.organiserId
+          && resource.data.status == "rejected"
+          && request.resource.data.status == "pending");
 
       allow delete: if (isAdmin() && partitionMatchesRequest(approvalPartitionFromData(resource.data)));
     }

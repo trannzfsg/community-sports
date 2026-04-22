@@ -165,7 +165,7 @@ export default function AdminPlayersPage() {
       }
 
       const managedUser = managedUsersByEmail.get(emailKey);
-      const status = linkedUser?.status || managedUser?.status || "active";
+      const status = linkedUser?.status || managedUser?.status || player.status || "active";
       const directoryRecord: AdminDirectoryPlayerRecord = {
         key: player.id,
         playerId: player.id,
@@ -518,14 +518,10 @@ export default function AdminPlayersPage() {
         await rebalanceEventRegistrations(db, sessionEventId, capacity, dataPartition);
       }
 
-      if (player.kind === "organiser-private" && !player.userId) {
-        await deleteDoc(doc(db, "players", player.playerId));
-      } else {
-        await setDoc(doc(db, "players", player.playerId), {
-          status: "inactive",
-          updatedAt: serverTimestamp(),
-        }, { merge: true });
-      }
+      await setDoc(doc(db, "players", player.playerId), {
+        status: "inactive",
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
 
       if (directoryEditingKey === player.key) {
         cancelDirectoryEdit();

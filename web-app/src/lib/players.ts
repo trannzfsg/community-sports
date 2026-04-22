@@ -224,7 +224,12 @@ export async function removeSelfRegisteredPlayerDirectoryEntry(
   userId: string,
 ) {
   const playerRef = doc(db, "players", userId);
-  const playerSnapshot = await getDoc(playerRef);
+  let playerSnapshot;
+  try {
+    playerSnapshot = await getDoc(playerRef);
+  } catch {
+    return false;
+  }
   if (!playerSnapshot.exists()) {
     return false;
   }

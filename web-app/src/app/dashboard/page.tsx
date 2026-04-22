@@ -552,12 +552,22 @@ export default function DashboardPage() {
   async function handleCreateNextEvent(series: SessionSeries) {
     setBusyKey(series.id);
     try {
-      await createSessionEventForSeries(db, series, series.nextGameOn);
+      const createdEvent = await createSessionEventForSeries(db, series, series.nextGameOn);
       await updateDoc(doc(db, "sessions", series.id), {
-        nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
+        nextGameOn: createdEvent.eventDate,
       });
+      setSeriesList((current) =>
+        current.map((item) => (
+          item.id === series.id
+            ? { ...item, nextGameOn: createdEvent.eventDate }
+            : item
+        )),
+      );
       await refreshSeriesData(series.id, series.organiserId);
       await refreshMembershipData(series.id);
+    } catch (error) {
+      console.error("[dashboard] create next event failed", error);
+      setLoadError(error instanceof Error ? error.message : "Failed to create the next event.");
     } finally {
       setBusyKey(null);
     }

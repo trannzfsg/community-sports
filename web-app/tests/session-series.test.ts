@@ -1,6 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildRegistrationId, getRegistrationCapacityState } from "../src/lib/session-series.ts";
+import {
+  buildRegistrationId,
+  getRegistrationCapacityState,
+  resolveNextSessionEventDate,
+} from "../src/lib/session-series.ts";
 
 test("buildRegistrationId is deterministic and safe for document ids", () => {
   const id = buildRegistrationId("series__20260402", "user:test@example.com");
@@ -61,4 +65,13 @@ test("zero waiting-list capacity means full event cannot accept more players", (
   assert.equal(state.waitingListIsFull, true);
   assert.equal(state.canAddMore, false);
   assert.equal(state.nextRegistrationStatus, null);
+});
+
+test("next session event date skips over an existing weekly event on the requested date", () => {
+  const nextDate = resolveNextSessionEventDate("2026-04-27", [
+    "2026-04-20",
+    "2026-04-27",
+  ]);
+
+  assert.equal(nextDate, "2026-05-04");
 });

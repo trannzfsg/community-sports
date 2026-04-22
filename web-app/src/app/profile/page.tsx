@@ -9,11 +9,13 @@ import {
   reauthenticateWithPopup,
   reauthenticateWithCredential,
   reload,
+  signOut,
   type User,
   verifyBeforeUpdateEmail,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
+import { SUCCESS_ALERT_CLASS_NAME, getAlertClassName, type AlertTone } from "@/lib/alert-styles";
 import { getManagedUserByEmail, normalizeEmail } from "@/lib/managed-users";
 import {
   getOrganiserBenefitProgram,
@@ -34,6 +36,7 @@ import {
   rememberPendingEmailChange,
   syncProfileEmailChange,
 } from "@/lib/profile-email-change";
+import { rememberLoginNotice } from "@/lib/login-notices";
 import { sendNotificationTest } from "@/lib/notification-test";
 import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import { shouldSyncSelfRegisteredPlayerDirectoryEntry } from "@/lib/player-directory-sync";
@@ -98,6 +101,7 @@ export default function ProfilePage() {
       () => buildDefaultNotificationPreferences("", "live"),
     );
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<AlertTone>("neutral");
   const [changingEmail, setChangingEmail] = useState(false);
   const [refreshingProfile, setRefreshingProfile] = useState(false);
   const [reauthPassword, setReauthPassword] = useState("");
@@ -139,6 +143,16 @@ export default function ProfilePage() {
     return normalizeEmail(value).endsWith("@example.com");
   }
 
+  function clearMessage() {
+    setMessage("");
+    setMessageTone("neutral");
+  }
+
+  function showMessage(nextMessage: string, tone: AlertTone) {
+    setMessage(nextMessage);
+    setMessageTone(tone);
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -149,7 +163,7 @@ export default function ProfilePage() {
       });
 
       setLoading(true);
-      setMessage("");
+      clearMessage();
 
       try {
         await auth.authStateReady();
@@ -232,12 +246,15 @@ export default function ProfilePage() {
             userData.email = synced.email;
             userData.dataPartition = getDataPartitionForEmail(synced.email);
             clearPendingEmailChange();
-            setMessage("Email change verified and synced.");
+            showMessage("Email change verified and synced.", "success");
           } catch (syncError) {
             console.error("[profile] email sync fallback", syncError);
             userData.email = normalizedStoredEmail || normalizedAuthEmail;
             userData.dataPartition = getDataPartitionForEmail(userData.email);
-            setMessage("Email verified, but the profile sync has not completed yet. Please sign out and sign back in so we can retry it safely.");
+            showMessage(
+              "Email verified, but the profile sync has not completed yet. Please sign out and sign back in so we can retry it safely.",
+              "warning",
+            );
           }
         }
 
@@ -306,7 +323,7 @@ export default function ProfilePage() {
       } catch (error) {
         if (cancelled) return;
         console.error("[profile] load failed", error);
-        setMessage(error instanceof Error ? error.message : "Failed to load profile.");
+        showMessage(error instanceof Error ? error.message : "Failed to load profile.", "error");
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -329,7 +346,7 @@ export default function ProfilePage() {
       await auth.authStateReady();
       const user = auth.currentUser;
       if (!user) {
-        setMessage("You are no longer signed in.");
+        showMessage("You are no longer signed in.", "warning");
         return;
       }
       await reload(user);
@@ -342,12 +359,12 @@ export default function ProfilePage() {
   async function handleSave() {
     const user = currentUser || auth.currentUser;
     if (!user) {
-      setMessage("You are no longer signed in.");
+      showMessage("You are no longer signed in.", "warning");
       return;
     }
 
     setSaving(true);
-    setMessage("");
+    clearMessage();
 
     try {
       const trimmedName = name.trim();
@@ -431,11 +448,11 @@ export default function ProfilePage() {
       setEmail(normalizedCurrentEmail);
       setNotificationPreferences(visibleNotificationPreferences);
       setSavedNotificationPreferences(visibleNotificationPreferences);
-      setMessage("Profile saved.");
+      showMessage("Profile saved.", "success");
       console.log("[profile] save success");
     } catch (error) {
       console.error("[profile] save failed", error);
-      setMessage(error instanceof Error ? error.message : "Failed to save profile.");
+      showMessage(error instanceof Error ? error.message : "Failed to save profile.", "error");
     } finally {
       setSaving(false);
     }
@@ -444,17 +461,17 @@ export default function ProfilePage() {
   async function handleSendTestTelegram() {
     const user = currentUser || auth.currentUser;
     if (!user) {
-      setMessage("You are no longer signed in.");
+      showMessage("You are no longer signed in.", "warning");
       return;
     }
 
     if (!notificationPreferences.telegram.enabled) {
-      setMessage("Turn on Telegram notifications first.");
+      showMessage("Turn on Telegram notifications first.", "warning");
       return;
     }
 
     if (!notificationPreferences.telegram.chatId.trim()) {
-      setMessage("Telegram chat ID is required before sending a test.");
+      showMessage("Telegram chat ID is required before sending a test.", "warning");
       return;
     }
 
@@ -462,14 +479,15 @@ export default function ProfilePage() {
       serializeNotificationPreferencesForComparison(notificationPreferences) !==
       serializeNotificationPreferencesForComparison(savedNotificationPreferences)
     ) {
-      setMessage(
+      showMessage(
         "Save profile first so the Telegram test uses your latest notification settings.",
+        "warning",
       );
       return;
     }
 
     setSendingTestTelegram(true);
-    setMessage("");
+    clearMessage();
 
     try {
       const idToken = await user.getIdToken(true);
@@ -477,15 +495,17 @@ export default function ProfilePage() {
         idToken,
         channel: "telegram",
       });
-      setMessage(
+      showMessage(
         "Telegram test queued. Check @NotificationsCommunitySportsBot.",
+        "success",
       );
     } catch (error) {
       console.error("[profile] telegram test failed", error);
-      setMessage(
+      showMessage(
         error instanceof Error ?
           error.message :
           "Failed to queue the Telegram test.",
+        "error",
       );
     } finally {
       setSendingTestTelegram(false);
@@ -495,24 +515,24 @@ export default function ProfilePage() {
   async function handleEmailChange() {
     const user = currentUser || auth.currentUser;
     if (!user) {
-      setMessage("You are no longer signed in.");
+      showMessage("You are no longer signed in.", "warning");
       return;
     }
 
     const normalizedCurrentEmail = normalizeEmail(email);
     const normalizedNextEmail = normalizeEmail(pendingEmail);
     if (!normalizedNextEmail) {
-      setMessage("Enter the new email address first.");
+      showMessage("Enter the new email address first.", "warning");
       return;
     }
 
     if (normalizedCurrentEmail === normalizedNextEmail) {
-      setMessage("Enter a different email address to start the change.");
+      showMessage("Enter a different email address to start the change.", "warning");
       return;
     }
 
     setChangingEmail(true);
-    setMessage("");
+    clearMessage();
     setRecentLoginRequired(false);
 
     try {
@@ -521,13 +541,14 @@ export default function ProfilePage() {
       console.error("[profile] email change failed", error);
       if (isRecentLoginError(error)) {
         setRecentLoginRequired(true);
-        setMessage(
+        showMessage(
           hasPasswordProvider(user)
             ? "Please confirm your password to continue changing your email."
             : "Please confirm your Google sign-in to continue changing your email.",
+          "warning",
         );
       } else {
-        setMessage(error instanceof Error ? error.message : "Failed to start email change.");
+        showMessage(error instanceof Error ? error.message : "Failed to start email change.", "error");
       }
     } finally {
       setChangingEmail(false);
@@ -541,14 +562,15 @@ export default function ProfilePage() {
         idToken,
         nextEmail: normalizedNextEmail,
       });
-      await reload(user);
+      rememberLoginNotice("Test-user email changed. Sign in again with your new email address.");
       setEmail(changed.email);
-      setCurrentUser(auth.currentUser || user);
+      setCurrentUser(null);
       setPendingEmail("");
       setRecentLoginRequired(false);
       setReauthPassword("");
       clearPendingEmailChange();
-      setMessage("Test-user email changed immediately.");
+      await signOut(auth);
+      router.push("/login?emailChanged=1");
       return;
     }
 
@@ -579,29 +601,30 @@ export default function ProfilePage() {
     setPendingEmail("");
     setRecentLoginRequired(false);
     setReauthPassword("");
-    setMessage(
+    showMessage(
       hasPasswordProvider(user)
         ? "Verification link sent to the new email address. After opening it, come back here and refresh your profile."
         : "Verification link sent to the new email address. After confirming it, this account will use email/password sign-in. Then use Forgot password on login to set your password.",
+      "success",
     );
   }
 
   async function handleRecentLogin() {
     const user = currentUser || auth.currentUser;
     if (!user) {
-      setMessage("You are no longer signed in.");
+      showMessage("You are no longer signed in.", "warning");
       return;
     }
 
     const normalizedCurrentEmail = normalizeEmail(email);
     const normalizedNextEmail = normalizeEmail(pendingEmail);
     if (!normalizedNextEmail) {
-      setMessage("Enter the new email address first.");
+      showMessage("Enter the new email address first.", "warning");
       return;
     }
 
     setReauthenticating(true);
-    setMessage("");
+    clearMessage();
 
     try {
       if (hasPasswordProvider(user)) {
@@ -622,7 +645,7 @@ export default function ProfilePage() {
       await startEmailChange(user, normalizedCurrentEmail, normalizedNextEmail);
     } catch (error) {
       console.error("[profile] reauthentication failed", error);
-      setMessage(error instanceof Error ? error.message : "Failed to confirm your sign-in.");
+      showMessage(error instanceof Error ? error.message : "Failed to confirm your sign-in.", "error");
     } finally {
       setReauthenticating(false);
     }
@@ -670,7 +693,9 @@ export default function ProfilePage() {
 
           <div className="rounded-2xl border border-zinc-200 p-4">
             <h2 className="text-base font-semibold text-zinc-900">Change email address</h2>
-            <p className="mt-1 text-sm text-zinc-500">We will send a verification link to the new email address before the change is applied.</p>
+            <div className={`${SUCCESS_ALERT_CLASS_NAME} mt-3`}>
+              We will send a verification link to the new email address before the change is applied.
+            </div>
             {!currentUser || hasPasswordProvider(currentUser) ? null : (
               <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
                 This account currently uses SSO. After you verify the new email, the account will switch to email/password sign-in. Then use Forgot password on the login page to set your password.
@@ -1051,7 +1076,7 @@ export default function ProfilePage() {
             </>
           ) : null}
 
-          {message ? <div className="rounded-2xl bg-zinc-100 px-4 py-3 text-sm text-zinc-700">{message}</div> : null}
+          {message ? <div className={getAlertClassName(messageTone)}>{message}</div> : null}
 
           <button type="button" onClick={handleSave} disabled={saving} className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">
             {saving ? "Saving..." : "Save profile"}

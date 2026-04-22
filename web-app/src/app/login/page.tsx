@@ -16,8 +16,10 @@ import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { getDataPartitionForEmail, shouldBypassEmailVerification } from "@/lib/data-partition";
 import { getManagedUserByEmail } from "@/lib/managed-users";
+import { SUCCESS_ALERT_CLASS_NAME } from "@/lib/alert-styles";
 import { linkRegisteredUserData } from "@/lib/account-link";
 import { resolveAuthProfile } from "@/lib/auth-profile";
+import { clearLoginNotice, readLoginNotice } from "@/lib/login-notices";
 import { shouldSyncSelfRegisteredPlayerDirectoryEntry } from "@/lib/player-directory-sync";
 import { lookupPendingUserProfile } from "@/lib/pending-user-lookup";
 import { lookupPasswordResetEligibility } from "@/lib/password-reset";
@@ -189,9 +191,14 @@ export default function LoginPage() {
         setNotice(REGISTER_NOTICE_MESSAGE);
         return;
       }
+
+      if (params.get("emailChanged") === "1") {
+        setNotice(readLoginNotice() || "Email changed. Sign in again with your new email address.");
+        return;
+      }
     }
 
-    const rememberedNotice = readRegisterNotice();
+    const rememberedNotice = readRegisterNotice() || readLoginNotice();
     if (rememberedNotice) {
       setNotice(rememberedNotice);
     }
@@ -245,6 +252,7 @@ export default function LoginPage() {
         }
         await ensureUserProfileForAuthUser(credentials.user);
         clearRegisterNotice();
+        clearLoginNotice();
         setNotice("");
         router.push("/dashboard");
         return;
@@ -277,6 +285,7 @@ export default function LoginPage() {
       const credentials = await signInWithPopup(auth, googleProvider);
       await ensureUserProfileForAuthUser(credentials.user);
       clearRegisterNotice();
+      clearLoginNotice();
       router.push("/dashboard");
     } catch (signInError) {
       if (signInError instanceof Error) {
@@ -400,7 +409,7 @@ export default function LoginPage() {
           ) : null}
 
           {notice ? (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <div className={SUCCESS_ALERT_CLASS_NAME}>
               {notice}
             </div>
           ) : null}

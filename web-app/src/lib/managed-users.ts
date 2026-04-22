@@ -137,5 +137,15 @@ export async function upsertManagedUser(
 export async function deleteManagedUserByEmail(db: Firestore, email: string) {
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return;
-  await deleteDoc(doc(db, "managedUsers", buildManagedUserId(normalizedEmail)));
+  const managedUserRef = doc(db, "managedUsers", buildManagedUserId(normalizedEmail));
+  let managedUserSnapshot;
+  try {
+    managedUserSnapshot = await getDoc(managedUserRef);
+  } catch {
+    return;
+  }
+  if (!managedUserSnapshot.exists()) {
+    return;
+  }
+  await deleteDoc(managedUserRef);
 }

@@ -392,7 +392,7 @@ export default function OrganiserPlayersPage() {
 
           <div className="mt-8">
             <h3 className="text-lg font-semibold text-zinc-900">Inactive private players</h3>
-            <p className="mt-2 text-sm text-zinc-500">Inactive players remain visible here for history, but cannot be edited or reactivated from organiser view.</p>
+            <p className="mt-2 text-sm text-zinc-500">Inactive players remain visible for historical reference only.</p>
             <div className="mt-4 space-y-3">
               {inactivePrivatePlayers.length ? inactivePrivatePlayers.map((player) => (
                 <div key={player.key} className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">

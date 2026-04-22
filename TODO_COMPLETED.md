@@ -1,5 +1,19 @@
 # To-Do List - Completed tasks
 
+- [x] Fix the latest organiser approval retry, organiser inactive-player copy, and success-alert styling issues; verify in browser, then commit, push, and deploy.
+  - [x] Updated the organiser inactive-player helper copy to: `Inactive players remain visible for historical reference only.`
+  - [x] Allowed players to re-request organiser approval after rejection, and revalidated that organisers can review the retried request again.
+  - [x] Standardised the profile success confirmations onto the same green success-alert style used by the registration notice.
+  - [x] Confirmed that `admin@example.com` should remain isolated from live non-test sessions.
+
+- [x] Run through `TODO.md`, fix all current bug items first, skip blocked items, continue to the end, and finish with a manual verification flow list.
+  - [x] Fixed the admin `Manage organisers` save failure for existing registered organisers.
+  - [x] Fixed the admin `Manage players` organiser-private removal lifecycle so removed players stay recoverable in the inactive section.
+  - [x] Rechecked organiser-approval request persistence and confirmed it no longer reproduces in the current build.
+  - [x] Fixed organiser `Create next event` so the dashboard advances to the next weekly event correctly after completion.
+  - [x] Confirmed the admin test-partition live-data visibility item is expected by the current partition design, so it was treated as a product clarification instead of a code bug.
+  - [x] Fixed the `@example.com` direct email-change loop so users are cleanly signed out, shown a login notice, and can sign back in with the new address.
+
 - [x] Create a player test account (player1@example.com/testtest1234) and store in .env.test.local file.
 - [x] Add to AGENTS.md: for small changes, execute TESTING_SMOKE.md automatically after deployment; for major feature changes, execute TESTING.md for full feature testing. 
 - [x] Add to AGENTS.md: from now on, all changes needs to be implemented in its own git branch and tested thoroughly on local before merging to main and deploy to firebase, as we have real users already.

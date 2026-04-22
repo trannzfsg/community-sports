@@ -21,6 +21,38 @@ function normalizeSkipDates(skipDates: string[], maxEntries = 104) {
   )).slice(-maxEntries);
 }
 
+function formatDateLocal(date: Date) {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseLocalDate(dateText: string) {
+  const [yearText = "0", monthText = "1", dayText = "1"] = dateText.split("-");
+  return new Date(Number(yearText), Number(monthText) - 1, Number(dayText));
+}
+
+function addDays(dateText: string, days: number) {
+  const date = parseLocalDate(dateText);
+  date.setDate(date.getDate() + days);
+  return formatDateLocal(date);
+}
+
+export function resolveNextSessionEventDate(
+  requestedEventDate: string,
+  existingEventDates: string[],
+) {
+  const knownDates = new Set(existingEventDates);
+  let candidateDate = requestedEventDate;
+
+  while (knownDates.has(candidateDate)) {
+    candidateDate = addDays(candidateDate, 7);
+  }
+
+  return candidateDate;
+}
+
 function planEventRegistrations(input: {
   eventDate: string;
   capacity: number;
@@ -371,8 +403,6 @@ export async function createSessionEventForSeries(
     throw new Error("Session series is missing nextGameOn.");
   }
 
-  const eventId = buildSessionEventId(series.id, eventDate);
-  const eventRef = doc(db, "sessionEvents", eventId);
   const sameSeriesEventsSnapshot = await getDocs(
     query(
       collection(db, "sessionEvents"),
@@ -380,22 +410,22 @@ export async function createSessionEventForSeries(
       where("dataPartition", "==", series.dataPartition || "live"),
     ),
   );
-
-  const eventAlreadyExists = sameSeriesEventsSnapshot.docs.some((eventDoc) => {
-    const data = eventDoc.data() as Omit<SessionEvent, "id">;
-    return eventDoc.id === eventId || data.eventDate === eventDate;
-  });
-
-  if (eventAlreadyExists) {
-    return eventId;
-  }
+  const resolvedEventDate = resolveNextSessionEventDate(
+    eventDate,
+    sameSeriesEventsSnapshot.docs.map((eventDoc) => {
+      const data = eventDoc.data() as Omit<SessionEvent, "id">;
+      return data.eventDate;
+    }),
+  );
+  const eventId = buildSessionEventId(series.id, resolvedEventDate);
+  const eventRef = doc(db, "sessionEvents", eventId);
 
   const currentActiveEvent = sameSeriesEventsSnapshot.docs
     .map((eventDoc) => ({
       id: eventDoc.id,
       ...(eventDoc.data() as Omit<SessionEvent, "id">),
     }))
-    .filter((event) => event.eventDate < eventDate && event.status !== "completed" && event.status !== "cancelled")
+    .filter((event) => event.eventDate < resolvedEventDate && event.status !== "completed" && event.status !== "cancelled")
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate))
     .at(-1);
 
@@ -407,7 +437,7 @@ export async function createSessionEventForSeries(
     typeOfSport: series.typeOfSport,
     location: series.location,
     dayOfWeek: series.dayOfWeek,
-    eventDate,
+    eventDate: resolvedEventDate,
     startAt: series.startAt,
     endAt: series.endAt,
     defaultPriceCasual: series.defaultPriceCasual,
@@ -439,7 +469,7 @@ export async function createSessionEventForSeries(
       id: eventDoc.id,
       ...(eventDoc.data() as Omit<SessionEvent, "id">),
     }))
-    .filter((event) => event.id !== eventId && event.eventDate < eventDate)
+    .filter((event) => event.id !== eventId && event.eventDate < resolvedEventDate)
     .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
 
   const lastEvent = previousEvents.at(-1);
@@ -484,7 +514,7 @@ export async function createSessionEventForSeries(
   );
 
   const { plannedRegistrations, skippedMembershipIds } = planEventRegistrations({
-    eventDate,
+    eventDate: resolvedEventDate,
     capacity: series.capacity,
     waitingListCapacity: series.waitingListCapacity || 0,
     activeMemberships: Array.from(membershipsById.entries())
@@ -539,7 +569,7 @@ export async function createSessionEventForSeries(
       typeOfSport: series.typeOfSport,
       location: series.location,
       dayOfWeek: series.dayOfWeek,
-      eventDate,
+      eventDate: resolvedEventDate,
       startAt: series.startAt,
       endAt: series.endAt,
       defaultPriceCasual: series.defaultPriceCasual,
@@ -576,7 +606,7 @@ export async function createSessionEventForSeries(
       skipCount: Math.max(0, existingMembership.skipCount || 0) + 1,
       skipDates: normalizeSkipDates([
         ...(existingMembership.skipDates || []),
-        eventDate,
+        resolvedEventDate,
       ]),
       updatedAt: serverTimestamp(),
     }, { merge: true });
@@ -594,5 +624,8 @@ export async function createSessionEventForSeries(
     waitingCount: plannedRegistrations.filter((registration) => registration.status === "waiting").length,
   }, { merge: true });
 
-  return eventId;
+  return {
+    eventDate: resolvedEventDate,
+    eventId,
+  };
 }
