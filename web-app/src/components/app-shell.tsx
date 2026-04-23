@@ -35,12 +35,14 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
       { href: "/dashboard", label: "Dashboard", shortLabel: "Da", matchPrefixes: ["/dashboard", "/sessions/view"] },
       { href: "/organiser/approvals", label: "Approvals", shortLabel: "Ap" },
       { href: "/organiser/players", label: "Players", shortLabel: "Pl" },
+      { href: "/onboarding", label: "Onboarding", shortLabel: "On" },
       { href: "/profile", label: "Profile", shortLabel: "Pr" },
     ];
   }
 
   return [
     { href: "/dashboard", label: "Dashboard", shortLabel: "Da", matchPrefixes: ["/dashboard", "/sessions/view"] },
+    { href: "/onboarding", label: "Onboarding", shortLabel: "On" },
     { href: "/profile", label: "Profile", shortLabel: "Pr" },
   ];
 }

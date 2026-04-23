@@ -44,6 +44,7 @@ import {
   requestOrganiserApproval,
   type OrganiserApprovalRecord,
 } from "@/lib/organiser-approvals";
+import { needsOnboarding, type OnboardingVersionState } from "@/lib/onboarding";
 import { getUsersByRole } from "@/lib/users";
 import type { AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
@@ -67,6 +68,7 @@ type UserProfile = {
   email?: string;
   role: AppRole;
   dataPartition?: DataPartition;
+  onboardingSeenVersions?: OnboardingVersionState | null;
 };
 
 type OrganiserOption = {
@@ -260,6 +262,14 @@ export default function DashboardPage() {
 
         console.log("[dashboard] loaded profile", { role: profileData.role });
         setProfile(profileData);
+
+        if (needsOnboarding({
+          role: profileData.role,
+          seenVersions: profileData.onboardingSeenVersions,
+        })) {
+          router.push("/onboarding?returnTo=/dashboard");
+          return;
+        }
 
         let seriesItems: SessionSeries[] = [];
         let approvedOrganiserIds = new Set<string>();

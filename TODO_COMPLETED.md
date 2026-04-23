@@ -1,5 +1,12 @@
 # To-Do List - Completed tasks
 
+- [x] Onboarding instructions: build onboarding guidance for both player users and organiser users, shown by default on first login and also accessible later through the menu system.
+  - [x] Track onboarding acknowledgement per user so dismissal persists across devices for that user account.
+  - [x] Version the onboarding content so future content/version updates automatically reshow the latest guidance.
+  - [x] Add player onboarding guidance covering approvals, joining events, payment references, waitlists, cancellation policy, and organiser-managed memberships.
+  - [x] Add organiser onboarding guidance covering player sourcing, series/event workflows, event overrides, membership management, registration/payment flow, event lifecycle, and Telegram setup guidance.
+  - [x] Add an onboarding menu entry and automatically redirect players/organisers into onboarding when their current role version has not been acknowledged yet.
+
 - [x] Menu system: replace the round buttons at the top of the screen with a persistent menu system for player, organiser, and admin users. It must support shrink/expand behaviour so it remains usable on mobile screens too.
 - [x] For organisers, move player request approval/reject screen to a different page from dashboard.
 - [x] Cancellation policy: each session series should have a default cancellation policy measured in hours, defaulting to `24`.

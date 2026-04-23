@@ -1,24 +1,5 @@
 # To-Do List
 
-- [ ] Onboarding instructions: build onboarding guidance for both player users and organiser users, shown by default on first login and also accessible later through the menu system.
-  - [ ] Player onboarding should explain:
-    - [ ] How to request approval from at least one organiser.
-    - [ ] What happens once approved, including how to join an active event and that organisers control when registration opens.
-    - [ ] How to enter a payment reference and that organiser confirmation is still required.
-    - [ ] How the waitlist works.
-    - [ ] How to remove or cancel a registration, including awareness of the cancellation policy.
-    - [ ] How membership works, what the benefits are, and that they should contact an organiser to become a member.
-  - [ ] Organiser onboarding should explain:
-    - [ ] Two ways to get players: share a link for self-registration, or add players manually and manage their event registrations directly.
-    - [ ] That a manually created player with the correct email address can later self-register and still be treated as the same person.
-    - [ ] How to create a session series, what each setting is for, and which settings can later be overridden at the individual-event level.
-    - [ ] How to create an event from a session series.
-    - [ ] How to register players to a session and what happens when a player self-registers.
-    - [ ] That organisers still need to announce elsewhere that an event has started and registration is open.
-    - [ ] How membership works, including that only organisers can add players as members of a session series.
-    - [ ] How registration, payment, and confirmation work.
-    - [ ] How to end an event and start a new one.
-    - [ ] How to get Telegram notifications, how to begin setup, and that they should contact `tranzha83@gmail.com` to complete the setup.
 - [ ] Future reference only, not for current implementation: premium features.
   - [ ] In-app payment system so players can pay in the app.
   - [ ] Accounting system so organisers can record event costs and income, plus cashflow and balances from the beginning of time, by calendar year, and by financial year.
