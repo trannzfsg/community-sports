@@ -17,15 +17,15 @@ Use this checklist after every small deployment. Keep it short, but do not skip 
 ## Critical flow
 
 - [ ] `admin@example.com` can sign in, land on `/dashboard`, and open both `Manage organisers` and `Manage players`.
-- [ ] `john@example.com` can sign in, land on `/dashboard`, open `Manage players`, and open `/profile`.
-- [ ] `player1@example.com` can sign in, land on `/dashboard`, and open `/profile`.
+- [ ] `john@example.com` can sign in, land on `/dashboard`, see the persistent menu, open `Approvals`, open `Manage players`, and open `/profile`.
+- [ ] `player1@example.com` can sign in, land on `/dashboard`, open the mobile/compact menu if needed, and open `/profile`.
 - [ ] `memberbenefits@example.com` can request organiser approval if still unapproved, or already shows an approved state if the fixture is pre-approved.
-- [ ] `john@example.com` can approve that organiser request from the dashboard when needed.
+- [ ] `john@example.com` can approve that organiser request from the dedicated approvals page when needed.
 - [ ] An approved player can register into the open event.
 - [ ] That player can enter a payment reference.
 - [ ] `john@example.com` can see the registration, see the payment reference, and click `Confirm` so the row shows `Received`.
-- [ ] The player can leave the event, or the organiser can remove the player, and the registration list updates immediately without permission errors.
-- [ ] Approved player can open the series membership panel and either request membership or still see the expected active membership state.
+- [ ] The player can leave the event when allowed, or the organiser can remove the player when the cancellation cutoff blocks self-removal, and the registration list updates immediately without permission errors.
+- [ ] Approved player can open the series membership panel and either see the organiser-contact helper text or the expected active membership state, with no in-app request-membership button.
 - [ ] `john@example.com` can open `View all events` for a series without runtime or permission errors.
 
 ## Guardrails

@@ -12,7 +12,8 @@ Use this section when you want the checklist grouped by end-to-end user journeys
 - Player approval to event registration: `F05`, `F06`
 - Waiting list promotion: `F07`
 - Membership-driven recurring registration: `F08`
-- Organiser operates the series lifecycle: `F04`, `F09`
+- First-login onboarding and menu navigation: `F01`
+- Organiser operates the series lifecycle and event overrides: `F04`, `F09`
 - Profile, email, and notification recovery: `F10`, `X02`, `X03`
 
 ## Shared rules
@@ -32,8 +33,10 @@ Create or reuse these under `john@example.com` in the `@example.com` partition:
 
 - `Open test series`: active series with an open next event and available spots.
 - `Waitlist test series`: active series whose next event is full but whose waiting list still has room.
-- `Membership test series`: active series with series membership enabled plus default membership start/end and auto-paid values configured.
+- `Membership test series`: active series with organiser-managed series membership enabled plus default membership start/end and auto-paid values configured.
 - `History test series`: series with at least one completed or cancelled event and at least one lockable event in the event history view.
+- `Cancellation test series`: active series whose next event sits inside the configured cancellation cutoff window.
+- `Override inheritance test series`: active series with one upcoming event that can be overridden and then followed by a newly created next event after the series defaults are edited.
 
 ## Core regression suites
 
@@ -44,8 +47,14 @@ Create or reuse these under `john@example.com` in the `@example.com` partition:
 - [ ] `john@example.com` signs in and lands on `/dashboard` without permission errors.
 - [ ] `player1@example.com` signs in and lands on `/dashboard` without permission errors.
 - [ ] `memberbenefits@example.com` signs in and lands on `/dashboard` without permission errors.
+- [ ] When the current onboarding version is unseen, `john@example.com` is redirected to `/onboarding?returnTo=/dashboard` on first login.
+- [ ] When the current onboarding version is unseen, `player1@example.com` is redirected to `/onboarding?returnTo=/dashboard` on first login.
+- [ ] Organiser and player can reopen onboarding later from the persistent menu after they have already acknowledged it.
+- [ ] Admin menu does not show an onboarding entry.
+- [ ] Organiser desktop menu can collapse, stay collapsed across reload, and then expand again cleanly.
+- [ ] Player mobile menu opens and closes cleanly and still exposes `Dashboard`, `Onboarding`, `Profile`, and `Sign out`.
 - [ ] Admin can open `/admin/organisers`, `/admin/players`, `/profile`, and return to `/dashboard`.
-- [ ] Organiser can open `/organiser/players`, `/profile`, and return to `/dashboard`.
+- [ ] Organiser can open `/organiser/approvals`, `/organiser/players`, `/profile`, and return to `/dashboard`.
 - [ ] Player can open `/profile` and return to `/dashboard`.
 - [ ] Organiser and players only see `@example.com` sessions, events, and people.
 - [ ] Admin can still see both test-partition and live data where intended.
@@ -78,7 +87,9 @@ Create or reuse these under `john@example.com` in the `@example.com` partition:
 - [ ] Admin can create a new series owned by `john@example.com`.
 - [ ] Organiser can create a new series they own.
 - [ ] Organiser cannot see or edit series they do not own.
+- [ ] Create-series form does not show any roster-copy controls.
 - [ ] Editing a series allows changing `nextGameOn`, waiting-list capacity, prices, and membership defaults.
+- [ ] Edit-series form does not show any roster-copy controls.
 - [ ] Default membership start date saves correctly at the series level.
 - [ ] Default membership end date saves correctly at the series level.
 - [ ] Default membership auto-paid-until date saves correctly at the series level.
@@ -90,12 +101,13 @@ Create or reuse these under `john@example.com` in the `@example.com` partition:
 
 - [ ] As `memberbenefits@example.com`, dashboard shows organiser approval status for `john@example.com`.
 - [ ] Unapproved player can request organiser approval.
-- [ ] Organiser sees the approval request and can approve it from the dashboard.
+- [ ] Organiser dashboard points to the dedicated approvals page instead of showing the old inline approval workflow.
+- [ ] Organiser sees the approval request and can approve it from `/organiser/approvals`.
 - [ ] Approved player now sees the organiser's events and can use registration flows.
 - [ ] Unapproved players cannot view or join the organiser's events.
 - [ ] Organiser cannot manually add an unapproved registered player to an event.
 
-### F06. Registration, payment reference, and organiser confirmation
+### F06. Registration, payment reference, and cancellation policy
 
 - [ ] Approved player can register into an open event in `Open test series`.
 - [ ] Registered player appears in the event list and their own registration is pinned to the top of their player view.
@@ -104,7 +116,9 @@ Create or reuse these under `john@example.com` in the `@example.com` partition:
 - [ ] Organiser can click `Confirm`, and the row shows `Paid` plus `Received`.
 - [ ] Organiser can undo confirmation and re-confirm without breaking the row state.
 - [ ] Organiser or admin can remove any registration.
-- [ ] Player can remove themself from the same event.
+- [ ] On a series with no cancellation cutoff, player can still remove themself from the same event.
+- [ ] In `Cancellation test series`, player cannot self-remove inside the cutoff window and instead sees the organiser-contact message plus the blocking alert.
+- [ ] In `Cancellation test series`, organiser can still remove that player, but only after accepting the explicit cutoff warning confirmation.
 - [ ] Registration ordering for other players still follows registration time ascending.
 
 ### F07. Waiting list behavior
@@ -119,21 +133,25 @@ Create or reuse these under `john@example.com` in the `@example.com` partition:
 
 ### F08. Series membership and auto-registration
 
-- [ ] Approved player can request series membership on `Membership test series`.
-- [ ] Organiser can approve that membership request from the dashboard.
+- [ ] On `Membership test series`, player sees the organiser-contact helper text instead of any in-app membership-request action.
+- [ ] Organiser can add or manage the player's membership from the series membership panel.
 - [ ] Membership panel displays the effective start date, end date, and auto-paid-until date.
 - [ ] Default membership start date uses the organiser approval date unless an organiser-set series default overrides it.
 - [ ] Organiser can override start date, end date, and auto-paid-until date for a specific member.
 - [ ] Player can toggle `Skip next event` and undo that skip.
-- [ ] Creating the next event auto-registers active members before any roster-copy logic runs.
+- [ ] Creating the next event auto-registers active members before any other carry-forward logic runs.
 - [ ] Membership auto-registration stops for events after the configured end date.
 - [ ] Membership end date does not remove the player from already-created future events.
 - [ ] If the event date is on or before the effective auto-paid-until date, the auto-created registration starts with both `playerPaid` and `organiserPaid` set to true.
 
-### F09. Event history and locking
+### F09. Event history, overrides, and locking
 
 - [ ] `View all events` opens `/sessions/view?id=...` for a series.
 - [ ] Event history lists events newest first.
+- [ ] Organiser can edit an upcoming unlocked event's stored location, start time, end time, casual price, capacity, and waiting-list spots.
+- [ ] Dashboard next-event summary reflects those event-specific stored override values instead of only showing the series defaults.
+- [ ] Event history keeps the stored event values visible for audit on past and completed events.
+- [ ] After editing the series defaults, only newly created future events inherit the updated defaults; the previously overridden event keeps its old stored values.
 - [ ] Organiser can mark an event as locked and unlock it again.
 - [ ] Locked events block registration changes and payment changes.
 - [ ] Locking warns before closing an event that still has unconfirmed payments.

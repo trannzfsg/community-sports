@@ -1,5 +1,13 @@
 # To-Do List - Completed tasks
 
+- [x] Run full validation across the latest completed features, update the testing reference document, and fix any bugs found.
+  - [x] Reviewed the latest completed features and compared them against the current testing documentation.
+  - [x] Executed browser-based testing for the most recent completed feature set, covering the persistent menu, onboarding, organiser approvals page, cancellation policy, event overrides, and organiser-managed memberships.
+  - [x] Rechecked automated coverage with the existing `npm test`, `npm run lint`, and `npm run build` suites before the browser pass.
+  - [x] No app bugs reproduced in the current build; the only fixes needed were to stale test documentation and a new repeatable browser regression helper.
+  - [x] Updated the testing reference docs with current product behavior and added `TEST.md` as the main testing entry point.
+  - [x] Captured worthwhile feature-improvement suggestions from the validation pass for follow-up discussion.
+
 - [x] Onboarding instructions: build onboarding guidance for both player users and organiser users, shown by default on first login and also accessible later through the menu system.
   - [x] Track onboarding acknowledgement per user so dismissal persists across devices for that user account.
   - [x] Version the onboarding content so future content/version updates automatically reshow the latest guidance.
