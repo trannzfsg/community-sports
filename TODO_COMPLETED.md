@@ -1,5 +1,49 @@
 # To-Do List - Completed tasks
 
+- [x] Menu system: replace the round buttons at the top of the screen with a persistent menu system for player, organiser, and admin users. It must support shrink/expand behaviour so it remains usable on mobile screens too.
+- [x] For organisers, move player request approval/reject screen to a different page from dashboard.
+- [x] Cancellation policy: each session series should have a default cancellation policy measured in hours, defaulting to `24`.
+  - [x] Add a configurable session-series setting where `0` hours means there is no cancellation policy and players can remove themselves at any time.
+  - [x] Prevent players from removing themselves within the cancellation-policy window before event start time.
+  - [x] Show players an error telling them to contact the organiser if they still need to cancel.
+  - [x] Allow organisers to remove players after the cancellation-policy cutoff, but warn them it is already past policy time and require an explicit confirmation before the removal happens.
+- [x] Session-series defaults copied to events: some series settings should be copied into each event as defaults, while still remaining overrideable by the organiser per event.
+  - [x] Casual price.
+  - [x] Number of players.
+  - [x] Number of waitlist spots.
+  - [x] Event start time.
+  - [x] Event end time.
+  - [x] Event location.
+- [x] Remove the roster-copy and player membership-request features so only organiser-managed memberships remain.
+  - [x] Remove the ability to copy roster from the last event to a new event. Only members should be automatically registered when an event starts.
+  - [x] Remove the ability for players to request membership. Only organisers should be able to add players to session-series membership.
+
+- [x] Implement event-level overrides for copied series defaults so organisers can edit each event's own price/capacity/waitlist/time/location, with old and active events keeping their existing copied values while only newly created events inherit later series changes.
+  - [x] Add organiser event-edit controls backed by `sessionEvents` document fields.
+  - [x] Keep all overrides visible in event history so past events preserve their audit trail.
+  - [x] Ensure changing a series only affects events created after the change, not existing events.
+
+- [x] Move the completed `TESTING.md` validation section into `TODO_COMPLETED.md`, then continue on the remaining TODO backlog until blocked.
+  - [x] Move the fully completed testing/blocked-validation section into `TODO_COMPLETED.md`.
+  - [x] Continue with the next unblocked implementation task from the planning backlog.
+  - [x] Replace the top round-button navigation with a persistent collapsible menu for player, organiser, and admin users.
+  - [x] Move organiser approval review off the dashboard into a dedicated approvals page.
+  - [x] Add a session-series cancellation policy with a default 24-hour cutoff, player-side blocking, and organiser-side warning/confirmation after the cutoff.
+
+- [x] Execute all scenarios in `TESTING.md`, record every issue/question found, and keep a short list of things we cannot fully validate in-app (for example external email delivery and Telegram delivery).
+  - [x] Run the checklist end to end with the `@example.com` test accounts.
+  - [x] Add a TODO sub-item for each bug, regression, or product question found.
+    - [x] Bug fixed: admin `Manage organisers` now saves existing registered organisers (`john@example.com`) cleanly without the `Missing or insufficient permissions.` error.
+    - [x] Bug fixed: admin `Manage players` now keeps removed organiser private players in the inactive organiser-private section with a `Reactivate player` action instead of hiding or deleting them.
+    - [x] Rechecked in browser: player organiser-approval requests persisted across reload and appeared on the organiser dashboard for review, so this no longer reproduces in the current build.
+    - [x] Bug fixed: organiser `Create next event` now advances the event correctly after completion instead of leaving the completed `2026-04-27` event in place.
+    - [x] Product check: admin test-partition visibility for live sessions is intentionally restricted by the current test-data partition design, so no code change was applied.
+    - [x] Bug fixed: example-domain email changes now redirect back to login with a clear success notice and allow the same account to change back again without surfacing `auth/user-token-expired`.
+  - [x] Capture a short blocked-items list for checks that need external inboxes, Telegram chats, or other out-of-band verification.
+    - [x] Blocked validation completed: real outbound registration, verification, password-reset, and non-`@example.com` email-change emails have now been confirmed with destination inbox access.
+    - [x] Blocked validation completed: Telegram delivery to the configured chat/device has now been confirmed end to end.
+    - [x] Blocked validation completed: organiser/player notification triggers for approval requests, registrations, removals, and payment-reference updates have now been revalidated through external delivery.
+
 - [x] Fix the latest organiser approval retry, organiser inactive-player copy, and success-alert styling issues; verify in browser, then commit, push, and deploy.
   - [x] Updated the organiser inactive-player helper copy to: `Inactive players remain visible for historical reference only.`
   - [x] Allowed players to re-request organiser approval after rejection, and revalidated that organisers can review the retried request again.

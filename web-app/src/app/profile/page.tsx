@@ -14,6 +14,7 @@ import {
   verifyBeforeUpdateEmail,
 } from "firebase/auth";
 import { doc, getDoc, serverTimestamp, setDoc } from "firebase/firestore";
+import AppShell from "@/components/app-shell";
 import { auth, db, googleProvider } from "@/lib/firebase";
 import { SUCCESS_ALERT_CLASS_NAME, getAlertClassName, type AlertTone } from "@/lib/alert-styles";
 import { getManagedUserByEmail, normalizeEmail } from "@/lib/managed-users";
@@ -665,14 +666,13 @@ export default function ProfilePage() {
     role === "player" || role === "admin";
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
-      <div className="mx-auto max-w-2xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+    <AppShell role={role} contentClassName="max-w-2xl">
+      <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Profile</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight">Your details</h1>
           </div>
-          <button type="button" onClick={() => router.push("/dashboard")} className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100">Back</button>
         </div>
 
         <div className="mt-8 grid gap-4">
@@ -1083,6 +1083,6 @@ export default function ProfilePage() {
           </button>
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

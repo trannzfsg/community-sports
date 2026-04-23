@@ -364,64 +364,6 @@ export async function getSeriesMembershipsForSeries(
   });
 }
 
-export async function requestSeriesMembership(
-  db: Firestore,
-  input: {
-    seriesId: string;
-    organiserId: string;
-    playerId: string;
-    playerName: string;
-    playerEmail: string;
-    dataPartition: DataPartition;
-    startDate?: string | null;
-    endDate?: string | null;
-    autoPaidUntilDate?: string | null;
-    approvedAtDate?: string | null;
-  },
-) {
-  const membershipId = buildSeriesMembershipId(input.seriesId, input.playerId);
-  const membershipRef = doc(db, "seriesMemberships", membershipId);
-  let existingData: Partial<SeriesMembership> | null = null;
-  let existingCreatedAt: unknown;
-
-  try {
-    const existingSnapshot = await getDoc(membershipRef);
-    if (existingSnapshot.exists()) {
-      existingData = existingSnapshot.data() as Partial<SeriesMembership>;
-      existingCreatedAt = existingData.createdAt;
-    }
-  } catch (error) {
-    const permissionDenied = typeof error === "object"
-      && error !== null
-      && "code" in error
-      && (error as { code?: string }).code === "permission-denied";
-    if (!permissionDenied) {
-      throw error;
-    }
-  }
-
-  await setDoc(membershipRef, {
-    seriesId: input.seriesId,
-    organiserId: input.organiserId,
-    playerId: input.playerId,
-    playerName: input.playerName,
-    playerEmail: input.playerEmail,
-    status: "pending",
-    startDate: normalizeDateOnly(input.startDate) ?? existingData?.startDate ?? null,
-    endDate: normalizeDateOnly(input.endDate) ?? existingData?.endDate ?? null,
-    autoPaidUntilDate: normalizeDateOnly(input.autoPaidUntilDate) ?? existingData?.autoPaidUntilDate ?? null,
-    approvedAtDate: normalizeDateOnly(input.approvedAtDate) ?? existingData?.approvedAtDate ?? null,
-    skipNextEvent: false,
-    skipCount: existingData?.skipCount ?? 0,
-    skipDates: existingData?.skipDates ?? [],
-    lastAutoRegisteredEventId: existingData?.lastAutoRegisteredEventId ?? null,
-    dataPartition: input.dataPartition,
-    createdAt: existingCreatedAt ?? serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
-  return membershipId;
-}
-
 export async function updateSeriesMembershipSettings(
   db: Firestore,
   membershipId: string,

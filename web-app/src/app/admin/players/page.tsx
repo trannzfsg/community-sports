@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -16,6 +15,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import AppShell from "@/components/app-shell";
 import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import { getManagedUserByEmail, getManagedUsersByRole, normalizeEmail, upsertManagedUser, type ManagedUserRecord } from "@/lib/managed-users";
@@ -601,17 +601,12 @@ export default function AdminPlayersPage() {
   }));
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+    <AppShell role="admin" contentClassName="max-w-4xl">
+      <div className="flex w-full flex-col gap-6">
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Admin</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight">Players</h1>
-              <p className="mt-3 text-zinc-600">Manage player records. Inactivating a player removes them from current/future event registrations and keeps historical events unchanged.</p>
-            </div>
-            <Link href="/dashboard" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Back</Link>
-          </div>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Admin</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Players</h1>
+          <p className="mt-3 text-zinc-600">Manage player records. Inactivating a player removes them from current/future event registrations and keeps historical events unchanged.</p>
         </div>
 
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
@@ -1059,6 +1054,6 @@ export default function AdminPlayersPage() {
           </div>
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

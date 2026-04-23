@@ -39,6 +39,87 @@ function addDays(dateText: string, days: number) {
   return formatDateLocal(date);
 }
 
+function parseBrisbaneDateTime(dateText: string, timeText: string) {
+  const [yearText = "0", monthText = "1", dayText = "1"] = dateText.split("-");
+  const [hourText = "0", minuteText = "0"] = timeText.split(":");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+
+  if (
+    Number.isNaN(year)
+    || Number.isNaN(month)
+    || Number.isNaN(day)
+    || Number.isNaN(hour)
+    || Number.isNaN(minute)
+  ) {
+    return null;
+  }
+
+  return new Date(Date.UTC(year, month - 1, day, hour - 10, minute, 0, 0));
+}
+
+export function getEffectiveCancellationPolicyHours(
+  cancellationPolicyHours?: number | null,
+) {
+  if (typeof cancellationPolicyHours !== "number" || Number.isNaN(cancellationPolicyHours)) {
+    return 24;
+  }
+
+  return Math.max(0, Math.floor(cancellationPolicyHours));
+}
+
+export function isCancellationPolicyActive(input: {
+  eventDate: string;
+  startAt: string;
+  cancellationPolicyHours?: number | null;
+  now?: Date;
+}) {
+  const hours = getEffectiveCancellationPolicyHours(input.cancellationPolicyHours);
+  if (hours === 0) {
+    return false;
+  }
+
+  const eventStart = parseBrisbaneDateTime(input.eventDate, input.startAt);
+  if (!eventStart) {
+    return false;
+  }
+
+  return eventStart.getTime() - (input.now || new Date()).getTime() <= hours * 60 * 60 * 1000;
+}
+
+export function getCancellationPolicyLabel(cancellationPolicyHours?: number | null) {
+  const hours = getEffectiveCancellationPolicyHours(cancellationPolicyHours);
+  if (hours === 0) {
+    return "No cancellation cutoff";
+  }
+
+  return `${hours} hour${hours === 1 ? "" : "s"} before start`;
+}
+
+export function getPlayerCancellationPolicyMessage(cancellationPolicyHours?: number | null) {
+  const hours = getEffectiveCancellationPolicyHours(cancellationPolicyHours);
+  if (hours === 0) {
+    return "";
+  }
+
+  return `This event is already inside the ${hours}-hour cancellation window. Please contact the organiser if you still need to cancel.`;
+}
+
+export function getOrganiserCancellationPolicyWarning(
+  playerName: string,
+  cancellationPolicyHours?: number | null,
+) {
+  const hours = getEffectiveCancellationPolicyHours(cancellationPolicyHours);
+  if (hours === 0) {
+    return "";
+  }
+
+  return `This event is already inside the ${hours}-hour cancellation window. Remove ${playerName} anyway?`;
+}
+
 export function resolveNextSessionEventDate(
   requestedEventDate: string,
   existingEventDates: string[],
@@ -69,31 +150,24 @@ function planEventRegistrations(input: {
     skipNextEvent?: boolean;
     joinedOrder?: number;
   }>;
-  previousRegistrations: Array<{
-    userId: string;
-    playerName: string;
-    playerEmail: string;
-    createdOrder?: number;
-  }>;
 }) {
   const plannedRegistrations: Array<{
     userId: string;
     playerName: string;
     playerEmail: string;
-    source: "series-membership" | "roster-copy";
+    source: "series-membership";
     seriesMembershipId?: string | null;
     playerPaid: boolean;
     organiserPaid: boolean;
     status: "registered" | "waiting";
   }> = [];
   const skippedMembershipIds: string[] = [];
-  const reservedMembershipPlayerIds = new Set<string>();
 
   const pushPlannedRegistration = (entry: {
     userId: string;
     playerName: string;
     playerEmail: string;
-    source: "series-membership" | "roster-copy";
+    source: "series-membership";
     seriesMembershipId?: string | null;
     playerPaid?: boolean;
     organiserPaid?: boolean;
@@ -129,7 +203,6 @@ function planEventRegistrations(input: {
     })
     .forEach((membership) => {
       if (membership.skipNextEvent) {
-        reservedMembershipPlayerIds.add(membership.playerId);
         skippedMembershipIds.push(membership.id);
         return;
       }
@@ -147,7 +220,6 @@ function planEventRegistrations(input: {
       }
 
       const shouldAutoPay = !!membership.autoPaidUntilDate && input.eventDate <= membership.autoPaidUntilDate;
-      reservedMembershipPlayerIds.add(membership.playerId);
 
       pushPlannedRegistration({
         userId: membership.playerId,
@@ -157,32 +229,6 @@ function planEventRegistrations(input: {
         seriesMembershipId: membership.id,
         playerPaid: shouldAutoPay,
         organiserPaid: shouldAutoPay,
-      });
-    });
-
-  input.previousRegistrations
-    .slice()
-    .sort((a, b) => {
-      const aOrder = a.createdOrder ?? 0;
-      const bOrder = b.createdOrder ?? 0;
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return a.playerName.localeCompare(b.playerName);
-    })
-    .forEach((registration) => {
-      if (reservedMembershipPlayerIds.has(registration.userId)) {
-        return;
-      }
-
-      if (plannedRegistrations.some((item) => item.userId === registration.userId)) {
-        return;
-      }
-
-      pushPlannedRegistration({
-        userId: registration.userId,
-        playerName: registration.playerName,
-        playerEmail: registration.playerEmail,
-        source: "roster-copy",
-        seriesMembershipId: null,
       });
     });
 
@@ -205,6 +251,7 @@ export type SessionSeries = {
   defaultPriceCasual: number;
   capacity: number;
   waitingListCapacity?: number;
+  cancellationPolicyHours?: number | null;
   organiserId: string;
   organiserName?: string;
   dataPartition?: DataPartition;
@@ -267,6 +314,15 @@ export type RegistrationCapacityState = {
   waitingListIsFull: boolean;
   canAddMore: boolean;
   nextRegistrationStatus: "registered" | "waiting" | null;
+};
+
+export type SessionEventOverridesInput = {
+  location: string;
+  startAt: string;
+  endAt: string;
+  defaultPriceCasual: number;
+  capacity: number;
+  waitingListCapacity?: number | null;
 };
 
 export function buildSessionEventId(seriesId: string, eventDate: string) {
@@ -341,6 +397,49 @@ export function getRegistrationCapacityState(input: {
   };
 }
 
+export function normalizeSessionEventOverrides(input: SessionEventOverridesInput) {
+  const price = Number(input.defaultPriceCasual);
+
+  return {
+    location: input.location.trim(),
+    startAt: input.startAt.trim(),
+    endAt: input.endAt.trim(),
+    defaultPriceCasual: Number.isFinite(price) ? Math.round(price * 100) / 100 : Number.NaN,
+    capacity: Math.max(0, Math.floor(Number(input.capacity) || 0)),
+    waitingListCapacity: Math.max(0, Math.floor(Number(input.waitingListCapacity) || 0)),
+  };
+}
+
+export function getSessionEventOverrideValidationError(input: {
+  values: SessionEventOverridesInput;
+  registrationCount?: number;
+}) {
+  const values = normalizeSessionEventOverrides(input.values);
+
+  if (!values.location) {
+    return "Event location is required.";
+  }
+
+  if (!/^\d{2}:\d{2}$/.test(values.startAt) || !/^\d{2}:\d{2}$/.test(values.endAt)) {
+    return "Event start and end time must use HH:MM format.";
+  }
+
+  if (values.endAt <= values.startAt) {
+    return "Event end time must be after the start time.";
+  }
+
+  if (!Number.isFinite(values.defaultPriceCasual) || values.defaultPriceCasual < 0) {
+    return "Casual price must be zero or more.";
+  }
+
+  const registrationCount = Math.max(0, input.registrationCount || 0);
+  if (registrationCount > values.capacity + values.waitingListCapacity) {
+    return `This event already has ${registrationCount} registrations. Increase capacity or waiting list spots before saving smaller totals.`;
+  }
+
+  return "";
+}
+
 function getTimestampMillis(value: unknown) {
   if (
     typeof value === "object"
@@ -392,6 +491,62 @@ export async function rebalanceEventRegistrations(
   }, { merge: true });
 
   return { bookedCount, waitingCount };
+}
+
+export async function updateSessionEventOverrides(
+  db: Firestore,
+  input: {
+    series: SessionSeries;
+    event: SessionEvent;
+    registrations: RegistrationItem[];
+    values: SessionEventOverridesInput;
+  },
+) {
+  const values = normalizeSessionEventOverrides(input.values);
+  const validationError = getSessionEventOverrideValidationError({
+    values,
+    registrationCount: input.registrations.length,
+  });
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  await setDoc(doc(db, "sessionEvents", input.event.id), {
+    ...values,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+
+  const capacityChanged = values.capacity !== input.event.capacity;
+  const priceChanged = values.defaultPriceCasual !== input.event.defaultPriceCasual;
+  let bookedCount = input.event.bookedCount;
+  let waitingCount = input.event.waitingCount ?? 0;
+
+  if (capacityChanged) {
+    const rebalancedCounts = await rebalanceEventRegistrations(
+      db,
+      input.event.id,
+      values.capacity,
+      input.event.dataPartition,
+    );
+    bookedCount = rebalancedCounts.bookedCount;
+    waitingCount = rebalancedCounts.waitingCount;
+  }
+
+  const updatedEvent: SessionEvent = {
+    ...input.event,
+    ...values,
+    bookedCount,
+    waitingCount,
+  };
+
+  if (priceChanged) {
+    for (const registration of input.registrations) {
+      await syncPaymentRecordForRegistration(db, input.series, updatedEvent, registration);
+    }
+  }
+
+  return updatedEvent;
 }
 
 export async function createSessionEventForSeries(
@@ -456,32 +611,6 @@ export async function createSessionEventForSeries(
     });
   }
 
-  const previousEventsSnapshot = await getDocs(
-    query(
-      collection(db, "sessionEvents"),
-      where("sessionSeriesId", "==", series.id),
-      where("dataPartition", "==", series.dataPartition || "live"),
-    ),
-  );
-
-  const previousEvents = previousEventsSnapshot.docs
-    .map((eventDoc) => ({
-      id: eventDoc.id,
-      ...(eventDoc.data() as Omit<SessionEvent, "id">),
-    }))
-    .filter((event) => event.id !== eventId && event.eventDate < resolvedEventDate)
-    .sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-
-  const lastEvent = previousEvents.at(-1);
-  const previousRegistrations = lastEvent && series.copyRosterFromLastEvent
-    ? await getDocs(
-      query(
-        collection(db, "registrations"),
-        where("sessionEventId", "==", lastEvent.id),
-        where("dataPartition", "==", series.dataPartition || "live"),
-      ),
-    )
-    : null;
   const seriesMembershipsSnapshot = series.seriesMembershipEnabled
     ? await getDocs(
       query(
@@ -530,15 +659,6 @@ export async function createSessionEventForSeries(
         skipNextEvent: !!membership.skipNextEvent,
         joinedOrder: getTimestampMillis(membership.createdAt),
       })),
-    previousRegistrations: (previousRegistrations?.docs || []).map((registrationDoc) => {
-      const registration = registrationDoc.data() as Omit<RegistrationItem, "id">;
-      return {
-        userId: registration.userId,
-        playerName: registration.playerName,
-        playerEmail: registration.playerEmail,
-        createdOrder: getTimestampMillis(registration.createdAt),
-      };
-    }),
   });
 
   for (const registration of plannedRegistrations) {

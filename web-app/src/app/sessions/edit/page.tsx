@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { deletePaymentRecord } from "@/lib/payments";
+import AppShell from "@/components/app-shell";
 import DatePicker from "@/components/date-picker";
 import { auth, db } from "@/lib/firebase";
 import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
@@ -37,6 +38,7 @@ type SessionSeries = {
   defaultPriceCasual: number;
   capacity: number;
   waitingListCapacity?: number;
+  cancellationPolicyHours?: number | null;
   organiserId: string;
   organiserName?: string;
   dataPartition?: "test" | "live";
@@ -72,8 +74,8 @@ function EditSessionPageInner() {
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
   const [waitingListCapacity, setWaitingListCapacity] = useState("0");
+  const [cancellationPolicyHours, setCancellationPolicyHours] = useState("24");
   const [status, setStatus] = useState("active");
-  const [copyRosterFromLastEvent, setCopyRosterFromLastEvent] = useState(true);
   const [seriesMembershipEnabled, setSeriesMembershipEnabled] = useState(false);
   const [seriesMembershipDefaultStartDate, setSeriesMembershipDefaultStartDate] = useState("");
   const [seriesMembershipDefaultEndDate, setSeriesMembershipDefaultEndDate] = useState("");
@@ -136,8 +138,8 @@ function EditSessionPageInner() {
       setDefaultPriceCasual(String(session.defaultPriceCasual));
       setCapacity(String(session.capacity));
       setWaitingListCapacity(String(session.waitingListCapacity || 0));
+      setCancellationPolicyHours(String(session.cancellationPolicyHours ?? 24));
       setStatus(session.status);
-      setCopyRosterFromLastEvent(session.copyRosterFromLastEvent ?? true);
       setSeriesMembershipEnabled(session.seriesMembershipEnabled ?? false);
       setSeriesMembershipDefaultStartDate(session.seriesMembershipDefaultStartDate ?? "");
       setSeriesMembershipDefaultEndDate(session.seriesMembershipDefaultEndDate ?? "");
@@ -184,8 +186,8 @@ function EditSessionPageInner() {
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
         waitingListCapacity: Number(waitingListCapacity || 0),
+        cancellationPolicyHours: Number(cancellationPolicyHours || 0),
         status,
-        copyRosterFromLastEvent,
         seriesMembershipEnabled,
         seriesMembershipDefaultStartDate: seriesMembershipDefaultStartDate || null,
         seriesMembershipDefaultEndDate: seriesMembershipDefaultEndDate || null,
@@ -246,8 +248,8 @@ function EditSessionPageInner() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
-      <div className="mx-auto w-full max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+    <AppShell role={currentRole ?? "organiser"} contentClassName="max-w-3xl">
+      <div className="w-full rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
         <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
           Session series
         </p>
@@ -333,6 +335,12 @@ function EditSessionPageInner() {
           </label>
 
           <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Cancellation policy (hours)</span>
+            <input type="number" min="0" step="1" value={cancellationPolicyHours} onChange={(event) => setCancellationPolicyHours(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+            <span className="mt-2 block text-sm text-zinc-500">Use 0 to allow players to cancel at any time. Default is 24 hours before the event starts.</span>
+          </label>
+
+          <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Status</span>
             <select value={status} onChange={(event) => setStatus(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
               <option value="active">active</option>
@@ -342,13 +350,8 @@ function EditSessionPageInner() {
           </label>
 
           <label className="flex items-start gap-3 md:col-span-2">
-            <input type="checkbox" checked={copyRosterFromLastEvent} onChange={(event) => setCopyRosterFromLastEvent(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span className="text-sm text-zinc-700">Automatically copy the roster from the last event in this series when a new event is created.</span>
-          </label>
-
-          <label className="flex items-start gap-3 md:col-span-2">
             <input type="checkbox" checked={seriesMembershipEnabled} onChange={(event) => setSeriesMembershipEnabled(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span className="text-sm text-zinc-700">Allow players to request recurring series membership for automatic registration into future events.</span>
+            <span className="text-sm text-zinc-700">Enable organiser-managed recurring membership for automatic registration into future events.</span>
           </label>
 
           {seriesMembershipEnabled ? (
@@ -405,7 +408,7 @@ function EditSessionPageInner() {
           </div>
         </form>
       </div>
-    </main>
+    </AppShell>
   );
 }
 

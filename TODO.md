@@ -1,57 +1,25 @@
 # To-Do List
 
-- [ ] Execute all scenarios in `TESTING.md`, record every issue/question found, and keep a short list of things we cannot fully validate in-app (for example external email delivery and Telegram delivery).
-  - [x] Run the checklist end to end with the `@example.com` test accounts.
-  - [x] Add a TODO sub-item for each bug, regression, or product question found.
-    - [x] Bug fixed: admin `Manage organisers` now saves existing registered organisers (`john@example.com`) cleanly without the `Missing or insufficient permissions.` error.
-    - [x] Bug fixed: admin `Manage players` now keeps removed organiser private players in the inactive organiser-private section with a `Reactivate player` action instead of hiding or deleting them.
-    - [x] Rechecked in browser: player organiser-approval requests persisted across reload and appeared on the organiser dashboard for review, so this no longer reproduces in the current build.
-    - [x] Bug fixed: organiser `Create next event` now advances the event correctly after completion instead of leaving the completed `2026-04-27` event in place.
-    - [x] Product check: admin test-partition visibility for live sessions is intentionally restricted by the current test-data partition design, so no code change was applied.
-    - [x] Bug fixed: example-domain email changes now redirect back to login with a clear success notice and allow the same account to change back again without surfacing `auth/user-token-expired`.
-  - [x] Capture a short blocked-items list for checks that need external inboxes, Telegram chats, or other out-of-band verification.
-    - [ ] Blocked validation: real outbound registration, verification, password-reset, and non-`@example.com` email-change emails cannot be confirmed without access to the destination inboxes.
-    - [ ] Blocked validation: Telegram delivery to the actual chat/device cannot be fully confirmed from inside the app without access to the configured bot conversation, even though historical `notificationEvents` records show prior `sent` Telegram deliveries.
-    - [ ] Blocked validation: end-to-end organiser/player notification triggers for approval requests, registrations, removals, and payment-reference updates were not fully revalidated all the way through external delivery in this pass.
-
-- [ ] Planning backlog: major future features requested on 2026-04-22.
-  - [ ] Menu system: replace the round buttons at the top of the screen with a persistent menu system for player, organiser, and admin users. It must support shrink/expand behaviour so it remains usable on mobile screens too.
-  - [ ] For organisers, move player request approval/reject screen to a different page from dashboard.
-  - [ ] Cancellation policy: each session series should have a default cancellation policy measured in hours, defaulting to `24`.
-    - [ ] Add a configurable session-series setting where `0` hours means there is no cancellation policy and players can remove themselves at any time.
-    - [ ] Prevent players from removing themselves within the cancellation-policy window before event start time.
-    - [ ] Show players an error telling them to contact the organiser if they still need to cancel.
-    - [ ] Allow organisers to remove players after the cancellation-policy cutoff, but warn them it is already past policy time and require an explicit confirmation before the removal happens.
-  - [ ] Session-series defaults copied to events: some series settings should be copied into each event as defaults, while still remaining overrideable by the organiser per event.
-    - [ ] Casual price.
-    - [ ] Number of players.
-    - [ ] Number of waitlist spots.
-    - [ ] Event start time.
-    - [ ] Event end time.
-    - [ ] Event location.
-  - [ ] Remove a few features.
-    - [ ] Remove the ability to copy roster from the last event to a new event. Only members should be automatically registered when an event starts.
-    - [ ] Remove the ability for players to request membership. Only organisers should be able to add players to session-series membership.
-  - [ ] Onboarding instructions: build onboarding guidance for both player users and organiser users, shown by default on first login and also accessible later through the menu system.
-    - [ ] Player onboarding should explain:
-      - [ ] How to request approval from at least one organiser.
-      - [ ] What happens once approved, including how to join an active event and that organisers control when registration opens.
-      - [ ] How to enter a payment reference and that organiser confirmation is still required.
-      - [ ] How the waitlist works.
-      - [ ] How to remove or cancel a registration, including awareness of the cancellation policy.
-      - [ ] How membership works, what the benefits are, and that they should contact an organiser to become a member.
-    - [ ] Organiser onboarding should explain:
-      - [ ] Two ways to get players: share a link for self-registration, or add players manually and manage their event registrations directly.
-      - [ ] That a manually created player with the correct email address can later self-register and still be treated as the same person.
-      - [ ] How to create a session series, what each setting is for, and which settings can later be overridden at the individual-event level.
-      - [ ] How to create an event from a session series.
-      - [ ] How to register players to a session and what happens when a player self-registers.
-      - [ ] That organisers still need to announce elsewhere that an event has started and registration is open.
-      - [ ] How membership works, including that only organisers can add players as members of a session series.
-      - [ ] How registration, payment, and confirmation work.
-      - [ ] How to end an event and start a new one.
-      - [ ] How to get Telegram notifications, how to begin setup, and that they should contact `tranzha83@gmail.com` to complete the setup.
-  - [ ] Future reference only, not for current implementation: premium features.
-    - [ ] In-app payment system so players can pay in the app.
-    - [ ] Accounting system so organisers can record event costs and income, plus cashflow and balances from the beginning of time, by calendar year, and by financial year.
-    - [ ] More robust notification system so both players and organisers can receive up-to-date notifications on any changes.
+- [ ] Onboarding instructions: build onboarding guidance for both player users and organiser users, shown by default on first login and also accessible later through the menu system.
+  - [ ] Player onboarding should explain:
+    - [ ] How to request approval from at least one organiser.
+    - [ ] What happens once approved, including how to join an active event and that organisers control when registration opens.
+    - [ ] How to enter a payment reference and that organiser confirmation is still required.
+    - [ ] How the waitlist works.
+    - [ ] How to remove or cancel a registration, including awareness of the cancellation policy.
+    - [ ] How membership works, what the benefits are, and that they should contact an organiser to become a member.
+  - [ ] Organiser onboarding should explain:
+    - [ ] Two ways to get players: share a link for self-registration, or add players manually and manage their event registrations directly.
+    - [ ] That a manually created player with the correct email address can later self-register and still be treated as the same person.
+    - [ ] How to create a session series, what each setting is for, and which settings can later be overridden at the individual-event level.
+    - [ ] How to create an event from a session series.
+    - [ ] How to register players to a session and what happens when a player self-registers.
+    - [ ] That organisers still need to announce elsewhere that an event has started and registration is open.
+    - [ ] How membership works, including that only organisers can add players as members of a session series.
+    - [ ] How registration, payment, and confirmation work.
+    - [ ] How to end an event and start a new one.
+    - [ ] How to get Telegram notifications, how to begin setup, and that they should contact `tranzha83@gmail.com` to complete the setup.
+- [ ] Future reference only, not for current implementation: premium features.
+  - [ ] In-app payment system so players can pay in the app.
+  - [ ] Accounting system so organisers can record event costs and income, plus cashflow and balances from the beginning of time, by calendar year, and by financial year.
+  - [ ] More robust notification system so both players and organisers can receive up-to-date notifications on any changes.

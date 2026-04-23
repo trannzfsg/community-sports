@@ -1,10 +1,10 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
+import AppShell from "@/components/app-shell";
 import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import {
@@ -506,18 +506,13 @@ export default function AdminOrganisersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+    <AppShell role="admin" contentClassName="max-w-4xl">
+      <div className="flex w-full flex-col gap-6">
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Admin</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight">Organisers</h1>
-              <p className="mt-3 text-zinc-600">Admins create organisers first. Organisers can then self-register to set their password.</p>
-              <p className="mt-2 text-sm text-zinc-500">The organiser must register with this exact email address, otherwise the account will be treated as a normal player sign-up.</p>
-            </div>
-            <Link href="/dashboard" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Back</Link>
-          </div>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Admin</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Organisers</h1>
+          <p className="mt-3 text-zinc-600">Admins create organisers first. Organisers can then self-register to set their password.</p>
+          <p className="mt-2 text-sm text-zinc-500">The organiser must register with this exact email address, otherwise the account will be treated as a normal player sign-up.</p>
         </div>
 
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
@@ -575,6 +570,6 @@ export default function AdminOrganisersPage() {
           </div>
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

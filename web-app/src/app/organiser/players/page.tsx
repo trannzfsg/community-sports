@@ -1,7 +1,6 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -15,6 +14,7 @@ import {
   setDoc,
   where,
 } from "firebase/firestore";
+import AppShell from "@/components/app-shell";
 import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import {
@@ -246,17 +246,12 @@ export default function OrganiserPlayersPage() {
   const inactiveRegisteredPlayers = registeredPlayers.filter((player) => player.status === "inactive");
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+    <AppShell role="organiser" contentClassName="max-w-4xl">
+      <div className="flex w-full flex-col gap-6">
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Organiser</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight">Players</h1>
-              <p className="mt-3 text-zinc-600">Manage your organiser-private manual players, and review everyone who has registered for your events.</p>
-            </div>
-            <Link href="/dashboard" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Back</Link>
-          </div>
+          <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Organiser</p>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Players</h1>
+          <p className="mt-3 text-zinc-600">Manage your organiser-private manual players, and review everyone who has registered for your events.</p>
         </div>
 
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
@@ -454,6 +449,6 @@ export default function OrganiserPlayersPage() {
           </div>
         </div>
       </div>
-    </main>
+    </AppShell>
   );
 }

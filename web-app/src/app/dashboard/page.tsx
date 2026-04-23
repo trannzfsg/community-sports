@@ -17,6 +17,7 @@ import {
   where,
 } from "firebase/firestore";
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import AppShell from "@/components/app-shell";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
 import EventRegistrationRow from "@/components/event-registration-row";
 import { auth, db } from "@/lib/firebase";
@@ -27,7 +28,6 @@ import {
   getSeriesMembershipsForPlayer,
   getSeriesMembershipsForSeries,
   resolveSeriesMembershipStartDate,
-  requestSeriesMembership,
   updateSeriesMembershipSettings,
   updateSeriesMembershipSkipNextEvent,
   updateSeriesMembershipStatus,
@@ -42,7 +42,6 @@ import {
   getOrganiserApprovalRequests,
   getPlayerOrganiserApprovals,
   requestOrganiserApproval,
-  updateOrganiserApprovalStatus,
   type OrganiserApprovalRecord,
 } from "@/lib/organiser-approvals";
 import { getUsersByRole } from "@/lib/users";
@@ -52,7 +51,11 @@ import { getDashboardEventPresentation } from "@/lib/dashboard-event-state";
 import {
   buildRegistrationId,
   createSessionEventForSeries,
+  getCancellationPolicyLabel,
+  getOrganiserCancellationPolicyWarning,
+  getPlayerCancellationPolicyMessage,
   getRegistrationCapacityState,
+  isCancellationPolicyActive,
   rebalanceEventRegistrations,
   type RegistrationItem,
   type SessionEvent,
@@ -681,6 +684,29 @@ export default function DashboardPage() {
     series: SessionSeries,
     eventItem: SessionEvent,
   ) {
+    const cancellationPolicyActive = isCancellationPolicyActive({
+      eventDate: eventItem.eventDate,
+      startAt: eventItem.startAt,
+      cancellationPolicyHours: series.cancellationPolicyHours,
+    });
+
+    if (!canManageSessions && registration.userId === user?.uid && cancellationPolicyActive) {
+      alert(getPlayerCancellationPolicyMessage(series.cancellationPolicyHours));
+      return;
+    }
+
+    if (canManageSessions && cancellationPolicyActive) {
+      const confirmed = confirm(
+        getOrganiserCancellationPolicyWarning(
+          registration.playerName,
+          series.cancellationPolicyHours,
+        ),
+      );
+      if (!confirmed) {
+        return;
+      }
+    }
+
     setBusyKey(registration.id);
     try {
       await deletePaymentRecord(db, registration.id);
@@ -867,49 +893,10 @@ export default function DashboardPage() {
     }
   }
 
-  async function handleOrganiserApprovalDecision(
-    approval: OrganiserApprovalRecord,
-    status: "approved" | "rejected",
-  ) {
-    if (!user || !profile || profile.role !== "organiser") return;
-    setBusyKey(`${status}-approval-${approval.id}`);
-    try {
-      await updateOrganiserApprovalStatus(db, approval.id, status);
-      const approvals = await getOrganiserApprovalRequests(
-        db,
-        user.uid,
-        profile.dataPartition || "live",
-      );
-      setOrganiserApprovalRequests(
-        approvals.sort((a, b) => a.playerName.localeCompare(b.playerName)),
-      );
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
   const pendingApprovalsForOrganiser = organiserApprovalRequests
     .filter((approval) => approval.status === "pending");
   const approvedApprovalsForPlayer = playerOrganiserApprovals
     .filter((approval) => approval.status === "approved");
-
-  async function handleRequestSeriesMembership(series: SessionSeries) {
-    if (!user || !profile) return;
-    setBusyKey(`request-membership-${series.id}`);
-    try {
-      await requestSeriesMembership(db, {
-        seriesId: series.id,
-        organiserId: series.organiserId,
-        playerId: user.uid,
-        playerName: profile.displayName || user.email || "Player",
-        playerEmail: user.email || "",
-        dataPartition: profile.dataPartition || "live",
-      });
-      await refreshMembershipData();
-    } finally {
-      setBusyKey(null);
-    }
-  }
 
   function handleMembershipDraftChange(
     membershipId: string,
@@ -1002,61 +989,39 @@ export default function DashboardPage() {
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+    <AppShell role={profile?.role ?? "player"} contentClassName="max-w-6xl">
+      <div className="flex w-full flex-col gap-6">
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Dashboard</p>
-              <h1 className="text-3xl font-semibold tracking-tight">Welcome {profile?.displayName || user?.email}</h1>
-              <p className="mt-3 text-zinc-600">Role: <strong>{profile?.role ?? "player"}</strong></p>
+          <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Dashboard</p>
+          <h1 className="text-3xl font-semibold tracking-tight">Welcome {profile?.displayName || user?.email}</h1>
+          <p className="mt-3 text-zinc-600">Role: <strong>{profile?.role ?? "player"}</strong></p>
+          {profile?.role === "organiser" ? (
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <span className="rounded-full bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800">
+                Pending player approvals: {pendingApprovalsForOrganiser.length}
+              </span>
+              <Link href="/organiser/approvals" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">
+                Open approvals page
+              </Link>
             </div>
-            <div className="flex flex-wrap gap-3">
-              <Link href="/profile" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Profile</Link>
-              {profile?.role === "admin" ? <Link href="/admin/organisers" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Organisers</Link> : null}
-              {profile?.role === "admin" ? <Link href="/admin/players" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Players</Link> : null}
-              {profile?.role === "organiser" ? <Link href="/organiser/players" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Manage players</Link> : null}
-              {canManageSessions ? <Link href="/sessions/new" className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white hover:bg-zinc-700">Create session series</Link> : null}
-              <Link href="/logout" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">Sign out</Link>
+          ) : null}
+          {canManageSessions ? (
+            <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+              Session management actions now live in the persistent menu, with a quick create button available from every page.
             </div>
-          </div>
+          ) : null}
         </div>
 
         {profile?.role === "organiser" ? (
-          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="organiser-approval-requests">
-            <h2 className="text-xl font-semibold">Player approval requests</h2>
-            <p className="mt-2 text-sm text-zinc-600">Approve players before they can view or register for your events.</p>
-            <div className="mt-4 space-y-3">
-              {pendingApprovalsForOrganiser.length ? pendingApprovalsForOrganiser.map((approval) => (
-                <div key={approval.id} className="rounded-2xl border border-zinc-200 p-4" data-testid={`organiser-approval-request-${approval.id}`}>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <div className="font-medium text-zinc-900">{approval.playerName}</div>
-                      <div className="text-sm text-zinc-500">{approval.playerEmail}</div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void handleOrganiserApprovalDecision(approval, "approved")}
-                        disabled={busyKey === `approved-approval-${approval.id}`}
-                        data-testid={`approve-organiser-approval-${approval.id}`}
-                        className="rounded-full border border-emerald-300 px-4 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {busyKey === `approved-approval-${approval.id}` ? "Approving..." : "Approve"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleOrganiserApprovalDecision(approval, "rejected")}
-                        disabled={busyKey === `rejected-approval-${approval.id}`}
-                        data-testid={`reject-organiser-approval-${approval.id}`}
-                        className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {busyKey === `rejected-approval-${approval.id}` ? "Rejecting..." : "Reject"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )) : <div className="text-sm text-zinc-500">No pending approval requests.</div>}
+          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+            <h2 className="text-xl font-semibold">Approvals moved out of the dashboard</h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              Review player access requests on the dedicated approvals page so the dashboard stays focused on series and event operations.
+            </p>
+            <div className="mt-4">
+              <Link href="/organiser/approvals" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">
+                Go to approvals
+              </Link>
             </div>
           </div>
         ) : null}
@@ -1116,6 +1081,14 @@ export default function DashboardPage() {
               const nextEvent = events.find((event) => event.eventDate === series.nextGameOn) ?? events.at(-1);
               const registrations = nextEvent ? registrationsByEvent[nextEvent.id] ?? [] : [];
               const currentRegistration = nextEvent ? registrations.find((registration) => registration.userId === user?.uid) : undefined;
+              const selfRemovalBlocked = !!nextEvent
+                && !!currentRegistration
+                && !canManageSessions
+                && isCancellationPolicyActive({
+                  eventDate: nextEvent.eventDate,
+                  startAt: nextEvent.startAt,
+                  cancellationPolicyHours: series.cancellationPolicyHours,
+                });
               const showStartsFrom = profile?.role !== "player";
               const visiblePlayersForSeries = playerDirectory.filter(
                 (player) => {
@@ -1197,7 +1170,7 @@ export default function DashboardPage() {
                         <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">{series.status}</span>
                       </div>
                       <h2 className="text-xl font-semibold">{series.title}</h2>
-                      <p className="mt-2 text-sm text-zinc-600">{series.location}</p>
+                      <p className="mt-2 text-sm text-zinc-600">Series default location: {series.location}</p>
                       <p className="mt-1 text-sm text-zinc-500">Organiser: {series.organiserName || "Organiser"}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -1214,11 +1187,12 @@ export default function DashboardPage() {
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-zinc-700">
                     <div><dt className="text-zinc-500">Day</dt><dd>{series.dayOfWeek}</dd></div>
                     <div><dt className="text-zinc-500">Next game on</dt><dd>{getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn)}</dd></div>
-                    <div><dt className="text-zinc-500">Time</dt><dd>{series.startAt} - {series.endAt}</dd></div>
+                    <div><dt className="text-zinc-500">Series time</dt><dd>{series.startAt} - {series.endAt}</dd></div>
                     {showStartsFrom ? <div><dt className="text-zinc-500">Starts from</dt><dd>{series.firstSessionOn}</dd></div> : null}
-                    <div><dt className="text-zinc-500">Casual price</dt><dd>${series.defaultPriceCasual}</dd></div>
+                    <div><dt className="text-zinc-500">Series casual price</dt><dd>${series.defaultPriceCasual}</dd></div>
                     <div><dt className="text-zinc-500">Series capacity</dt><dd>{series.capacity}</dd></div>
-                    <div><dt className="text-zinc-500">Waiting list</dt><dd>{waitingListCapacity}</dd></div>
+                    <div><dt className="text-zinc-500">Series waiting list</dt><dd>{series.waitingListCapacity || 0}</dd></div>
+                    <div><dt className="text-zinc-500">Cancellation policy</dt><dd>{getCancellationPolicyLabel(series.cancellationPolicyHours)}</dd></div>
                   </dl>
 
                   {showSeriesMembershipPanel ? (
@@ -1239,22 +1213,10 @@ export default function DashboardPage() {
                             </p>
                           ) : null}
                         </div>
-                        {profile?.role === "player" ? (
-                          currentSeriesMembership ? (
-                            <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700" data-testid={`series-membership-status-${series.id}`}>
-                              {currentSeriesMembership.status}
-                            </span>
-                          ) : series.seriesMembershipEnabled ? (
-                            <button
-                              type="button"
-                              onClick={() => void handleRequestSeriesMembership(series)}
-                              disabled={busyKey === `request-membership-${series.id}`}
-                              data-testid={`request-series-membership-${series.id}`}
-                              className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                            >
-                              {busyKey === `request-membership-${series.id}` ? "Requesting..." : "Request membership"}
-                            </button>
-                          ) : null
+                        {profile?.role === "player" && currentSeriesMembership ? (
+                          <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700" data-testid={`series-membership-status-${series.id}`}>
+                            {currentSeriesMembership.status}
+                          </span>
                         ) : null}
                       </div>
 
@@ -1317,24 +1279,13 @@ export default function DashboardPage() {
                                   Cancel membership
                                 </button>
                               ) : null}
-                              {(currentSeriesMembership.status === "rejected" || currentSeriesMembership.status === "cancelled") && series.seriesMembershipEnabled ? (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleRequestSeriesMembership(series)}
-                                  disabled={busyKey === `request-membership-${series.id}`}
-                                  data-testid={`request-series-membership-${series.id}`}
-                                  className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  Request again
-                                </button>
-                              ) : null}
                             </div>
                           </div>
                         ) : (
                           <div className="mt-3 text-sm text-zinc-500">
                             {series.seriesMembershipEnabled
-                              ? "Request membership if you want the organiser to add you automatically to future events in this series."
-                              : "This series is not accepting new membership requests right now."}
+                              ? "Contact the organiser if you want to be added as a recurring member for future events in this series."
+                              : "Recurring membership is currently disabled for this series."}
                           </div>
                         )
                       ) : null}
@@ -1495,11 +1446,20 @@ export default function DashboardPage() {
 
                     {nextEvent ? (
                       <>
+                        <dl className="mt-4 grid gap-3 text-sm text-zinc-700 sm:grid-cols-2 xl:grid-cols-4">
+                          <div><dt className="text-zinc-500">Event location</dt><dd>{nextEvent.location}</dd></div>
+                          <div><dt className="text-zinc-500">Event time</dt><dd>{nextEvent.startAt} - {nextEvent.endAt}</dd></div>
+                          <div><dt className="text-zinc-500">Event casual price</dt><dd>${nextEvent.defaultPriceCasual}</dd></div>
+                          <div><dt className="text-zinc-500">Event waiting list</dt><dd>{nextEvent.waitingListCapacity ?? 0}</dd></div>
+                        </dl>
                         <div className="mt-4 flex items-center justify-between gap-3">
                           <h4 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Registrations for {nextEvent.eventDate}</h4>
                           {!canManageSessions ? (
                             currentRegistration ? (
-                              <button type="button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Leave event</button>
+                              <div className="flex flex-col items-start gap-2">
+                                <button type="button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{selfRemovalBlocked ? "Contact organiser to cancel" : "Leave event"}</button>
+                                {selfRemovalBlocked ? <div className="text-xs text-amber-700">{getPlayerCancellationPolicyMessage(series.cancellationPolicyHours)}</div> : null}
+                              </div>
                             ) : (
                               <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || !playerCanJoin} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">{eventIsFull ? "Join waiting list" : "Register"}</button>
                             )
@@ -1558,7 +1518,7 @@ export default function DashboardPage() {
                                     {canManageSessions || isOwnRegistration ? (
                                       <div className="flex flex-wrap items-center gap-2">
                                         {canManageSessions && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? "Undo confirm" : "Confirm"}</button> : null}
-                                        <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button>
+                                        <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions && selfRemovalBlocked ? "Contact organiser" : isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button>
                                       </div>
                                     ) : null}
                                   </EventRegistrationRow>
@@ -1577,6 +1537,6 @@ export default function DashboardPage() {
           )}
         </section>
       </div>
-    </main>
+    </AppShell>
   );
 }
