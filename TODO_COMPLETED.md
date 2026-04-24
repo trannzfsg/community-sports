@@ -1,5 +1,12 @@
 # To-Do List - Completed tasks
 
+- [x] Implement the recent testing follow-ups: add stable QA selectors, add a reusable QA reset helper, wire the browser regression into npm, then verify, merge to `main`, and deploy.
+  - [x] Added stable test hooks for the onboarding, menu, approvals, and series-card flows.
+  - [x] Added a reusable QA reset/setup helper for onboarding versions and organiser approvals, limited to `@example.com` fixtures.
+  - [x] Added `npm` scripts for the recent-features browser regression flow and QA reset helper.
+  - [x] Re-ran automated checks plus browser validation for the updated flow.
+  - [x] Prepared the release commit for merge to `main` and deployment.
+
 - [x] Run full validation across the latest completed features, update the testing reference document, and fix any bugs found.
   - [x] Reviewed the latest completed features and compared them against the current testing documentation.
   - [x] Executed browser-based testing for the most recent completed feature set, covering the persistent menu, onboarding, organiser approvals page, cancellation policy, event overrides, and organiser-managed memberships.

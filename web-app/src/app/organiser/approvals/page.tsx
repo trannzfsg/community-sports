@@ -109,7 +109,7 @@ export default function OrganiserApprovalsPage() {
 
   return (
     <AppShell role="organiser" contentClassName="max-w-5xl">
-      <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+      <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="organiser-approvals-page">
         <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Organiser approvals</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">Player approval requests</h1>
         <p className="mt-3 text-zinc-600">
@@ -176,7 +176,7 @@ export default function OrganiserApprovalsPage() {
         </div>
       </div>
 
-      <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+      <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="organiser-reviewed-approvals">
         <h2 className="text-xl font-semibold">Recently reviewed</h2>
         <p className="mt-2 text-sm text-zinc-600">
           This is a quick history of the decisions you have already made.

@@ -38,9 +38,10 @@ export default function EventRegistrationRow({
 
   return (
     <details
+      data-testid={`event-registration-row-${registration.userId}`}
       className={`rounded-lg bg-white px-2 py-1.5 ring-1 ${isOwnRegistration ? "bg-blue-50/30 ring-blue-300" : "ring-zinc-200"}`}
     >
-      <summary className="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+      <summary className="list-none cursor-pointer [&::-webkit-details-marker]:hidden" data-testid="event-registration-row-summary">
         <div className="flex items-center gap-1.5">
           <div className="min-w-0 flex-1 truncate text-[13px] font-medium leading-none text-zinc-900">
             {registration.playerName}
@@ -61,7 +62,7 @@ export default function EventRegistrationRow({
         </div>
       </summary>
 
-      <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2 text-[11px] text-zinc-500">
+      <div className="mt-2 space-y-1 border-t border-zinc-200 pt-2 text-[11px] text-zinc-500" data-testid="event-registration-row-details">
         <div>Email: {registration.playerEmail || "Manually added player"}</div>
         <div>Status: {isWaiting ? "Waiting list" : "Registered"}</div>
         {!isWaiting ? <div>Confirmation: {getConfirmationStatusLabel(registration)}</div> : null}

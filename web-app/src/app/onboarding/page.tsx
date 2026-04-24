@@ -123,7 +123,7 @@ function OnboardingPageInner() {
 
   return (
     <AppShell role={profile.role} contentClassName="max-w-4xl">
-      <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+      <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="onboarding-page">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">{onboardingContent.badge}</p>
@@ -135,7 +135,7 @@ function OnboardingPageInner() {
           </span>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
+        <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600" data-testid="onboarding-status-message">
           {onboardingIsRequired
             ? "Please review this onboarding once for your current role. Future onboarding updates will reopen automatically when the version changes."
             : "You are viewing the current onboarding guide for your role. Use the menu item any time you want to review it again."}
@@ -168,6 +168,7 @@ function OnboardingPageInner() {
             type="button"
             onClick={() => void handleAcknowledge()}
             disabled={busy}
+            data-testid="onboarding-primary-action"
             className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {busy ? "Saving..." : onboardingIsRequired ? "Finish onboarding" : "Back to dashboard"}
@@ -175,6 +176,7 @@ function OnboardingPageInner() {
           {!onboardingIsRequired ? (
             <Link
               href={returnTo}
+              data-testid="onboarding-secondary-action"
               className="rounded-full border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100"
             >
               Close

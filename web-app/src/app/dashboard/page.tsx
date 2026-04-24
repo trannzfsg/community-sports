@@ -1010,7 +1010,7 @@ export default function DashboardPage() {
               <span className="rounded-full bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800">
                 Pending player approvals: {pendingApprovalsForOrganiser.length}
               </span>
-              <Link href="/organiser/approvals" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">
+              <Link href="/organiser/approvals" data-testid="dashboard-open-approvals-page" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">
                 Open approvals page
               </Link>
             </div>
@@ -1023,7 +1023,7 @@ export default function DashboardPage() {
         </div>
 
         {profile?.role === "organiser" ? (
-          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
+          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="dashboard-organiser-approvals-summary">
             <h2 className="text-xl font-semibold">Approvals moved out of the dashboard</h2>
             <p className="mt-2 text-sm text-zinc-600">
               Review player access requests on the dedicated approvals page so the dashboard stays focused on series and event operations.
@@ -1184,10 +1184,10 @@ export default function DashboardPage() {
                       <p className="mt-1 text-sm text-zinc-500">Organiser: {series.organiserName || "Organiser"}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      <Link href={`/sessions/view?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">View all events</Link>
+                      <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">View all events</Link>
                       {canManageSessions ? (
                         <>
-                          <Link href={`/sessions/edit?id=${series.id}`} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link>
+                          <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link>
                           <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-full border border-red-400 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
                         </>
                       ) : null}
@@ -1434,7 +1434,7 @@ export default function DashboardPage() {
                     </div>
                   ) : null}
 
-                  <div className={`mt-4 rounded-2xl p-4 ring-1 ${eventCardClass}`}>
+                  <div className={`mt-4 rounded-2xl p-4 ring-1 ${eventCardClass}`} data-testid="series-next-event-panel">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
@@ -1446,11 +1446,11 @@ export default function DashboardPage() {
                         <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-medium text-zinc-700">{eventStateText}</span>
                         {canManageSessions && nextEvent && nextEvent.status !== "completed" && nextEvent.status !== "cancelled" ? (
                           <>
-                            <button type="button" onClick={() => handleSetEventStatus(series, nextEvent, "completed")} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Mark completed</button>
+                            <button type="button" data-testid="series-mark-completed-button" onClick={() => handleSetEventStatus(series, nextEvent, "completed")} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Mark completed</button>
                             <button type="button" onClick={() => handleSetEventStatus(series, nextEvent, "cancelled")} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Mark cancelled</button>
                           </>
                         ) : null}
-                        {canManageSessions && !nextEventIsOpen ? <button type="button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                        {canManageSessions && !nextEventIsOpen ? <button type="button" data-testid="series-create-next-event-button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-full border border-zinc-300 bg-white px-4 py-2 text-xs font-medium hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
                       </div>
                     </div>
 
@@ -1467,11 +1467,11 @@ export default function DashboardPage() {
                           {!canManageSessions ? (
                             currentRegistration ? (
                               <div className="flex flex-col items-start gap-2">
-                                <button type="button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{selfRemovalBlocked ? "Contact organiser to cancel" : "Leave event"}</button>
+                                <button type="button" data-testid="series-self-remove-button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{selfRemovalBlocked ? "Contact organiser to cancel" : "Leave event"}</button>
                                 {selfRemovalBlocked ? <div className="text-xs text-amber-700">{getPlayerCancellationPolicyMessage(series.cancellationPolicyHours)}</div> : null}
                               </div>
                             ) : (
-                              <button type="button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || !playerCanJoin} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">{eventIsFull ? "Join waiting list" : "Register"}</button>
+                              <button type="button" data-testid="series-register-button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || !playerCanJoin} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">{eventIsFull ? "Join waiting list" : "Register"}</button>
                             )
                           ) : null}
                         </div>

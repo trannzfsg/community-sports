@@ -1,50 +1,23 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import {
+  fetchUserContext,
+  fetchUserProfile,
+  loadFirebaseQaConfig,
+  resetOnboardingVersions,
+  setOrganiserApprovalStatus,
+} from "./qa-state-utils.mjs";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const webAppDir = path.resolve(__dirname, "..");
-const repoRoot = path.resolve(webAppDir, "..");
 const baseUrl = process.env.BASE_URL || "http://127.0.0.1:3001";
-
-function readEnvFile(filePath) {
-  if (!fs.existsSync(filePath)) {
-    return {};
-  }
-
-  return Object.fromEntries(
-    fs.readFileSync(filePath, "utf8")
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line && !line.startsWith("#") && line.includes("="))
-      .map((line) => {
-        const separatorIndex = line.indexOf("=");
-        return [line.slice(0, separatorIndex), line.slice(separatorIndex + 1)];
-      }),
-  );
-}
-
-const appEnv = readEnvFile(path.join(webAppDir, ".env.local"));
-const testEnv = readEnvFile(path.join(repoRoot, ".env.test.local"));
-
-const projectId = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || appEnv.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
-const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY || appEnv.NEXT_PUBLIC_FIREBASE_API_KEY;
-
-const adminEmail = process.env.ADMIN_TEST_EMAIL || testEnv.ADMIN_TEST_EMAIL;
-const adminPassword = process.env.ADMIN_TEST_PASSWORD || testEnv.ADMIN_TEST_PASSWORD;
-const organiserEmail = process.env.ORGANISER_TEST_EMAIL || testEnv.ORGANISER_TEST_EMAIL;
-const organiserPassword = process.env.ORGANISER_TEST_PASSWORD || testEnv.ORGANISER_TEST_PASSWORD;
-
-if (!projectId || !apiKey || !adminEmail || !adminPassword || !organiserEmail || !organiserPassword) {
-  throw new Error("Missing Firebase or test-account configuration in .env.local / .env.test.local.");
-}
+const config = loadFirebaseQaConfig();
+const adminEmail = config.adminEmail;
+const adminPassword = config.adminPassword;
+const organiserEmail = config.organiserEmail;
+const organiserPassword = config.organiserPassword;
+const playerEmail = process.env.RECENT_FEATURES_PLAYER_EMAIL || config.playerEmail;
+const playerPassword = process.env.RECENT_FEATURES_PLAYER_PASSWORD || config.playerPassword;
+const playerName = process.env.RECENT_FEATURES_PLAYER_NAME || "Primary Player";
 
 const stamp = Date.now();
-const playerName = `Recent Features ${stamp}`;
-const playerEmail = `recent-features-${stamp}@example.com`;
-const playerPassword = "testtest1234";
 const seriesTitle = `QA Recent Features ${stamp}`;
 const initialSeriesLocation = `QA Court Alpha ${stamp}`;
 const overrideLocation = `QA Event Override ${stamp}`;
@@ -86,49 +59,7 @@ function escapeRegExp(value) {
 }
 
 async function signInWithPassword(email, password) {
-  const response = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        email,
-        password,
-        returnSecureToken: true,
-      }),
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(`Firebase sign-in failed for ${email}: ${await response.text()}`);
-  }
-
-  return response.json();
-}
-
-async function patchOnboardingVersion(email, password, value) {
-  const authRecord = await signInWithPassword(email, password);
-  const endpoint = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/users/${authRecord.localId}?updateMask.fieldPaths=onboardingSeenVersions`;
-  const response = await fetch(endpoint, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${authRecord.idToken}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      fields: {
-        onboardingSeenVersions: {
-          mapValue: {
-            fields: value,
-          },
-        },
-      },
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to patch onboarding state for ${email}: ${await response.text()}`);
-  }
+  return fetchUserContext(config, email, password, `${email} regression account`);
 }
 
 async function ensureSignedOut(page) {
@@ -145,6 +76,20 @@ async function attemptLogin(page, email, password) {
 
 async function expectPath(page, matcher, timeout = 30_000) {
   await page.waitForURL(matcher, { timeout });
+}
+
+async function waitForTestIdState(page, testId, expectedState, timeout = 15_000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeout) {
+    const currentState = await page.getByTestId(testId).getAttribute("data-state");
+    if (currentState === expectedState) {
+      return;
+    }
+    await page.waitForTimeout(150);
+  }
+
+  throw new Error(`Timed out waiting for ${testId} to reach state "${expectedState}".`);
 }
 
 async function finishOnboardingIfShown(page) {
@@ -175,50 +120,29 @@ async function loginExpectingDashboardOrOnboarding(page, email, password) {
   }
 }
 
-async function registerFreshPlayer(page) {
-  await ensureSignedOut(page);
-  await page.getByRole("button", { name: "Need an account? Register" }).click();
-  await page.locator('input[placeholder="Your name"]').fill(playerName);
-  await page.locator('input[type="email"]').fill(playerEmail);
-  await page.locator('input[type="password"]').fill(playerPassword);
-  await page.getByRole("button", { name: "Create account" }).click();
-  await page.waitForURL(/\/(dashboard|onboarding)(?:\?|$)/, { timeout: 30_000 });
-  await Promise.race([
-    page.waitForURL(/\/onboarding(?:\?|$)/, { timeout: 30_000 }),
-    page.locator("h1").filter({ hasText: /How player access and registrations work/i }).waitFor({ state: "visible", timeout: 30_000 }),
-  ]);
-  assert(/\/onboarding(?:\?|$)/.test(page.url()), "Fresh player should be redirected into onboarding.");
-  await page.getByText("Future onboarding updates will reopen automatically when the version changes.").waitFor({
-    state: "visible",
-    timeout: 30_000,
-  });
-  await page.getByRole("button", { name: "Finish onboarding" }).click();
-  await expectPath(page, /\/dashboard(?:\?|$)/);
-  await page.getByRole("heading", { name: /^Welcome / }).waitFor({ state: "visible", timeout: 30_000 });
-}
-
 async function openOnboardingFromMenu(page, isMobile = false) {
   if (isMobile) {
-    await page.getByRole("button", { name: "Menu" }).click();
+    await page.getByTestId("app-shell-mobile-toggle").click();
+    await page.getByTestId("app-shell-nav-mobile-onboarding").click();
+  } else {
+    await page.getByTestId("app-shell-nav-desktop-onboarding").click();
   }
-  await page.getByRole("link", { name: /Onboarding/i }).first().click();
   await expectPath(page, /\/onboarding(?:\?|$)/);
 }
 
 async function assertNoOnboardingLink(page) {
   await page.getByRole("heading", { name: /^Welcome / }).waitFor({ state: "visible", timeout: 30_000 });
-  assert(await page.getByRole("link", { name: /Onboarding/i }).count() === 0, "Admin menu should not show onboarding.");
+  assert(await page.getByTestId(/app-shell-nav-(desktop|mobile)-onboarding/).count() === 0, "Admin menu should not show onboarding.");
 }
 
 async function collapseDesktopMenuAndVerifyPersistence(page) {
-  const collapseButton = page.getByRole("button", { name: "Collapse menu" });
-  await collapseButton.click();
-  await page.getByRole("button", { name: "Expand menu" }).waitFor({ state: "visible", timeout: 15_000 });
+  const toggleButton = page.getByTestId("app-shell-desktop-toggle");
+  await toggleButton.click();
+  await waitForTestIdState(page, "app-shell-desktop-sidebar", "collapsed");
   await page.reload({ waitUntil: "load" });
-  const expandButton = page.getByRole("button", { name: "Expand menu" });
-  await expandButton.waitFor({ state: "visible", timeout: 15_000 });
-  await expandButton.click();
-  await page.getByRole("button", { name: "Collapse menu" }).waitFor({ state: "visible", timeout: 15_000 });
+  await waitForTestIdState(page, "app-shell-desktop-sidebar", "collapsed");
+  await toggleButton.click();
+  await waitForTestIdState(page, "app-shell-desktop-sidebar", "expanded");
 }
 
 async function assertNoRosterCopyControls(page) {
@@ -232,7 +156,7 @@ async function pickTodayForField(page, labelText) {
 }
 
 async function createSeries(page) {
-  await page.getByRole("link", { name: "Create session series" }).click();
+  await page.getByTestId("app-shell-create-series-desktop").click();
   await expectPath(page, /\/sessions\/new(?:\?|$)/);
   await page.getByRole("heading", { name: "Create a session series" }).waitFor({ state: "visible", timeout: 30_000 });
   await assertNoRosterCopyControls(page);
@@ -272,7 +196,7 @@ async function getSeriesCard(page, title) {
 
 async function openEventHistory(page) {
   const seriesCard = await getSeriesCard(page, seriesTitle);
-  await seriesCard.getByRole("link", { name: "View all events" }).click();
+  await seriesCard.getByTestId("series-view-events-link").click();
   await expectPath(page, /\/sessions\/view\?id=/);
   await page.getByRole("heading", { name: seriesTitle }).waitFor({ state: "visible", timeout: 30_000 });
 }
@@ -296,7 +220,7 @@ async function editCurrentEventOverrides(page) {
 
 async function editSeriesDefaults(page) {
   const seriesCard = await getSeriesCard(page, seriesTitle);
-  await seriesCard.getByRole("link", { name: "Edit series" }).click();
+  await seriesCard.getByTestId("series-edit-link").click();
   await expectPath(page, /\/sessions\/edit\?id=/);
   await page.getByRole("heading", { name: /Edit session series/i }).waitFor({ state: "visible", timeout: 30_000 });
   await assertNoRosterCopyControls(page);
@@ -325,9 +249,9 @@ async function requestOrganiserApproval(page) {
 }
 
 async function approveOrganiserRequest(page) {
-  await page.getByRole("link", { name: /Approvals/i }).first().click();
+  await page.getByTestId("app-shell-nav-desktop-approvals").click();
   await expectPath(page, /\/organiser\/approvals(?:\?|$)/);
-  await page.getByRole("heading", { name: "Player approval requests" }).waitFor({ state: "visible", timeout: 30_000 });
+  await page.getByTestId("organiser-approvals-page").waitFor({ state: "visible", timeout: 30_000 });
   const pendingCard = page.locator('[data-testid^="organiser-approval-request-"]').filter({
     hasText: new RegExp(escapeRegExp(playerEmail), "i"),
   }).first();
@@ -349,8 +273,8 @@ async function verifyPlayerPostApprovalState(page) {
 
 async function registerForEvent(page) {
   const seriesCard = await getSeriesCard(page, seriesTitle);
-  await seriesCard.getByRole("button", { name: "Register" }).click();
-  await seriesCard.getByRole("button", { name: "Contact organiser to cancel" }).waitFor({ state: "visible", timeout: 30_000 });
+  await seriesCard.getByTestId("series-register-button").click();
+  await seriesCard.getByTestId("series-self-remove-button").waitFor({ state: "visible", timeout: 30_000 });
   await seriesCard.getByText(/Please contact the organiser if you still need to cancel\./i).waitFor({
     state: "visible",
     timeout: 30_000,
@@ -364,7 +288,7 @@ async function verifyPlayerCancellationBlocked(page) {
     dialogMessage = dialog.message();
     await dialog.accept();
   });
-  await seriesCard.getByRole("button", { name: "Contact organiser to cancel" }).click();
+  await seriesCard.getByTestId("series-self-remove-button").click();
   await page.waitForTimeout(500);
   assert(
     /inside the 72-hour cancellation window/i.test(dialogMessage),
@@ -372,11 +296,11 @@ async function verifyPlayerCancellationBlocked(page) {
   );
 }
 
-async function organiserRemovesPlayer(page) {
+async function organiserRemovesPlayer(page, playerUid) {
   const seriesCard = await getSeriesCard(page, seriesTitle);
-  const playerRow = seriesCard.locator("details").filter({ hasText: new RegExp(escapeRegExp(playerEmail), "i") }).first();
+  const playerRow = seriesCard.getByTestId(`event-registration-row-${playerUid}`);
   await playerRow.waitFor({ state: "visible", timeout: 30_000 });
-  await playerRow.locator("summary").click();
+  await playerRow.getByTestId("event-registration-row-summary").click();
   await playerRow.getByText(new RegExp(`Email:\\s*${escapeRegExp(playerEmail)}`, "i")).waitFor({ state: "visible", timeout: 15_000 });
   let dialogMessage = "";
   page.once("dialog", async (dialog) => {
@@ -394,9 +318,10 @@ async function organiserRemovesPlayer(page) {
 
 async function completeCurrentEventAndCreateNext(page) {
   const seriesCard = await getSeriesCard(page, seriesTitle);
-  await seriesCard.getByRole("button", { name: "Mark completed" }).click();
-  await seriesCard.getByRole("button", { name: "Create next event" }).waitFor({ state: "visible", timeout: 30_000 });
-  await seriesCard.getByRole("button", { name: "Create next event" }).click();
+  const nextEventPanel = seriesCard.getByTestId("series-next-event-panel");
+  await nextEventPanel.getByTestId("series-mark-completed-button").click();
+  await nextEventPanel.getByTestId("series-create-next-event-button").waitFor({ state: "visible", timeout: 30_000 });
+  await nextEventPanel.getByTestId("series-create-next-event-button").click();
   await seriesCard.getByText(`Event location${updatedSeriesLocation}`).waitFor({ state: "visible", timeout: 30_000 }).catch(async () => {
     await seriesCard.getByText(updatedSeriesLocation).waitFor({ state: "visible", timeout: 30_000 });
   });
@@ -428,7 +353,22 @@ async function withContext(browser, options, task) {
 }
 
 async function main() {
-  await patchOnboardingVersion(organiserEmail, organiserPassword, {});
+  const adminContext = await fetchUserContext(config, adminEmail, adminPassword, "Admin QA account");
+  const organiserContext = await signInWithPassword(organiserEmail, organiserPassword);
+  const playerContext = await signInWithPassword(playerEmail, playerPassword);
+  const organiserProfile = await fetchUserProfile(config, adminContext.idToken, organiserContext.uid);
+  const playerProfile = await fetchUserProfile(config, adminContext.idToken, playerContext.uid);
+
+  await resetOnboardingVersions(config, adminContext.idToken, organiserContext.uid);
+  await resetOnboardingVersions(config, adminContext.idToken, playerContext.uid);
+  await setOrganiserApprovalStatus(config, adminContext.idToken, {
+    organiserUid: organiserContext.uid,
+    organiserName: organiserProfile?.displayName || organiserProfile?.email || organiserEmail,
+    playerUid: playerContext.uid,
+    playerName: playerProfile?.displayName || playerProfile?.email || playerName,
+    playerEmail: playerProfile?.email || playerEmail,
+    status: "none",
+  });
 
   const browser = await chromium.launch({ headless: true });
   const summary = {
@@ -452,17 +392,17 @@ async function main() {
     });
 
     await withContext(browser, { viewport: { width: 390, height: 844 } }, async (page) => {
-      await registerFreshPlayer(page);
-      await page.getByRole("button", { name: "Menu" }).click();
-      await page.getByRole("link", { name: /Onboarding/i }).first().waitFor({ state: "visible", timeout: 15_000 });
-      await page.getByRole("button", { name: "Close", exact: true }).click();
+      await loginExpectingDashboardOrOnboarding(page, playerEmail, playerPassword);
+      await page.getByTestId("app-shell-mobile-toggle").click();
+      await page.getByTestId("app-shell-nav-mobile-onboarding").waitFor({ state: "visible", timeout: 15_000 });
+      await page.getByTestId("app-shell-mobile-close").click();
       await requestOrganiserApproval(page);
     });
 
     await withContext(browser, { viewport: { width: 1440, height: 1200 } }, async (page) => {
       await loginExpectingDashboardOrOnboarding(page, organiserEmail, organiserPassword);
       await approveOrganiserRequest(page);
-      await page.getByRole("link", { name: /Dashboard/i }).first().click();
+      await page.getByTestId("app-shell-nav-desktop-dashboard").click();
       await expectPath(page, /\/dashboard(?:\?|$)/);
       await page.getByRole("heading", { name: /^Welcome / }).waitFor({ state: "visible", timeout: 30_000 });
     });
@@ -479,7 +419,7 @@ async function main() {
 
     await withContext(browser, { viewport: { width: 1440, height: 1200 } }, async (page) => {
       await loginExpectingDashboardOrOnboarding(page, organiserEmail, organiserPassword);
-      await organiserRemovesPlayer(page);
+      await organiserRemovesPlayer(page, playerContext.uid);
       await completeCurrentEventAndCreateNext(page);
       await verifyEventHistoryAudit(page);
     });

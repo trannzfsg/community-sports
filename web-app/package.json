@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "node --test --experimental-strip-types --experimental-specifier-resolution=node tests/**/*.test.ts",
-    "test:member-benefits-smoke": "node scripts/member-benefits-smoke.mjs"
+    "test:member-benefits-smoke": "node scripts/member-benefits-smoke.mjs",
+    "test:recent-features": "node scripts/recent-features-regression.mjs",
+    "test:reset-qa-state": "node scripts/reset-qa-state.mjs"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
