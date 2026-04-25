@@ -938,7 +938,8 @@ export default function DashboardPage() {
           ) : seriesList.filter((series) => series.status !== "inactive").length ? (
             seriesList.filter((series) => series.status !== "inactive").map((series) => {
               const events = eventsBySeries[series.id] ?? [];
-              const nextEvent = events.find((event) => event.eventDate === series.nextGameOn) ?? events.at(-1);
+              const dashboardEvents = events.filter((event) => (event.status || "active") === "active");
+              const nextEvent = dashboardEvents.find((event) => event.eventDate === series.nextGameOn) ?? dashboardEvents.at(-1);
               const registrations = nextEvent ? registrationsByEvent[nextEvent.id] ?? [] : [];
               const currentRegistration = nextEvent ? registrations.find((registration) => registration.userId === user?.uid) : undefined;
               const selfRemovalBlocked = !!nextEvent
@@ -1026,6 +1027,7 @@ export default function DashboardPage() {
                       </button>
                       {openActionsSeriesId === series.id ? (
                         <div className="absolute right-0 z-10 mt-2 grid w-48 gap-1 rounded-2xl border border-zinc-200 bg-white p-2 text-sm shadow-lg">
+                          {canManageSessions && !nextEventIsOpen ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
                           {canManageSessions && nextEvent ? (
                             <button type="button" data-testid="series-edit-event-button" onClick={() => handleEventEditStart(nextEvent)} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100">
                               Edit event
@@ -1041,7 +1043,6 @@ export default function DashboardPage() {
                             <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit series</Link>
                           ) : null}
                           <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">View all events</Link>
-                          {canManageSessions && !nextEventIsOpen ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
                           {canManageSessions ? (
                             <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleDeleteSeries(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
                           ) : null}
