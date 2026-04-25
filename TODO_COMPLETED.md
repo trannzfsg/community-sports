@@ -223,6 +223,13 @@
 - [x] Organisers should be able to edit the skill level of manually added players.
 - [x] Organiser manually added players should also have a user/player entry saved for future selection, even though they cannot log in.
 - [x] Skill level should be displayed in the event player list, visible only to organisers for now.
+- [x] Simplify organiser dashboard event UI and move member management
+  - [x] Merge series and active event details/actions on dashboard
+  - [x] Add compact actions menu with edit, mark completed, and mark cancelled
+  - [x] Move series member management to edit series page
+  - [x] Sort and distinguish members above casual registrations
+  - [x] Verify in browser
+
 - [x] Clean organiser dashboard and move approvals alert to menu
   - [x] Remove organiser dashboard approval/status notice sections
   - [x] Add menu-only pending approvals alert icon

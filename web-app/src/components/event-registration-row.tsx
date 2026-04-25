@@ -35,11 +35,18 @@ export default function EventRegistrationRow({
   children,
 }: EventRegistrationRowProps) {
   const isWaiting = registration.status === "waiting";
+  const isSeriesMember = registration.source === "series-membership";
 
   return (
     <details
       data-testid={`event-registration-row-${registration.userId}`}
-      className={`rounded-lg bg-white px-2 py-1.5 ring-1 ${isOwnRegistration ? "bg-blue-50/30 ring-blue-300" : "ring-zinc-200"}`}
+      className={`rounded-lg px-2 py-1.5 ring-1 ${
+        isSeriesMember
+          ? "bg-emerald-50/70 ring-emerald-200"
+          : isOwnRegistration
+            ? "bg-blue-50/30 ring-blue-300"
+            : "bg-white ring-zinc-200"
+      }`}
     >
       <summary className="list-none cursor-pointer [&::-webkit-details-marker]:hidden" data-testid="event-registration-row-summary">
         <div className="flex items-center gap-1.5">
@@ -48,6 +55,9 @@ export default function EventRegistrationRow({
             {isOwnRegistration ? " (you)" : ""}
           </div>
           <div className="flex shrink-0 items-center gap-1 text-[10px] leading-none">
+            {isSeriesMember ? (
+              <span className="rounded-full bg-emerald-100 px-1.5 py-1 font-medium text-emerald-700">Member</span>
+            ) : null}
             {isWaiting ? (
               <span className="rounded-full bg-amber-100 px-1.5 py-1 font-medium text-amber-700">Wait</span>
             ) : null}
