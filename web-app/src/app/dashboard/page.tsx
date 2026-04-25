@@ -903,8 +903,6 @@ export default function DashboardPage() {
     }
   }
 
-  const pendingApprovalsForOrganiser = organiserApprovalRequests
-    .filter((approval) => approval.status === "pending");
   const approvedApprovalsForPlayer = playerOrganiserApprovals
     .filter((approval) => approval.status === "approved");
 
@@ -1005,36 +1003,7 @@ export default function DashboardPage() {
           <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Dashboard</p>
           <h1 className="text-3xl font-semibold tracking-tight">Welcome {profile?.displayName || user?.email}</h1>
           <p className="mt-3 text-zinc-600">Role: <strong>{profile?.role ?? "player"}</strong></p>
-          {profile?.role === "organiser" ? (
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <span className="rounded-full bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800">
-                Pending player approvals: {pendingApprovalsForOrganiser.length}
-              </span>
-              <Link href="/organiser/approvals" data-testid="dashboard-open-approvals-page" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">
-                Open approvals page
-              </Link>
-            </div>
-          ) : null}
-          {canManageSessions ? (
-            <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-              Session management actions now live in the persistent menu, with a quick create button available from every page.
-            </div>
-          ) : null}
         </div>
-
-        {profile?.role === "organiser" ? (
-          <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="dashboard-organiser-approvals-summary">
-            <h2 className="text-xl font-semibold">Approvals moved out of the dashboard</h2>
-            <p className="mt-2 text-sm text-zinc-600">
-              Review player access requests on the dedicated approvals page so the dashboard stays focused on series and event operations.
-            </p>
-            <div className="mt-4">
-              <Link href="/organiser/approvals" className="rounded-full border border-zinc-300 px-5 py-2 text-sm font-medium hover:bg-zinc-100">
-                Go to approvals
-              </Link>
-            </div>
-          </div>
-        ) : null}
 
         {profile?.role === "player" ? (
           <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="player-organiser-approvals">

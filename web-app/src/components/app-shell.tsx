@@ -3,6 +3,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
+import { getOrganiserApprovalRequests } from "@/lib/organiser-approvals";
 import type { AppRole } from "@/lib/roles";
 
 type AppShellProps = {
@@ -16,6 +21,11 @@ type NavigationItem = {
   label: string;
   shortLabel: string;
   matchPrefixes?: string[];
+};
+
+type ShellUserProfile = {
+  email?: string;
+  dataPartition?: DataPartition;
 };
 
 const DESKTOP_NAV_STATE_KEY = "community-sports.desktop-nav-collapsed";
@@ -86,6 +96,7 @@ export default function AppShell({
     }
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const navigationItems = getNavigationItems(role);
   const roleLabel = getRoleLabel(role);
   const canCreateSeries = role === "admin" || role === "organiser";
@@ -98,18 +109,60 @@ export default function AppShell({
     }
   }, [desktopCollapsed]);
 
+  useEffect(() => {
+    if (role !== "organiser") {
+      return;
+    }
+
+    let cancelled = false;
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (!currentUser) {
+        if (!cancelled) {
+          setPendingApprovalCount(0);
+        }
+        return;
+      }
+
+      try {
+        const profileSnapshot = await getDoc(doc(db, "users", currentUser.uid));
+        const profileData = profileSnapshot.exists()
+          ? profileSnapshot.data() as ShellUserProfile
+          : null;
+        const dataPartition = resolveDataPartition(
+          profileData?.email || currentUser.email || "",
+          profileData?.dataPartition || "live",
+        );
+        const approvals = await getOrganiserApprovalRequests(db, currentUser.uid, dataPartition);
+        if (!cancelled) {
+          setPendingApprovalCount(approvals.filter((approval) => approval.status === "pending").length);
+        }
+      } catch (error) {
+        console.error("[app-shell] Failed to load pending approvals:", error);
+        if (!cancelled) {
+          setPendingApprovalCount(0);
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [role]);
+
   function renderNavigation(compact: boolean, area: "desktop" | "mobile") {
     return (
       <nav className="space-y-2" data-testid={`app-shell-nav-${area}`}>
         {navigationItems.map((item) => {
           const active = isItemActive(pathname, item);
+          const showApprovalAlert = role === "organiser" && item.href === "/organiser/approvals" && pendingApprovalCount > 0;
           return (
             <Link
               key={item.href}
               href={item.href}
               onClick={() => setMobileMenuOpen(false)}
               data-testid={`app-shell-nav-${area}-${toTestIdSegment(item.label)}`}
-              className={`flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition ${getItemClassName(active)}`}
+              className={`relative flex items-center gap-3 rounded-2xl border px-3 py-3 text-sm font-medium transition ${getItemClassName(active)}`}
               aria-current={active ? "page" : undefined}
             >
               <span
@@ -120,6 +173,18 @@ export default function AppShell({
                 {item.shortLabel}
               </span>
               {!compact ? <span>{item.label}</span> : null}
+              {showApprovalAlert ? (
+                <span
+                  aria-label={`${pendingApprovalCount} pending player approval${pendingApprovalCount === 1 ? "" : "s"}`}
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+                    compact ? "absolute right-2 top-2" : "ml-auto"
+                  } ${active ? "bg-amber-300 text-zinc-950" : "bg-amber-100 text-amber-800 ring-1 ring-amber-200"}`}
+                  data-testid={`app-shell-nav-${area}-approvals-alert`}
+                  title={`${pendingApprovalCount} pending player approval${pendingApprovalCount === 1 ? "" : "s"}`}
+                >
+                  !
+                </span>
+              ) : null}
             </Link>
           );
         })}

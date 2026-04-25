@@ -223,6 +223,11 @@
 - [x] Organisers should be able to edit the skill level of manually added players.
 - [x] Organiser manually added players should also have a user/player entry saved for future selection, even though they cannot log in.
 - [x] Skill level should be displayed in the event player list, visible only to organisers for now.
+- [x] Clean organiser dashboard and move approvals alert to menu
+  - [x] Remove organiser dashboard approval/status notice sections
+  - [x] Add menu-only pending approvals alert icon
+  - [x] Verify dashboard shows welcome followed by session series
+
 - [x] Implement waiting list functionality as a session-series attribute defining max waiting-list size.
 - [x] When an event is full, player should still be able to register if waiting list is not full.
 - [x] When a registered player removes themselves, everyone below moves up and first on waiting list becomes registered (FIFO).
