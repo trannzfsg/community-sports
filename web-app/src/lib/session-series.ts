@@ -13,6 +13,36 @@ import type { DayOfWeek, TypeOfSport } from "./session-options";
 
 type DataPartition = "test" | "live";
 
+export const UNLIMITED_WAITING_LIST_CAPACITY = 100;
+
+export function normalizeWaitingListCapacity(value: number | string | null | undefined) {
+  if (value === null || value === undefined) {
+    return UNLIMITED_WAITING_LIST_CAPACITY;
+  }
+
+  if (typeof value === "string" && value.trim() === "") {
+    return UNLIMITED_WAITING_LIST_CAPACITY;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return UNLIMITED_WAITING_LIST_CAPACITY;
+  }
+
+  const capacity = Math.floor(parsed);
+  return capacity <= 0 ? UNLIMITED_WAITING_LIST_CAPACITY : capacity;
+}
+
+export function getWaitingListCapacityInputValue(value: number | string | null | undefined) {
+  const capacity = normalizeWaitingListCapacity(value);
+  return capacity === UNLIMITED_WAITING_LIST_CAPACITY ? "" : String(capacity);
+}
+
+export function formatWaitingListCapacity(value: number | string | null | undefined) {
+  const capacity = normalizeWaitingListCapacity(value);
+  return capacity === UNLIMITED_WAITING_LIST_CAPACITY ? "Unlimited" : String(capacity);
+}
+
 function normalizeSkipDates(skipDates: string[], maxEntries = 104) {
   return Array.from(new Set(
     skipDates
@@ -174,7 +204,7 @@ function planEventRegistrations(input: {
   }) => {
     const bookedCount = plannedRegistrations.filter((item) => item.status === "registered").length;
     const waitingCount = plannedRegistrations.filter((item) => item.status === "waiting").length;
-    const waitingListCapacity = Math.max(0, input.waitingListCapacity || 0);
+    const waitingListCapacity = normalizeWaitingListCapacity(input.waitingListCapacity);
     const nextStatus: "registered" | "waiting" | null = bookedCount < input.capacity
       ? "registered"
       : waitingCount < waitingListCapacity
@@ -370,7 +400,7 @@ export function getRegistrationCapacityState(input: {
   waitingCount?: number;
 }): RegistrationCapacityState {
   const capacity = Math.max(0, input.capacity || 0);
-  const waitingListCapacity = Math.max(0, input.waitingListCapacity || 0);
+  const waitingListCapacity = normalizeWaitingListCapacity(input.waitingListCapacity);
   const bookedCount = Math.max(0, input.bookedCount || 0);
   const waitingCount = Math.max(0, input.waitingCount || 0);
   const totalCount = bookedCount + waitingCount;
@@ -406,7 +436,7 @@ export function normalizeSessionEventOverrides(input: SessionEventOverridesInput
     endAt: input.endAt.trim(),
     defaultPriceCasual: Number.isFinite(price) ? Math.round(price * 100) / 100 : Number.NaN,
     capacity: Math.max(0, Math.floor(Number(input.capacity) || 0)),
-    waitingListCapacity: Math.max(0, Math.floor(Number(input.waitingListCapacity) || 0)),
+    waitingListCapacity: normalizeWaitingListCapacity(input.waitingListCapacity),
   };
 }
 
@@ -597,7 +627,7 @@ export async function createSessionEventForSeries(
     endAt: series.endAt,
     defaultPriceCasual: series.defaultPriceCasual,
     capacity: series.capacity,
-    waitingListCapacity: series.waitingListCapacity || 0,
+    waitingListCapacity: normalizeWaitingListCapacity(series.waitingListCapacity),
     dataPartition: series.dataPartition,
     bookedCount: 0,
     waitingCount: 0,
@@ -645,7 +675,7 @@ export async function createSessionEventForSeries(
   const { plannedRegistrations, skippedMembershipIds } = planEventRegistrations({
     eventDate: resolvedEventDate,
     capacity: series.capacity,
-    waitingListCapacity: series.waitingListCapacity || 0,
+    waitingListCapacity: normalizeWaitingListCapacity(series.waitingListCapacity),
     activeMemberships: Array.from(membershipsById.entries())
       .map(([id, membership]) => ({
         id,
@@ -694,7 +724,7 @@ export async function createSessionEventForSeries(
       endAt: series.endAt,
       defaultPriceCasual: series.defaultPriceCasual,
       capacity: series.capacity,
-      waitingListCapacity: series.waitingListCapacity || 0,
+      waitingListCapacity: normalizeWaitingListCapacity(series.waitingListCapacity),
       bookedCount: 0,
       waitingCount: 0,
       dataPartition: series.dataPartition,

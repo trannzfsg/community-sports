@@ -25,7 +25,13 @@ import {
   getSuggestedNextGameOn,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
-import { buildSessionEventId, createSessionEventForSeries, type SessionSeries as SessionSeriesRecord } from "@/lib/session-series";
+import {
+  buildSessionEventId,
+  createSessionEventForSeries,
+  getWaitingListCapacityInputValue,
+  normalizeWaitingListCapacity,
+  type SessionSeries as SessionSeriesRecord,
+} from "@/lib/session-series";
 import { getUserById, getUsersByRole, type UserRecord } from "@/lib/users";
 
 type UserProfile = {
@@ -188,7 +194,7 @@ function EditSessionPageInner() {
       setFirstSessionOn(session.firstSessionOn);
       setDefaultPriceCasual(String(session.defaultPriceCasual));
       setCapacity(String(session.capacity));
-      setWaitingListCapacity(String(session.waitingListCapacity || 0));
+      setWaitingListCapacity(getWaitingListCapacityInputValue(session.waitingListCapacity));
       setCancellationPolicyHours(String(session.cancellationPolicyHours ?? 24));
       setStatus(session.status);
       setSeriesMembershipEnabled(session.seriesMembershipEnabled ?? false);
@@ -331,7 +337,7 @@ function EditSessionPageInner() {
         firstSessionOn,
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
-        waitingListCapacity: Number(waitingListCapacity || 0),
+        waitingListCapacity: normalizeWaitingListCapacity(waitingListCapacity),
         cancellationPolicyHours: Number(cancellationPolicyHours || 0),
         status,
         seriesMembershipEnabled,
@@ -477,7 +483,8 @@ function EditSessionPageInner() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Waiting list capacity</span>
-            <input type="number" min="0" step="1" value={waitingListCapacity} onChange={(event) => setWaitingListCapacity(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+            <input type="number" min="0" step="1" value={waitingListCapacity} onChange={(event) => setWaitingListCapacity(event.target.value)} placeholder="Unlimited" className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" />
+            <span className="mt-2 block text-sm text-zinc-500">Leave blank or use 0 for unlimited waiting list.</span>
           </label>
 
           <label className="block">

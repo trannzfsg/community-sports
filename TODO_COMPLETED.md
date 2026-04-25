@@ -1,5 +1,10 @@
 # To-Do List - Completed tasks
 
+- [x] Treat empty or zero waiting list as unlimited.
+  - [x] Centralized waiting-list normalization so blank, zero, missing, and invalid values resolve to hidden capacity `100`.
+  - [x] Updated dashboard, series forms, and event override forms to display the hidden cap as `Unlimited`.
+  - [x] Added tests for zero/blank waiting-list normalization and verified the browser display/forms.
+
 - [x] Reorder organiser dashboard action menu buttons.
   - [x] Put event actions before series actions.
   - [x] Verified the menu order in the browser: Edit event, Mark completed, Mark cancelled, Edit series, View all events, Delete series.

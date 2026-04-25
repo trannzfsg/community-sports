@@ -44,10 +44,13 @@ import {
   buildRegistrationId,
   createSessionEventForSeries,
   getCancellationPolicyLabel,
+  formatWaitingListCapacity,
+  getWaitingListCapacityInputValue,
   getOrganiserCancellationPolicyWarning,
   getPlayerCancellationPolicyMessage,
   getRegistrationCapacityState,
   isCancellationPolicyActive,
+  normalizeWaitingListCapacity,
   rebalanceEventRegistrations,
   updateSessionEventOverrides,
   type RegistrationItem,
@@ -502,7 +505,7 @@ export default function DashboardPage() {
 
       const capacityState = getRegistrationCapacityState({
         capacity: eventItem.capacity,
-        waitingListCapacity: eventItem.waitingListCapacity || series.waitingListCapacity || 0,
+        waitingListCapacity: eventItem.waitingListCapacity ?? series.waitingListCapacity,
         bookedCount: eventItem.bookedCount,
         waitingCount: eventItem.waitingCount,
       });
@@ -675,7 +678,7 @@ export default function DashboardPage() {
 
     const capacityState = getRegistrationCapacityState({
       capacity: eventItem.capacity,
-      waitingListCapacity: eventItem.waitingListCapacity || series.waitingListCapacity || 0,
+      waitingListCapacity: eventItem.waitingListCapacity ?? series.waitingListCapacity,
       bookedCount: eventItem.bookedCount,
       waitingCount: eventItem.waitingCount,
     });
@@ -788,7 +791,7 @@ export default function DashboardPage() {
       endAt: eventItem.endAt,
       defaultPriceCasual: String(eventItem.defaultPriceCasual),
       capacity: String(eventItem.capacity),
-      waitingListCapacity: String(eventItem.waitingListCapacity ?? 0),
+      waitingListCapacity: getWaitingListCapacityInputValue(eventItem.waitingListCapacity),
     };
   }
 
@@ -830,7 +833,7 @@ export default function DashboardPage() {
       endAt: draft.endAt,
       defaultPriceCasual: Number(draft.defaultPriceCasual),
       capacity: Number(draft.capacity),
-      waitingListCapacity: Number(draft.waitingListCapacity),
+      waitingListCapacity: normalizeWaitingListCapacity(draft.waitingListCapacity),
     };
 
     setBusyKey(`edit-event-${eventItem.id}`);
@@ -967,11 +970,12 @@ export default function DashboardPage() {
               );
               const capacityState = getRegistrationCapacityState({
                 capacity: nextEvent?.capacity || series.capacity,
-                waitingListCapacity: nextEvent?.waitingListCapacity || series.waitingListCapacity || 0,
+                waitingListCapacity: nextEvent?.waitingListCapacity ?? series.waitingListCapacity,
                 bookedCount: nextEvent?.bookedCount || 0,
                 waitingCount: nextEvent?.waitingCount || 0,
               });
               const waitingListCapacity = capacityState.waitingListCapacity;
+              const waitingListCapacityLabel = formatWaitingListCapacity(waitingListCapacity);
               const bookedCount = capacityState.bookedCount;
               const waitingCount = capacityState.waitingCount;
               const eventIsFull = !!nextEvent && capacityState.eventIsFull;
@@ -1007,7 +1011,7 @@ export default function DashboardPage() {
                       </div>
                       <h2 className="text-xl font-semibold">{series.title}</h2>
                       <p className="mt-2 text-sm text-zinc-600">
-                        {nextEvent ? `${nextEvent.eventDate} · ${bookedCount}/${nextEvent.capacity} registered · ${waitingCount}/${waitingListCapacity} waiting` : "No event created yet"}
+                        {nextEvent ? `${nextEvent.eventDate} · ${bookedCount}/${nextEvent.capacity} registered · ${waitingCount}/${waitingListCapacityLabel} waiting` : "No event created yet"}
                       </p>
                       <p className="mt-1 text-sm text-zinc-500">Organiser: {series.organiserName || "Organiser"}</p>
                     </div>
@@ -1054,7 +1058,7 @@ export default function DashboardPage() {
                     {showStartsFrom ? <div><dt className="text-zinc-500">Starts from</dt><dd>{series.firstSessionOn}</dd></div> : null}
                     <div><dt className="text-zinc-500">Casual price</dt><dd>${nextEvent?.defaultPriceCasual ?? series.defaultPriceCasual}</dd></div>
                     <div><dt className="text-zinc-500">Capacity</dt><dd>{nextEvent?.capacity ?? series.capacity}</dd></div>
-                    <div><dt className="text-zinc-500">Waiting list</dt><dd>{nextEvent?.waitingListCapacity ?? series.waitingListCapacity ?? 0}</dd></div>
+                    <div><dt className="text-zinc-500">Waiting list</dt><dd>{formatWaitingListCapacity(nextEvent?.waitingListCapacity ?? series.waitingListCapacity)}</dd></div>
                     <div><dt className="text-zinc-500">Cancellation policy</dt><dd>{getCancellationPolicyLabel(series.cancellationPolicyHours)}</dd></div>
                   </dl>
 
@@ -1322,7 +1326,8 @@ export default function DashboardPage() {
                         </label>
                         <label className="block text-sm text-zinc-700">
                           <span className="mb-1 block font-medium">Waiting list</span>
-                          <input type="number" min="0" step="1" value={eventEditDraft.waitingListCapacity} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "waitingListCapacity", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
+                          <input type="number" min="0" step="1" value={eventEditDraft.waitingListCapacity} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "waitingListCapacity", event.target.value)} placeholder="Unlimited" className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" />
+                          <span className="mt-1 block text-xs text-zinc-500">Blank or 0 means unlimited.</span>
                         </label>
                       </div>
                       <div className="mt-4 flex flex-wrap gap-2">

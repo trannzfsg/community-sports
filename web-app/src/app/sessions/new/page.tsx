@@ -14,7 +14,7 @@ import {
   getSuggestedNextGameOn,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
-import { createSessionEventForSeries, type SessionSeries } from "@/lib/session-series";
+import { createSessionEventForSeries, normalizeWaitingListCapacity, type SessionSeries } from "@/lib/session-series";
 import { getUserById, getUsersByRole, type UserRecord } from "@/lib/users";
 
 type UserProfile = {
@@ -43,7 +43,7 @@ export default function NewSessionPage() {
   const [firstSessionOn, setFirstSessionOn] = useState("");
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
-  const [waitingListCapacity, setWaitingListCapacity] = useState("0");
+  const [waitingListCapacity, setWaitingListCapacity] = useState("");
   const [cancellationPolicyHours, setCancellationPolicyHours] = useState("24");
   const [status, setStatus] = useState("active");
   const [seriesMembershipEnabled, setSeriesMembershipEnabled] = useState(false);
@@ -112,6 +112,8 @@ export default function NewSessionPage() {
       const organiserName = organiser?.displayName || organiser?.email || "Organiser";
       const dataPartition = getDataPartitionForEmail(organiser?.email || "");
 
+      const normalizedWaitingListCapacity = normalizeWaitingListCapacity(waitingListCapacity);
+
       const seriesRef = await addDoc(collection(db, "sessions"), {
         title: title.trim(),
         typeOfSport,
@@ -123,7 +125,7 @@ export default function NewSessionPage() {
         firstSessionOn,
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
-        waitingListCapacity: Number(waitingListCapacity || 0),
+        waitingListCapacity: normalizedWaitingListCapacity,
         cancellationPolicyHours: Number(cancellationPolicyHours || 0),
         organiserId,
         organiserName,
@@ -149,7 +151,7 @@ export default function NewSessionPage() {
           firstSessionOn,
           defaultPriceCasual: Number(defaultPriceCasual),
           capacity: Number(capacity),
-          waitingListCapacity: Number(waitingListCapacity || 0),
+          waitingListCapacity: normalizedWaitingListCapacity,
           cancellationPolicyHours: Number(cancellationPolicyHours || 0),
           organiserId,
           organiserName,
@@ -273,7 +275,8 @@ export default function NewSessionPage() {
 
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Waiting list capacity</span>
-            <input type="number" min="0" step="1" value={waitingListCapacity} onChange={(event) => setWaitingListCapacity(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+            <input type="number" min="0" step="1" value={waitingListCapacity} onChange={(event) => setWaitingListCapacity(event.target.value)} placeholder="Unlimited" className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" />
+            <span className="mt-2 block text-sm text-zinc-500">Leave blank or use 0 for unlimited waiting list.</span>
           </label>
 
           <label className="block">

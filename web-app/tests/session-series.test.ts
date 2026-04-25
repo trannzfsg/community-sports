@@ -7,7 +7,9 @@ import {
   getSessionEventOverrideValidationError,
   isCancellationPolicyActive,
   normalizeSessionEventOverrides,
+  normalizeWaitingListCapacity,
   resolveNextSessionEventDate,
+  UNLIMITED_WAITING_LIST_CAPACITY,
 } from "../src/lib/session-series.ts";
 
 test("buildRegistrationId is deterministic and safe for document ids", () => {
@@ -57,7 +59,7 @@ test("capacity state blocks additions when both event and waiting list are full"
   assert.equal(state.nextRegistrationStatus, null);
 });
 
-test("zero waiting-list capacity means full event cannot accept more players", () => {
+test("zero waiting-list capacity means unlimited hidden waiting list", () => {
   const state = getRegistrationCapacityState({
     capacity: 4,
     waitingListCapacity: 0,
@@ -65,10 +67,11 @@ test("zero waiting-list capacity means full event cannot accept more players", (
     waitingCount: 0,
   });
 
-  assert.equal(state.waitingListEnabled, false);
-  assert.equal(state.waitingListIsFull, true);
-  assert.equal(state.canAddMore, false);
-  assert.equal(state.nextRegistrationStatus, null);
+  assert.equal(state.waitingListCapacity, UNLIMITED_WAITING_LIST_CAPACITY);
+  assert.equal(state.waitingListEnabled, true);
+  assert.equal(state.waitingListIsFull, false);
+  assert.equal(state.canAddMore, true);
+  assert.equal(state.nextRegistrationStatus, "waiting");
 });
 
 test("next session event date skips over an existing weekly event on the requested date", () => {
@@ -132,6 +135,13 @@ test("event override normalization trims values and clamps numeric fields", () =
     capacity: 0,
     waitingListCapacity: 3,
   });
+});
+
+test("waiting-list normalization treats blank and zero as the hidden unlimited cap", () => {
+  assert.equal(normalizeWaitingListCapacity(""), UNLIMITED_WAITING_LIST_CAPACITY);
+  assert.equal(normalizeWaitingListCapacity(0), UNLIMITED_WAITING_LIST_CAPACITY);
+  assert.equal(normalizeWaitingListCapacity("0"), UNLIMITED_WAITING_LIST_CAPACITY);
+  assert.equal(normalizeWaitingListCapacity(3.9), 3);
 });
 
 test("event override validation blocks reducing total spots below existing registrations", () => {
