@@ -25,15 +25,6 @@ import { getDataPartitionForEmail, resolveDataPartition, shouldBypassEmailVerifi
 import { deletePaymentRecord, syncPaymentRecordForRegistration } from "@/lib/payments";
 import { getManagedUserByEmail } from "@/lib/managed-users";
 import {
-  getSeriesMembershipsForPlayer,
-  getSeriesMembershipsForSeries,
-  resolveSeriesMembershipStartDate,
-  updateSeriesMembershipSettings,
-  updateSeriesMembershipSkipNextEvent,
-  updateSeriesMembershipStatus,
-  type SeriesMembership,
-} from "@/lib/member-benefits";
-import {
   ensureSelfRegisteredPlayers,
   getVisiblePlayersForOrganiser,
   type PlayerDirectoryEntry,
@@ -58,8 +49,10 @@ import {
   getRegistrationCapacityState,
   isCancellationPolicyActive,
   rebalanceEventRegistrations,
+  updateSessionEventOverrides,
   type RegistrationItem,
   type SessionEvent,
+  type SessionEventOverridesInput,
   type SessionSeries,
 } from "@/lib/session-series";
 
@@ -77,10 +70,13 @@ type OrganiserOption = {
   email: string;
 };
 
-type MembershipDraft = {
-  startDate: string;
-  endDate: string;
-  autoPaidUntilDate: string;
+type EventEditDraft = {
+  location: string;
+  startAt: string;
+  endAt: string;
+  defaultPriceCasual: string;
+  capacity: string;
+  waitingListCapacity: string;
 };
 
 function requiresVerifiedEmail(user: User) {
@@ -94,6 +90,12 @@ function sortRegistrations(
 ) {
   const copy = [...registrations];
   copy.sort((a, b) => {
+    const aIsMember = a.source === "series-membership" ? 0 : 1;
+    const bIsMember = b.source === "series-membership" ? 0 : 1;
+    if (aIsMember !== bIsMember) {
+      return aIsMember - bIsMember;
+    }
+
     const aIsSelf = currentUserId && a.userId === currentUserId ? 1 : 0;
     const bIsSelf = currentUserId && b.userId === currentUserId ? 1 : 0;
     if (aIsSelf !== bIsSelf) {
@@ -121,55 +123,6 @@ function withDerivedEventCounts(
   };
 }
 
-function getDateOnlyFromTimestamp(value: unknown) {
-  return value instanceof Timestamp ? value.toDate().toISOString().slice(0, 10) : null;
-}
-
-function formatDateOnly(value?: string | null) {
-  if (!value) return "None";
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime())
-    ? value
-    : new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
-}
-
-function buildMembershipDraft(membership: SeriesMembership): MembershipDraft {
-  return {
-    startDate: membership.startDate ?? "",
-    endDate: membership.endDate ?? "",
-    autoPaidUntilDate: membership.autoPaidUntilDate ?? "",
-  };
-}
-
-function getEffectiveMembershipStartDate(
-  membership: SeriesMembership,
-  series: SessionSeries,
-) {
-  const approvalDate = membership.approvedAtDate
-    || getDateOnlyFromTimestamp(membership.createdAt)
-    || new Date().toISOString().slice(0, 10);
-
-  return resolveSeriesMembershipStartDate({
-    approvalDate,
-    membershipStartDate: membership.startDate,
-    seriesDefaultStartDate: series.seriesMembershipDefaultStartDate,
-  });
-}
-
-function getEffectiveMembershipEndDate(
-  membership: SeriesMembership,
-  series: SessionSeries,
-) {
-  return membership.endDate ?? series.seriesMembershipDefaultEndDate ?? null;
-}
-
-function getEffectiveMembershipAutoPaidUntilDate(
-  membership: SeriesMembership,
-  series: SessionSeries,
-) {
-  return membership.autoPaidUntilDate ?? series.seriesMembershipAutoPaidUntilDate ?? null;
-}
-
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -186,9 +139,8 @@ export default function DashboardPage() {
   const [playerOrganiserApprovals, setPlayerOrganiserApprovals] = useState<OrganiserApprovalRecord[]>([]);
   const [availableOrganisers, setAvailableOrganisers] = useState<OrganiserOption[]>([]);
   const [organiserApprovalRequests, setOrganiserApprovalRequests] = useState<OrganiserApprovalRecord[]>([]);
-  const [playerSeriesMemberships, setPlayerSeriesMemberships] = useState<Record<string, SeriesMembership>>({});
-  const [seriesMembershipsBySeries, setSeriesMembershipsBySeries] = useState<Record<string, SeriesMembership[]>>({});
-  const [membershipDraftsById, setMembershipDraftsById] = useState<Record<string, MembershipDraft>>({});
+  const [editingEventId, setEditingEventId] = useState<string | null>(null);
+  const [eventEditDrafts, setEventEditDrafts] = useState<Record<string, EventEditDraft>>({});
 
   function splitIntoChunks<T>(items: T[], size: number) {
     const chunks: T[][] = [];
@@ -197,14 +149,6 @@ export default function DashboardPage() {
     }
     return chunks;
   }
-
-  useEffect(() => {
-    const nextDrafts: Record<string, MembershipDraft> = {};
-    Object.values(seriesMembershipsBySeries).flat().forEach((membership) => {
-      nextDrafts[membership.id] = buildMembershipDraft(membership);
-    });
-    setMembershipDraftsById(nextDrafts);
-  }, [seriesMembershipsBySeries]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -416,32 +360,6 @@ export default function DashboardPage() {
           setAvailableOrganisers([]);
         }
 
-        if (profileData.role === "player") {
-          const memberships = await getSeriesMembershipsForPlayer(
-            db,
-            currentUser.uid,
-            dataPartition,
-          );
-          setPlayerSeriesMemberships(
-            Object.fromEntries(
-              memberships.map((membership) => [membership.seriesId, membership]),
-            ),
-          );
-          setSeriesMembershipsBySeries({});
-        } else if (profileData.role === "organiser" || profileData.role === "admin") {
-          const membershipEntries = await Promise.all(
-            seriesItems.map(async (series) => [
-              series.id,
-              await getSeriesMembershipsForSeries(db, series.id, series.organiserId, dataPartition),
-            ] as const),
-          );
-          setSeriesMembershipsBySeries(Object.fromEntries(membershipEntries));
-          setPlayerSeriesMemberships({});
-        } else {
-          setPlayerSeriesMemberships({});
-          setSeriesMembershipsBySeries({});
-        }
-
         setSeriesList(seriesItems);
         setEventsBySeries(eventMap);
         setRegistrationsByEvent(registrationMap);
@@ -519,49 +437,6 @@ export default function DashboardPage() {
     setRegistrationsByEvent((current) => ({ ...current, ...registrationMap }));
   }
 
-  async function refreshMembershipData(seriesId?: string) {
-    if (!profile || !user) return;
-
-    const dataPartition = profile.dataPartition || "live";
-    if (profile.role === "player") {
-      const memberships = await getSeriesMembershipsForPlayer(
-        db,
-        user.uid,
-        dataPartition,
-      );
-      setPlayerSeriesMemberships(
-        Object.fromEntries(
-          memberships.map((membership) => [membership.seriesId, membership]),
-        ),
-      );
-      return;
-    }
-
-    if (profile.role === "organiser" || profile.role === "admin") {
-      if (seriesId) {
-        const memberships = await getSeriesMembershipsForSeries(
-          db,
-          seriesId,
-          seriesList.find((series) => series.id === seriesId)?.organiserId || user.uid,
-          dataPartition,
-        );
-        setSeriesMembershipsBySeries((current) => ({
-          ...current,
-          [seriesId]: memberships,
-        }));
-        return;
-      }
-
-      const membershipEntries = await Promise.all(
-        seriesList.map(async (series) => [
-          series.id,
-          await getSeriesMembershipsForSeries(db, series.id, series.organiserId, dataPartition),
-        ] as const),
-      );
-      setSeriesMembershipsBySeries(Object.fromEntries(membershipEntries));
-    }
-  }
-
   async function handleCreateNextEvent(series: SessionSeries) {
     setBusyKey(series.id);
     try {
@@ -577,7 +452,6 @@ export default function DashboardPage() {
         )),
       );
       await refreshSeriesData(series.id, series.organiserId);
-      await refreshMembershipData(series.id);
     } catch (error) {
       console.error("[dashboard] create next event failed", error);
       setLoadError(error instanceof Error ? error.message : "Failed to create the next event.");
@@ -906,69 +780,71 @@ export default function DashboardPage() {
   const approvedApprovalsForPlayer = playerOrganiserApprovals
     .filter((approval) => approval.status === "approved");
 
-  function handleMembershipDraftChange(
-    membershipId: string,
-    field: keyof MembershipDraft,
+  function buildEventEditDraft(eventItem: SessionEvent): EventEditDraft {
+    return {
+      location: eventItem.location,
+      startAt: eventItem.startAt,
+      endAt: eventItem.endAt,
+      defaultPriceCasual: String(eventItem.defaultPriceCasual),
+      capacity: String(eventItem.capacity),
+      waitingListCapacity: String(eventItem.waitingListCapacity ?? 0),
+    };
+  }
+
+  function handleEventEditStart(eventItem: SessionEvent) {
+    setEventEditDrafts((current) => ({
+      ...current,
+      [eventItem.id]: current[eventItem.id] || buildEventEditDraft(eventItem),
+    }));
+    setEditingEventId(eventItem.id);
+  }
+
+  function handleEventEditDraftChange(
+    eventId: string,
+    field: keyof EventEditDraft,
     value: string,
   ) {
-    setMembershipDraftsById((current) => ({
+    setEventEditDrafts((current) => ({
       ...current,
-      [membershipId]: {
-        ...(current[membershipId] || { startDate: "", endDate: "", autoPaidUntilDate: "" }),
+      [eventId]: {
+        ...(current[eventId] || {
+          location: "",
+          startAt: "",
+          endAt: "",
+          defaultPriceCasual: "",
+          capacity: "",
+          waitingListCapacity: "",
+        }),
         [field]: value,
       },
     }));
   }
 
-  async function handleSeriesMembershipDetailsSave(membership: SeriesMembership) {
-    setBusyKey(`save-membership-${membership.id}`);
+  async function handleEventEditSave(series: SessionSeries, eventItem: SessionEvent) {
+    const draft = eventEditDrafts[eventItem.id] || buildEventEditDraft(eventItem);
+    const values: SessionEventOverridesInput = {
+      location: draft.location,
+      startAt: draft.startAt,
+      endAt: draft.endAt,
+      defaultPriceCasual: Number(draft.defaultPriceCasual),
+      capacity: Number(draft.capacity),
+      waitingListCapacity: Number(draft.waitingListCapacity),
+    };
+
+    setBusyKey(`edit-event-${eventItem.id}`);
+    setLoadError("");
     try {
-      const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
-      await updateSeriesMembershipSettings(db, membership.id, {
-        startDate: draft.startDate || null,
-        endDate: draft.endDate || null,
-        autoPaidUntilDate: draft.autoPaidUntilDate || null,
+      await updateSessionEventOverrides(db, {
+        series,
+        event: eventItem,
+        registrations: registrationsByEvent[eventItem.id] ?? [],
+        values,
       });
-      await refreshMembershipData(membership.seriesId);
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function handleSeriesMembershipStatusChange(
-    membership: SeriesMembership,
-    status: SeriesMembership["status"],
-  ) {
-    setBusyKey(`${status}-membership-${membership.id}`);
-    try {
-      if (profile?.role === "organiser" || profile?.role === "admin") {
-        const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
-
-        await updateSeriesMembershipSettings(db, membership.id, {
-          startDate: draft.startDate || null,
-          endDate: draft.endDate || null,
-          autoPaidUntilDate: draft.autoPaidUntilDate || null,
-          approvedAtDate: status === "active"
-            ? (membership.approvedAtDate || new Date().toISOString().slice(0, 10))
-            : membership.approvedAtDate,
-        });
-      }
-
-      await updateSeriesMembershipStatus(db, membership.id, status);
-      await refreshMembershipData(membership.seriesId);
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function handleSeriesMembershipSkipToggle(
-    membership: SeriesMembership,
-    nextValue: boolean,
-  ) {
-    setBusyKey(`skip-membership-${membership.id}`);
-    try {
-      await updateSeriesMembershipSkipNextEvent(db, membership.id, nextValue);
-      await refreshMembershipData(membership.seriesId);
+      setEditingEventId(null);
+      await refreshSeriesData(series.id, series.organiserId);
+    } catch (error) {
+      console.error("[dashboard] event edit failed", error);
+      setLoadError(error instanceof Error ? error.message : "Failed to update event details.");
     } finally {
       setBusyKey(null);
     }
@@ -1102,31 +978,9 @@ export default function DashboardPage() {
               const playerIsWaiting = currentRegistration?.status === "waiting";
               const playerCanJoin = !!nextEvent && capacityState.canAddMore;
               const nextEventIsOpen = !!nextEvent && (nextEvent.status || "active") === "active" && capacityState.canAddMore;
-              const currentSeriesMembership = playerSeriesMemberships[series.id];
-              const seriesMemberships = (seriesMembershipsBySeries[series.id] ?? []).slice().sort((a, b) => {
-                const statusOrder = ["pending", "active", "paused", "rejected", "cancelled"];
-                const statusCompare = statusOrder.indexOf(a.status) - statusOrder.indexOf(b.status);
-                if (statusCompare !== 0) return statusCompare;
-                return a.playerName.localeCompare(b.playerName);
-              });
-              const showSeriesMembershipPanel = !!series.seriesMembershipEnabled
-                || !!currentSeriesMembership
-                || seriesMemberships.length > 0;
-              const currentMembershipApprovedAt = currentSeriesMembership?.approvedAtDate
-                || getDateOnlyFromTimestamp(currentSeriesMembership?.createdAt);
-              const currentMembershipStartDate = currentSeriesMembership
-                ? resolveSeriesMembershipStartDate({
-                  approvalDate: currentMembershipApprovedAt || new Date().toISOString().slice(0, 10),
-                  membershipStartDate: currentSeriesMembership.startDate,
-                  seriesDefaultStartDate: series.seriesMembershipDefaultStartDate,
-                })
+              const eventEditDraft = nextEvent
+                ? eventEditDrafts[nextEvent.id] || buildEventEditDraft(nextEvent)
                 : null;
-              const currentMembershipEndDate = currentSeriesMembership?.endDate
-                ?? series.seriesMembershipDefaultEndDate
-                ?? null;
-              const currentMembershipAutoPaidUntilDate = currentSeriesMembership?.autoPaidUntilDate
-                ?? series.seriesMembershipAutoPaidUntilDate
-                ?? null;
 
               const eventPresentation = getDashboardEventPresentation({
                 role: profile?.role,
@@ -1146,34 +1000,56 @@ export default function DashboardPage() {
                     <div>
                       <div className="mb-2 flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">{series.typeOfSport}</span>
-                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">{series.status}</span>
+                        {nextEvent ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">{eventStateText}</span> : null}
+                        {nextEvent?.locked ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">locked</span> : null}
                       </div>
                       <h2 className="text-xl font-semibold">{series.title}</h2>
-                      <p className="mt-2 text-sm text-zinc-600">Series default location: {series.location}</p>
+                      <p className="mt-2 text-sm text-zinc-600">
+                        {nextEvent ? `${nextEvent.eventDate} · ${bookedCount}/${nextEvent.capacity} registered · ${waitingCount}/${waitingListCapacity} waiting` : "No event created yet"}
+                      </p>
                       <p className="mt-1 text-sm text-zinc-500">Organiser: {series.organiserName || "Organiser"}</p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">View all events</Link>
-                      {canManageSessions ? (
-                        <>
-                          <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Edit series</Link>
-                          <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-full border border-red-400 bg-red-50 px-4 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
-                        </>
-                      ) : null}
-                    </div>
+                    <details className="relative shrink-0" data-testid="series-actions-menu">
+                      <summary className="list-none rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 [&::-webkit-details-marker]:hidden">
+                        Actions
+                      </summary>
+                      <div className="absolute right-0 z-10 mt-2 grid w-48 gap-1 rounded-2xl border border-zinc-200 bg-white p-2 text-sm shadow-lg">
+                        <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" className="rounded-xl px-3 py-2 hover:bg-zinc-100">View all events</Link>
+                        {canManageSessions && nextEvent ? (
+                          <button type="button" data-testid="series-edit-event-button" onClick={() => handleEventEditStart(nextEvent)} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100">
+                            Edit event
+                          </button>
+                        ) : null}
+                        {canManageSessions ? (
+                          <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit series</Link>
+                        ) : null}
+                        {canManageSessions && nextEvent && nextEvent.status !== "completed" && nextEvent.status !== "cancelled" ? (
+                          <>
+                            <button type="button" data-testid="series-mark-completed-button" onClick={() => handleSetEventStatus(series, nextEvent, "completed")} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark completed</button>
+                            <button type="button" onClick={() => handleSetEventStatus(series, nextEvent, "cancelled")} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark cancelled</button>
+                          </>
+                        ) : null}
+                        {canManageSessions && !nextEventIsOpen ? <button type="button" data-testid="series-create-next-event-button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                        {canManageSessions ? (
+                          <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
+                        ) : null}
+                      </div>
+                    </details>
                   </div>
 
-                  <dl className="mt-4 grid grid-cols-2 gap-3 text-sm text-zinc-700">
+                  <dl className="mt-4 grid gap-3 text-sm text-zinc-700 sm:grid-cols-2 xl:grid-cols-4">
                     <div><dt className="text-zinc-500">Day</dt><dd>{series.dayOfWeek}</dd></div>
-                    <div><dt className="text-zinc-500">Next game on</dt><dd>{getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn)}</dd></div>
-                    <div><dt className="text-zinc-500">Series time</dt><dd>{series.startAt} - {series.endAt}</dd></div>
+                    <div><dt className="text-zinc-500">Date</dt><dd>{nextEvent?.eventDate || getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn)}</dd></div>
+                    <div><dt className="text-zinc-500">Time</dt><dd>{nextEvent ? `${nextEvent.startAt} - ${nextEvent.endAt}` : `${series.startAt} - ${series.endAt}`}</dd></div>
+                    <div><dt className="text-zinc-500">Location</dt><dd>{nextEvent?.location || series.location}</dd></div>
                     {showStartsFrom ? <div><dt className="text-zinc-500">Starts from</dt><dd>{series.firstSessionOn}</dd></div> : null}
-                    <div><dt className="text-zinc-500">Series casual price</dt><dd>${series.defaultPriceCasual}</dd></div>
-                    <div><dt className="text-zinc-500">Series capacity</dt><dd>{series.capacity}</dd></div>
-                    <div><dt className="text-zinc-500">Series waiting list</dt><dd>{series.waitingListCapacity || 0}</dd></div>
+                    <div><dt className="text-zinc-500">Casual price</dt><dd>${nextEvent?.defaultPriceCasual ?? series.defaultPriceCasual}</dd></div>
+                    <div><dt className="text-zinc-500">Capacity</dt><dd>{nextEvent?.capacity ?? series.capacity}</dd></div>
+                    <div><dt className="text-zinc-500">Waiting list</dt><dd>{nextEvent?.waitingListCapacity ?? series.waitingListCapacity ?? 0}</dd></div>
                     <div><dt className="text-zinc-500">Cancellation policy</dt><dd>{getCancellationPolicyLabel(series.cancellationPolicyHours)}</dd></div>
                   </dl>
 
+                  {/*
                   {showSeriesMembershipPanel ? (
                     <div className="mt-4 rounded-2xl border border-zinc-200 p-4" data-testid={`series-membership-panel-${series.id}`}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1402,8 +1278,55 @@ export default function DashboardPage() {
                       ) : null}
                     </div>
                   ) : null}
+                  */}
+
+                  {nextEvent && editingEventId === nextEvent.id && eventEditDraft ? (
+                    <form
+                      className="mt-4 rounded-2xl border border-zinc-200 p-4"
+                      data-testid="dashboard-event-edit-form"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void handleEventEditSave(series, nextEvent);
+                      }}
+                    >
+                      <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Edit event</h3>
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <label className="block text-sm text-zinc-700 md:col-span-3">
+                          <span className="mb-1 block font-medium">Location</span>
+                          <input value={eventEditDraft.location} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "location", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
+                        </label>
+                        <label className="block text-sm text-zinc-700">
+                          <span className="mb-1 block font-medium">Start time</span>
+                          <input type="time" value={eventEditDraft.startAt} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "startAt", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
+                        </label>
+                        <label className="block text-sm text-zinc-700">
+                          <span className="mb-1 block font-medium">End time</span>
+                          <input type="time" value={eventEditDraft.endAt} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "endAt", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
+                        </label>
+                        <label className="block text-sm text-zinc-700">
+                          <span className="mb-1 block font-medium">Casual price</span>
+                          <input type="number" min="0" step="0.01" value={eventEditDraft.defaultPriceCasual} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "defaultPriceCasual", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
+                        </label>
+                        <label className="block text-sm text-zinc-700">
+                          <span className="mb-1 block font-medium">Capacity</span>
+                          <input type="number" min="1" step="1" value={eventEditDraft.capacity} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "capacity", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
+                        </label>
+                        <label className="block text-sm text-zinc-700">
+                          <span className="mb-1 block font-medium">Waiting list</span>
+                          <input type="number" min="0" step="1" value={eventEditDraft.waitingListCapacity} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "waitingListCapacity", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
+                        </label>
+                      </div>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button type="submit" disabled={busyKey === `edit-event-${nextEvent.id}`} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">
+                          {busyKey === `edit-event-${nextEvent.id}` ? "Saving..." : "Save event"}
+                        </button>
+                        <button type="button" onClick={() => setEditingEventId(null)} className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100">Cancel</button>
+                      </div>
+                    </form>
+                  ) : null}
 
                   <div className={`mt-4 rounded-2xl p-4 ring-1 ${eventCardClass}`} data-testid="series-next-event-panel">
+                    {/*
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Next event</h3>
@@ -1431,7 +1354,10 @@ export default function DashboardPage() {
                           <div><dt className="text-zinc-500">Event casual price</dt><dd>${nextEvent.defaultPriceCasual}</dd></div>
                           <div><dt className="text-zinc-500">Event waiting list</dt><dd>{nextEvent.waitingListCapacity ?? 0}</dd></div>
                         </dl>
-                        <div className="mt-4 flex items-center justify-between gap-3">
+                        */}
+                    {nextEvent ? (
+                      <>
+                        <div className="flex items-center justify-between gap-3">
                           <h4 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Registrations for {nextEvent.eventDate}</h4>
                           {!canManageSessions ? (
                             currentRegistration ? (

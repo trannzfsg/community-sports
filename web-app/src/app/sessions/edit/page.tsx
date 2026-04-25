@@ -3,13 +3,22 @@
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 import { deletePaymentRecord } from "@/lib/payments";
 import AppShell from "@/components/app-shell";
 import DatePicker from "@/components/date-picker";
+import SearchablePlayerSelect from "@/components/searchable-player-select";
 import { auth, db } from "@/lib/firebase";
 import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import type { AppRole } from "@/lib/roles";
+import {
+  buildSeriesMembershipId,
+  getSeriesMembershipsForSeries,
+  updateSeriesMembershipSettings,
+  updateSeriesMembershipStatus,
+  type SeriesMembership,
+} from "@/lib/member-benefits";
+import { getVisiblePlayersForOrganiser, type PlayerDirectoryEntry } from "@/lib/players";
 import {
   DAY_OF_WEEK_OPTIONS,
   getEffectiveNextGameOn,
@@ -50,6 +59,28 @@ type SessionSeries = {
   seriesMembershipAutoPaidUntilDate?: string | null;
 };
 
+type MembershipDraft = {
+  startDate: string;
+  endDate: string;
+  autoPaidUntilDate: string;
+};
+
+function buildMembershipDraft(membership: SeriesMembership): MembershipDraft {
+  return {
+    startDate: membership.startDate ?? "",
+    endDate: membership.endDate ?? "",
+    autoPaidUntilDate: membership.autoPaidUntilDate ?? "",
+  };
+}
+
+function formatDateOnly(value?: string | null) {
+  if (!value) return "None";
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime())
+    ? value
+    : new Intl.DateTimeFormat("en-AU", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
+}
+
 function EditSessionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -61,6 +92,11 @@ function EditSessionPageInner() {
   const [organisers, setOrganisers] = useState<UserRecord[]>([]);
   const [ownerOrganiserId, setOwnerOrganiserId] = useState("");
   const [currentRole, setCurrentRole] = useState<AppRole | null>(null);
+  const [dataPartition, setDataPartition] = useState<DataPartition>("live");
+  const [playerDirectory, setPlayerDirectory] = useState<PlayerDirectoryEntry[]>([]);
+  const [seriesMemberships, setSeriesMemberships] = useState<SeriesMembership[]>([]);
+  const [membershipDraftsById, setMembershipDraftsById] = useState<Record<string, MembershipDraft>>({});
+  const [memberBusyKey, setMemberBusyKey] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [typeOfSport, setTypeOfSport] = useState<(typeof SPORT_OPTIONS)[number]>("Badminton");
@@ -85,6 +121,14 @@ function EditSessionPageInner() {
     () => getSuggestedNextGameOn(dayOfWeek, startAt),
     [dayOfWeek, startAt],
   );
+
+  useEffect(() => {
+    const nextDrafts: Record<string, MembershipDraft> = {};
+    seriesMemberships.forEach((membership) => {
+      nextDrafts[membership.id] = buildMembershipDraft(membership);
+    });
+    setMembershipDraftsById(nextDrafts);
+  }, [seriesMemberships]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -114,11 +158,18 @@ function EditSessionPageInner() {
       }
 
       setCurrentRole(profile.role);
+      const resolvedPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
+      setDataPartition(resolvedPartition);
       if (profile.role === "admin") {
-        const dataPartition = resolveDataPartition(profile.email || user.email || "", profile.dataPartition || "live");
-        const organiserUsers = await getUsersByRole(db, "organiser", dataPartition);
+        const organiserUsers = await getUsersByRole(db, "organiser", resolvedPartition);
         setOrganisers(organiserUsers);
       }
+      const [visiblePlayers, memberships] = await Promise.all([
+        getVisiblePlayersForOrganiser(db, session.organiserId || user.uid, resolvedPartition),
+        getSeriesMembershipsForSeries(db, sessionId, session.organiserId || user.uid, resolvedPartition),
+      ]);
+      setPlayerDirectory(visiblePlayers.sort((a, b) => a.displayName.localeCompare(b.displayName)));
+      setSeriesMemberships(memberships.sort((a, b) => a.playerName.localeCompare(b.playerName)));
       setAllowed(true);
       setTitle(session.title);
       setTypeOfSport(session.typeOfSport);
@@ -149,6 +200,101 @@ function EditSessionPageInner() {
 
     return () => unsubscribe();
   }, [router, sessionId]);
+
+  async function refreshSeriesMemberships(nextOrganiserId = ownerOrganiserId) {
+    if (!sessionId || !nextOrganiserId) return;
+    const memberships = await getSeriesMembershipsForSeries(db, sessionId, nextOrganiserId, dataPartition);
+    setSeriesMemberships(memberships.sort((a, b) => a.playerName.localeCompare(b.playerName)));
+  }
+
+  function handleMembershipDraftChange(
+    membershipId: string,
+    field: keyof MembershipDraft,
+    value: string,
+  ) {
+    setMembershipDraftsById((current) => ({
+      ...current,
+      [membershipId]: {
+        ...(current[membershipId] || { startDate: "", endDate: "", autoPaidUntilDate: "" }),
+        [field]: value,
+      },
+    }));
+  }
+
+  async function handleAddSeriesMember(selection: { type: "existing"; player: PlayerDirectoryEntry } | { type: "create"; name: string }) {
+    if (selection.type === "create") return;
+    const currentUser = auth.currentUser;
+    if (!currentUser || !sessionId || !ownerOrganiserId) return;
+
+    const player = selection.player;
+    const playerId = player.userId || player.id;
+    if (seriesMemberships.some((membership) => membership.playerId === playerId && membership.status !== "cancelled")) {
+      return;
+    }
+
+    const membershipId = buildSeriesMembershipId(sessionId, playerId);
+    setMemberBusyKey("add-member");
+    try {
+      await setDoc(doc(db, "seriesMemberships", membershipId), {
+        seriesId: sessionId,
+        organiserId: ownerOrganiserId,
+        playerId,
+        playerName: player.displayName,
+        playerEmail: player.email,
+        status: "active",
+        startDate: null,
+        endDate: null,
+        autoPaidUntilDate: null,
+        approvedAtDate: new Date().toISOString().slice(0, 10),
+        skipNextEvent: false,
+        skipCount: 0,
+        skipDates: [],
+        dataPartition,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+      await refreshSeriesMemberships();
+    } finally {
+      setMemberBusyKey(null);
+    }
+  }
+
+  async function handleSeriesMembershipDetailsSave(membership: SeriesMembership) {
+    setMemberBusyKey(`save-membership-${membership.id}`);
+    try {
+      const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+      await updateSeriesMembershipSettings(db, membership.id, {
+        startDate: draft.startDate || null,
+        endDate: draft.endDate || null,
+        autoPaidUntilDate: draft.autoPaidUntilDate || null,
+      });
+      await refreshSeriesMemberships(membership.organiserId);
+    } finally {
+      setMemberBusyKey(null);
+    }
+  }
+
+  async function handleSeriesMembershipStatusChange(
+    membership: SeriesMembership,
+    status: SeriesMembership["status"],
+  ) {
+    setMemberBusyKey(`${status}-membership-${membership.id}`);
+    try {
+      const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+      await updateSeriesMembershipSettings(db, membership.id, {
+        startDate: draft.startDate || null,
+        endDate: draft.endDate || null,
+        autoPaidUntilDate: draft.autoPaidUntilDate || null,
+        approvedAtDate: status === "active"
+          ? (membership.approvedAtDate || new Date().toISOString().slice(0, 10))
+          : membership.approvedAtDate,
+      });
+      await updateSeriesMembershipStatus(db, membership.id, status);
+      await refreshSeriesMemberships(membership.organiserId);
+    } finally {
+      setMemberBusyKey(null);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -395,6 +541,132 @@ function EditSessionPageInner() {
               </div>
             </div>
           ) : null}
+
+          <section className="rounded-2xl border border-zinc-200 p-4 md:col-span-2" data-testid="edit-series-members">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Series members</h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              Members are auto-added before casual players when the next event is created.
+            </p>
+            <div className="mt-4">
+              <SearchablePlayerSelect
+                players={playerDirectory.filter((player) => {
+                  const playerId = player.userId || player.id;
+                  return !seriesMemberships.some((membership) => membership.playerId === playerId && membership.status !== "cancelled");
+                })}
+                allowCreate={false}
+                noOptionsText="No eligible players available."
+                disabled={memberBusyKey === "add-member"}
+                onSelectOrCreate={handleAddSeriesMember}
+              />
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {seriesMemberships.length ? seriesMemberships.map((membership) => {
+                const membershipDraft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+
+                return (
+                  <div key={membership.id} className="rounded-2xl border border-zinc-200 p-4" data-testid={`series-membership-card-${membership.id}`}>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-zinc-900">{membership.playerName}</div>
+                          <div className="text-sm text-zinc-500">{membership.playerEmail}</div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            Status: {membership.status} · Total skips: {membership.skipCount} · Recent 10 weeks: {membership.recentTenWeekSkipCount || 0}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            Start: {formatDateOnly(membership.startDate || seriesMembershipDefaultStartDate || membership.approvedAtDate)}
+                            {" · "}End: {formatDateOnly(membership.endDate || seriesMembershipDefaultEndDate)}
+                            {" · "}Auto paid: {formatDateOnly(membership.autoPaidUntilDate || seriesMembershipAutoPaidUntilDate)}
+                          </div>
+                          {membership.skipNextEvent ? (
+                            <div className="mt-1 text-xs font-medium text-amber-700">Will skip the next auto-registration.</div>
+                          ) : null}
+                        </div>
+                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                          {membership.status}
+                        </span>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <label className="block text-xs text-zinc-600">
+                          <span className="mb-1 block font-medium text-zinc-700">Member start override</span>
+                          <input
+                            type="date"
+                            value={membershipDraft.startDate}
+                            onChange={(event) => handleMembershipDraftChange(membership.id, "startDate", event.target.value)}
+                            className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                          />
+                        </label>
+                        <label className="block text-xs text-zinc-600">
+                          <span className="mb-1 block font-medium text-zinc-700">Member end override</span>
+                          <input
+                            type="date"
+                            value={membershipDraft.endDate}
+                            min={membershipDraft.startDate || undefined}
+                            onChange={(event) => handleMembershipDraftChange(membership.id, "endDate", event.target.value)}
+                            className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                          />
+                        </label>
+                        <label className="block text-xs text-zinc-600">
+                          <span className="mb-1 block font-medium text-zinc-700">Auto paid override</span>
+                          <input
+                            type="date"
+                            value={membershipDraft.autoPaidUntilDate}
+                            onChange={(event) => handleMembershipDraftChange(membership.id, "autoPaidUntilDate", event.target.value)}
+                            className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleSeriesMembershipDetailsSave(membership)}
+                          disabled={memberBusyKey === `save-membership-${membership.id}`}
+                          className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {memberBusyKey === `save-membership-${membership.id}` ? "Saving..." : "Save member"}
+                        </button>
+                        {membership.status === "pending" || membership.status === "paused" || membership.status === "rejected" || membership.status === "cancelled" ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleSeriesMembershipStatusChange(membership, "active")}
+                            disabled={memberBusyKey === `active-membership-${membership.id}`}
+                            className="rounded-full border border-emerald-300 px-4 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Make active
+                          </button>
+                        ) : null}
+                        {membership.status === "active" ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleSeriesMembershipStatusChange(membership, "paused")}
+                            disabled={memberBusyKey === `paused-membership-${membership.id}`}
+                            className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Pause
+                          </button>
+                        ) : null}
+                        {membership.status !== "cancelled" ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleSeriesMembershipStatusChange(membership, "cancelled")}
+                            disabled={memberBusyKey === `cancelled-membership-${membership.id}`}
+                            className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }) : (
+                <div className="text-sm text-zinc-500">No members for this series yet.</div>
+              )}
+            </div>
+          </section>
 
           {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">{error}</div> : null}
 
