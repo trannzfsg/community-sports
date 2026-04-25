@@ -141,6 +141,7 @@ export default function DashboardPage() {
   const [organiserApprovalRequests, setOrganiserApprovalRequests] = useState<OrganiserApprovalRecord[]>([]);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [eventEditDrafts, setEventEditDrafts] = useState<Record<string, EventEditDraft>>({});
+  const [openActionsSeriesId, setOpenActionsSeriesId] = useState<string | null>(null);
 
   function splitIntoChunks<T>(items: T[], size: number) {
     const chunks: T[][] = [];
@@ -796,6 +797,7 @@ export default function DashboardPage() {
       ...current,
       [eventItem.id]: current[eventItem.id] || buildEventEditDraft(eventItem),
     }));
+    setOpenActionsSeriesId(null);
     setEditingEventId(eventItem.id);
   }
 
@@ -1009,32 +1011,39 @@ export default function DashboardPage() {
                       </p>
                       <p className="mt-1 text-sm text-zinc-500">Organiser: {series.organiserName || "Organiser"}</p>
                     </div>
-                    <details className="relative shrink-0" data-testid="series-actions-menu">
-                      <summary className="list-none rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 [&::-webkit-details-marker]:hidden">
+                    <div className="relative shrink-0" data-testid="series-actions-menu">
+                      <button
+                        type="button"
+                        aria-expanded={openActionsSeriesId === series.id}
+                        onClick={() => setOpenActionsSeriesId((current) => (current === series.id ? null : series.id))}
+                        className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100"
+                      >
                         Actions
-                      </summary>
-                      <div className="absolute right-0 z-10 mt-2 grid w-48 gap-1 rounded-2xl border border-zinc-200 bg-white p-2 text-sm shadow-lg">
-                        <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" className="rounded-xl px-3 py-2 hover:bg-zinc-100">View all events</Link>
-                        {canManageSessions && nextEvent ? (
-                          <button type="button" data-testid="series-edit-event-button" onClick={() => handleEventEditStart(nextEvent)} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100">
-                            Edit event
-                          </button>
-                        ) : null}
-                        {canManageSessions ? (
-                          <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit series</Link>
-                        ) : null}
-                        {canManageSessions && nextEvent && nextEvent.status !== "completed" && nextEvent.status !== "cancelled" ? (
-                          <>
-                            <button type="button" data-testid="series-mark-completed-button" onClick={() => handleSetEventStatus(series, nextEvent, "completed")} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark completed</button>
-                            <button type="button" onClick={() => handleSetEventStatus(series, nextEvent, "cancelled")} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark cancelled</button>
-                          </>
-                        ) : null}
-                        {canManageSessions && !nextEventIsOpen ? <button type="button" data-testid="series-create-next-event-button" onClick={() => handleCreateNextEvent(series)} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
-                        {canManageSessions ? (
-                          <button type="button" onClick={() => handleDeleteSeries(series)} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
-                        ) : null}
-                      </div>
-                    </details>
+                      </button>
+                      {openActionsSeriesId === series.id ? (
+                        <div className="absolute right-0 z-10 mt-2 grid w-48 gap-1 rounded-2xl border border-zinc-200 bg-white p-2 text-sm shadow-lg">
+                          <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">View all events</Link>
+                          {canManageSessions && nextEvent ? (
+                            <button type="button" data-testid="series-edit-event-button" onClick={() => handleEventEditStart(nextEvent)} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100">
+                              Edit event
+                            </button>
+                          ) : null}
+                          {canManageSessions ? (
+                            <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit series</Link>
+                          ) : null}
+                          {canManageSessions && nextEvent && nextEvent.status !== "completed" && nextEvent.status !== "cancelled" ? (
+                            <>
+                              <button type="button" data-testid="series-mark-completed-button" onClick={() => { setOpenActionsSeriesId(null); void handleSetEventStatus(series, nextEvent, "completed"); }} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark completed</button>
+                              <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleSetEventStatus(series, nextEvent, "cancelled"); }} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark cancelled</button>
+                            </>
+                          ) : null}
+                          {canManageSessions && !nextEventIsOpen ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                          {canManageSessions ? (
+                            <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleDeleteSeries(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
 
                   <dl className="mt-4 grid gap-3 text-sm text-zinc-700 sm:grid-cols-2 xl:grid-cols-4">

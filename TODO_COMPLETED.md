@@ -1,5 +1,10 @@
 # To-Do List - Completed tasks
 
+- [x] Fix organiser dashboard series action menu reloads.
+  - [x] Reproduced the dashboard action issue locally.
+  - [x] Replaced the native details menu with a controlled actions menu so action clicks target the correct control.
+  - [x] Verified safe dashboard actions in browser: edit event opens inline, edit series navigates, and view events navigates.
+
 - [x] Implement the recent testing follow-ups: add stable QA selectors, add a reusable QA reset helper, wire the browser regression into npm, then verify, merge to `main`, and deploy.
   - [x] Added stable test hooks for the onboarding, menu, approvals, and series-card flows.
   - [x] Added a reusable QA reset/setup helper for onboarding versions and organiser approvals, limited to `@example.com` fixtures.
