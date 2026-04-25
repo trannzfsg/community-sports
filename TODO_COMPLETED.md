@@ -1,5 +1,9 @@
 # To-Do List - Completed tasks
 
+- [x] Reorder organiser dashboard action menu buttons.
+  - [x] Put event actions before series actions.
+  - [x] Verified the menu order in the browser: Edit event, Mark completed, Mark cancelled, Edit series, View all events, Delete series.
+
 - [x] Fix organiser dashboard series action menu reloads.
   - [x] Reproduced the dashboard action issue locally.
   - [x] Replaced the native details menu with a controlled actions menu so action clicks target the correct control.
