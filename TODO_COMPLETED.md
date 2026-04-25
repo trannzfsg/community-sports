@@ -1,5 +1,11 @@
 # To-Do List - Completed tasks
 
+- [x] Hide completed or cancelled events from dashboard.
+  - [x] Use only active events when choosing the dashboard event for each series.
+  - [x] Keep completed and cancelled events available through the view-all-events page only.
+  - [x] Put "Create next event" first in the actions menu whenever it is available.
+  - [x] Verified the dashboard behavior and action order in a live browser.
+
 - [x] Treat empty or zero waiting list as unlimited.
   - [x] Centralized waiting-list normalization so blank, zero, missing, and invalid values resolve to hidden capacity `100`.
   - [x] Updated dashboard, series forms, and event override forms to display the hidden cap as `Unlimited`.
