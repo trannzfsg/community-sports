@@ -11,6 +11,9 @@ import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import type { AppRole } from "@/lib/roles";
 import {
+  formatWaitingListCapacity,
+  getWaitingListCapacityInputValue,
+  normalizeWaitingListCapacity,
   updateSessionEventOverrides,
   type RegistrationItem,
   type SessionEvent,
@@ -80,7 +83,7 @@ function buildEventOverrideDraft(event: SessionEvent): EventOverrideDraft {
     endAt: event.endAt || "",
     defaultPriceCasual: String(event.defaultPriceCasual ?? 0),
     capacity: String(event.capacity ?? 0),
-    waitingListCapacity: String(event.waitingListCapacity ?? 0),
+    waitingListCapacity: getWaitingListCapacityInputValue(event.waitingListCapacity),
   };
 }
 
@@ -91,7 +94,7 @@ function getEmptyEventOverrideDraft(): EventOverrideDraft {
     endAt: "",
     defaultPriceCasual: "",
     capacity: "",
-    waitingListCapacity: "0",
+    waitingListCapacity: "",
   };
 }
 
@@ -280,7 +283,7 @@ function SessionViewPageInner() {
       endAt: draft.endAt,
       defaultPriceCasual: Number(draft.defaultPriceCasual),
       capacity: Number(draft.capacity),
-      waitingListCapacity: Number(draft.waitingListCapacity),
+      waitingListCapacity: normalizeWaitingListCapacity(draft.waitingListCapacity),
     };
 
     setBusyKey(saveBusyKey);
@@ -396,7 +399,7 @@ function SessionViewPageInner() {
                     </div>
                     <p className="mt-1 text-xs text-zinc-500">
                       {registeredCount}/{event.capacity} registered
-                      {(event.waitingListCapacity ?? 0) > 0 ? ` · ${waitingCount}/${event.waitingListCapacity} waiting` : ""}
+                      {` · ${waitingCount}/${formatWaitingListCapacity(event.waitingListCapacity)} waiting`}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -502,8 +505,10 @@ function SessionViewPageInner() {
                         step="1"
                         value={draft.waitingListCapacity}
                         onChange={(inputEvent) => handleEventDraftChange(event.id, "waitingListCapacity", inputEvent.target.value)}
+                        placeholder="Unlimited"
                         className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
                       />
+                      <span className="mt-1 block text-[11px] text-zinc-500">Blank or 0 means unlimited.</span>
                     </label>
                     <p className="text-[11px] text-zinc-500 md:col-span-2">
                       These values are stored on this event only. Existing registrations stay intact, and smaller totals are blocked if they would remove spots already in use.
@@ -515,7 +520,7 @@ function SessionViewPageInner() {
                     <div><dt className="text-zinc-500">Time</dt><dd>{event.startAt} - {event.endAt}</dd></div>
                     <div><dt className="text-zinc-500">Casual price</dt><dd>${formatPrice(event.defaultPriceCasual)}</dd></div>
                     <div><dt className="text-zinc-500">Capacity</dt><dd>{event.capacity} players</dd></div>
-                    <div><dt className="text-zinc-500">Waiting list</dt><dd>{event.waitingListCapacity ?? 0} spots</dd></div>
+                    <div><dt className="text-zinc-500">Waiting list</dt><dd>{formatWaitingListCapacity(event.waitingListCapacity)}</dd></div>
                     <div><dt className="text-zinc-500">Stored event values</dt><dd>Kept for history and audit</dd></div>
                   </dl>
                 )}

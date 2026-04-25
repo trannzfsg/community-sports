@@ -12,6 +12,17 @@ import {
 } from "firebase/firestore";
 
 type DataPartition = "test" | "live";
+const UNLIMITED_WAITING_LIST_CAPACITY = 100;
+
+function normalizeWaitingListCapacity(value: number | null | undefined) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return UNLIMITED_WAITING_LIST_CAPACITY;
+  }
+
+  const capacity = Math.floor(parsed);
+  return capacity <= 0 ? UNLIMITED_WAITING_LIST_CAPACITY : capacity;
+}
 
 export type OrganiserBenefitProgram = {
   id: string;
@@ -196,7 +207,7 @@ export function planEventRegistrations(input: {
   const pushPlannedRegistration = (entry: PlannedRegistrationInput) => {
     const bookedCount = planned.filter((item) => item.status === "registered").length;
     const waitingCount = planned.filter((item) => item.status === "waiting").length;
-    const waitingListCapacity = Math.max(0, input.waitingListCapacity || 0);
+    const waitingListCapacity = normalizeWaitingListCapacity(input.waitingListCapacity);
     const nextStatus: "registered" | "waiting" | null = bookedCount < input.capacity
       ? "registered"
       : waitingCount < waitingListCapacity
