@@ -1,3 +1,3 @@
 # To-Do List
 
-- [ ] implement as per PREMIUM_FEATURES_PLAN.md
+- [ ] STOP HERE, confirm before continue. Implement as per PREMIUM_FEATURES_PLAN.md

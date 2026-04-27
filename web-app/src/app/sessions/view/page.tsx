@@ -3,12 +3,13 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import AppShell from "@/components/app-shell";
 import EventRegistrationRow from "@/components/event-registration-row";
 import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
+import { deletePaymentRecord } from "@/lib/payments";
 import type { AppRole } from "@/lib/roles";
 import {
   formatWaitingListCapacity,
@@ -49,10 +50,10 @@ function getSessionViewErrorMessage(error: unknown) {
     && "code" in error
     && (error as { code?: string }).code === "permission-denied"
   ) {
-    return "You need organiser approval before viewing this session history.";
+    return "You need organiser approval before viewing this event history.";
   }
 
-  return error instanceof Error ? error.message : "Failed to load session history.";
+  return error instanceof Error ? error.message : "Failed to load event history.";
 }
 
 function getTimestampMillis(value: unknown) {
@@ -125,7 +126,7 @@ function SessionViewPageInner() {
 
     const seriesSnap = await getDoc(doc(db, "sessions", seriesId));
     if (!seriesSnap.exists()) {
-      setLoadError("Session series not found.");
+      setLoadError("Event series not found.");
       return;
     }
     const seriesData = { id: seriesSnap.id, ...(seriesSnap.data() as Omit<SessionSeries, "id">) };
@@ -232,6 +233,39 @@ function SessionViewPageInner() {
     } catch (err) {
       console.error("[session-view] toggle lock failed:", err);
       alert(err instanceof Error ? err.message : "Failed to toggle lock.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleDeleteEvent(eventItem: SessionEvent, registrations: RegistrationItem[]) {
+    if (eventItem.locked) {
+      alert("Unlock this event before deleting it.");
+      return;
+    }
+
+    const registrationText = registrations.length === 0
+      ? "There are no registrations for this event."
+      : `This will also delete ${registrations.length} registration${registrations.length === 1 ? "" : "s"} and their payment records.`;
+
+    const confirmed = confirm(
+      `Delete the ${eventItem.eventDate} event? ${registrationText} This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    const deleteBusyKey = `delete-${eventItem.id}`;
+    setBusyKey(deleteBusyKey);
+    try {
+      for (const registration of registrations) {
+        await deletePaymentRecord(db, registration.id);
+        await deleteDoc(doc(db, "registrations", registration.id));
+      }
+
+      await deleteDoc(doc(db, "sessionEvents", eventItem.id));
+      setEventList((current) => current.filter((item) => item.event.id !== eventItem.id));
+    } catch (err) {
+      console.error("[session-view] delete event failed:", err);
+      alert(err instanceof Error ? err.message : "Failed to delete event.");
     } finally {
       setBusyKey(null);
     }
@@ -345,7 +379,7 @@ function SessionViewPageInner() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Event history</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight">{series?.title ?? "Session"}</h1>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight">{series?.title ?? "Event series"}</h1>
               {series ? (
                 <p className="mt-2 text-sm text-zinc-500">
                   Series defaults: {series.location} · {series.dayOfWeek} · {series.startAt}–{series.endAt}
@@ -359,7 +393,7 @@ function SessionViewPageInner() {
 
         {eventList.length === 0 ? (
           <div className="rounded-2xl bg-white p-6 text-sm text-zinc-500 shadow-sm ring-1 ring-zinc-200">
-            No events recorded for this series yet.
+            No events recorded for this event series yet.
           </div>
         ) : (
           eventList.map(({ event, registrations }) => {
@@ -378,6 +412,7 @@ function SessionViewPageInner() {
             const waitingCount = registrations.filter((registration) => registration.status === "waiting").length;
             const lockBusyKey = `lock-${event.id}`;
             const saveBusyKey = `save-${event.id}`;
+            const deleteBusyKey = `delete-${event.id}`;
 
             return (
               <article key={event.id} className={`rounded-2xl bg-white p-6 shadow-sm ring-1 ${event.locked ? "ring-zinc-300" : "ring-zinc-200"}`}>
@@ -441,6 +476,16 @@ function SessionViewPageInner() {
                         className={`rounded-full border px-4 py-2 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60 ${event.locked ? "border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100" : "border-zinc-300 hover:bg-zinc-100"}`}
                       >
                         {busyKey === lockBusyKey ? "..." : event.locked ? "Unlock event" : "Lock event"}
+                      </button>
+                    ) : null}
+                    {isOrganiserOwned ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteEvent(event, registrations)}
+                        disabled={busyKey === deleteBusyKey || busyKey === saveBusyKey || event.locked}
+                        className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {busyKey === deleteBusyKey ? "Deleting..." : "Delete event"}
                       </button>
                     ) : null}
                   </div>

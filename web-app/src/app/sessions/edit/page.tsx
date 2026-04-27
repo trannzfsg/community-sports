@@ -3,8 +3,7 @@
 import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
-import { deletePaymentRecord } from "@/lib/payments";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
 import AppShell from "@/components/app-shell";
 import DatePicker from "@/components/date-picker";
 import SearchablePlayerSelect from "@/components/searchable-player-select";
@@ -21,13 +20,10 @@ import {
 import { getVisiblePlayersForOrganiser, type PlayerDirectoryEntry } from "@/lib/players";
 import {
   DAY_OF_WEEK_OPTIONS,
-  getEffectiveNextGameOn,
-  getSuggestedNextGameOn,
+  getNextDateForDayOfWeekAfterToday,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
 import {
-  buildSessionEventId,
-  createSessionEventForSeries,
   getWaitingListCapacityInputValue,
   normalizeWaitingListCapacity,
   type SessionSeries as SessionSeriesRecord,
@@ -108,8 +104,6 @@ function EditSessionPageInner() {
   const [typeOfSport, setTypeOfSport] = useState<(typeof SPORT_OPTIONS)[number]>("Badminton");
   const [location, setLocation] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState<(typeof DAY_OF_WEEK_OPTIONS)[number]>("Mon");
-  const [nextGameOn, setNextGameOn] = useState("");
-  const [originalNextGameOn, setOriginalNextGameOn] = useState("");
   const [startAt, setStartAt] = useState("19:00");
   const [endAt, setEndAt] = useState("21:00");
   const [firstSessionOn, setFirstSessionOn] = useState("");
@@ -124,8 +118,8 @@ function EditSessionPageInner() {
   const [seriesMembershipAutoPaidUntilDate, setSeriesMembershipAutoPaidUntilDate] = useState("");
 
   const computedNextGameOn = useMemo(
-    () => getSuggestedNextGameOn(dayOfWeek, startAt),
-    [dayOfWeek, startAt],
+    () => getNextDateForDayOfWeekAfterToday(dayOfWeek),
+    [dayOfWeek],
   );
 
   useEffect(() => {
@@ -184,14 +178,7 @@ function EditSessionPageInner() {
       setStartAt(session.startAt);
       setEndAt(session.endAt);
       setOwnerOrganiserId(session.organiserId || user.uid);
-      const effectiveNextGameOn = getEffectiveNextGameOn(
-        session.dayOfWeek,
-        session.startAt,
-        session.nextGameOn,
-      );
-      setNextGameOn(effectiveNextGameOn);
-      setOriginalNextGameOn(effectiveNextGameOn);
-      setFirstSessionOn(session.firstSessionOn);
+      setFirstSessionOn(session.firstSessionOn || getNextDateForDayOfWeekAfterToday(session.dayOfWeek));
       setDefaultPriceCasual(String(session.defaultPriceCasual));
       setCapacity(String(session.capacity));
       setWaitingListCapacity(getWaitingListCapacityInputValue(session.waitingListCapacity));
@@ -315,7 +302,7 @@ function EditSessionPageInner() {
 
       const organiserId = currentRole === "organiser" ? currentUser.uid : ownerOrganiserId;
       if (!organiserId) {
-        throw new Error("Session series must have an organiser owner.");
+        throw new Error("Event series must have an organiser owner.");
       }
 
       const organiser = await getUserById(db, organiserId);
@@ -331,10 +318,10 @@ function EditSessionPageInner() {
         typeOfSport,
         location: location.trim(),
         dayOfWeek,
-        nextGameOn,
+        nextGameOn: computedNextGameOn,
         startAt,
         endAt,
-        firstSessionOn,
+        firstSessionOn: firstSessionOn || computedNextGameOn,
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
         waitingListCapacity: normalizeWaitingListCapacity(waitingListCapacity),
@@ -348,37 +335,12 @@ function EditSessionPageInner() {
 
       await updateDoc(doc(db, "sessions", sessionId), updatedSeries);
 
-      if (originalNextGameOn && nextGameOn !== originalNextGameOn) {
-        const previousEventId = buildSessionEventId(sessionId, originalNextGameOn);
-        const previousEventRef = doc(db, "sessionEvents", previousEventId);
-        const previousEventSnapshot = await getDoc(previousEventRef);
-
-        if (previousEventSnapshot.exists()) {
-          const registrationsSnapshot = await getDocs(
-            query(
-              collection(db, "registrations"),
-              where("sessionEventId", "==", previousEventId),
-              where("dataPartition", "==", dataPartition),
-            ),
-          );
-
-          for (const registrationDoc of registrationsSnapshot.docs) {
-            await deletePaymentRecord(db, registrationDoc.id);
-            await deleteDoc(registrationDoc.ref);
-          }
-
-          await deleteDoc(previousEventRef);
-        }
-
-        await createSessionEventForSeries(db, updatedSeries, nextGameOn);
-      }
-
       router.push("/dashboard");
     } catch (submitError) {
       if (submitError instanceof Error) {
         setError(submitError.message);
       } else {
-        setError("Failed to update session series.");
+        setError("Failed to update event series.");
       }
     } finally {
       setBusy(false);
@@ -389,7 +351,7 @@ function EditSessionPageInner() {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
         <div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
-          Loading session series...
+          Loading event series...
         </div>
       </main>
     );
@@ -403,9 +365,9 @@ function EditSessionPageInner() {
     <AppShell role={currentRole ?? "organiser"} contentClassName="max-w-3xl">
       <div className="w-full rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
         <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          Session series
+          Event series
         </p>
-        <h1 className="text-3xl font-semibold tracking-tight">Edit session series</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Edit event series</h1>
         <p className="mt-3 text-zinc-600">
           Organisers can edit their own series. Admins can edit any series.
         </p>
@@ -425,7 +387,7 @@ function EditSessionPageInner() {
           ) : null}
 
           <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-zinc-700">Series title</span>
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Event series title</span>
             <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
           </label>
 
@@ -446,19 +408,6 @@ function EditSessionPageInner() {
             <select value={dayOfWeek} onChange={(event) => setDayOfWeek(event.target.value as (typeof DAY_OF_WEEK_OPTIONS)[number])} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
               {DAY_OF_WEEK_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-zinc-700">Next game on</span>
-            <DatePicker value={nextGameOn} onChange={setNextGameOn} required />
-            <button type="button" onClick={() => setNextGameOn(computedNextGameOn)} className="mt-2 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline">
-              Reset to suggested date ({computedNextGameOn})
-            </button>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-zinc-700">First session on</span>
-            <DatePicker value={firstSessionOn} onChange={setFirstSessionOn} required />
           </label>
 
           <label className="block">
@@ -693,7 +642,7 @@ function EditSessionPageInner() {
 
 export default function EditSessionPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900"><div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">Loading session series...</div></main>}>
+    <Suspense fallback={<main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900"><div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">Loading event series...</div></main>}>
       <EditSessionPageInner />
     </Suspense>
   );

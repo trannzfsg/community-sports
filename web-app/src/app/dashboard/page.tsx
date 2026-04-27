@@ -444,7 +444,7 @@ export default function DashboardPage() {
   async function handleCreateNextEvent(series: SessionSeries) {
     setBusyKey(series.id);
     try {
-      const createdEvent = await createSessionEventForSeries(db, series, series.nextGameOn);
+      const createdEvent = await createSessionEventForSeries(db, series);
       await updateDoc(doc(db, "sessions", series.id), {
         nextGameOn: createdEvent.eventDate,
       });
@@ -984,7 +984,6 @@ export default function DashboardPage() {
               const playerIsGoing = currentRegistration?.status === "registered";
               const playerIsWaiting = currentRegistration?.status === "waiting";
               const playerCanJoin = !!nextEvent && capacityState.canAddMore;
-              const nextEventIsOpen = !!nextEvent && (nextEvent.status || "active") === "active" && capacityState.canAddMore;
               const eventEditDraft = nextEvent
                 ? eventEditDrafts[nextEvent.id] || buildEventEditDraft(nextEvent)
                 : null;
@@ -1027,7 +1026,7 @@ export default function DashboardPage() {
                       </button>
                       {openActionsSeriesId === series.id ? (
                         <div className="absolute right-0 z-10 mt-2 grid w-48 gap-1 rounded-2xl border border-zinc-200 bg-white p-2 text-sm shadow-lg">
-                          {canManageSessions && !nextEventIsOpen ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                          {canManageSessions ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
                           {canManageSessions && nextEvent ? (
                             <button type="button" data-testid="series-edit-event-button" onClick={() => handleEventEditStart(nextEvent)} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100">
                               Edit event
@@ -1039,12 +1038,12 @@ export default function DashboardPage() {
                               <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleSetEventStatus(series, nextEvent, "cancelled"); }} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark cancelled</button>
                             </>
                           ) : null}
-                          {canManageSessions ? (
-                            <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit series</Link>
-                          ) : null}
                           <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">View all events</Link>
                           {canManageSessions ? (
-                            <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleDeleteSeries(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete series</button>
+                            <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit event series</Link>
+                          ) : null}
+                          {canManageSessions ? (
+                            <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleDeleteSeries(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete event series</button>
                           ) : null}
                         </div>
                       ) : null}
@@ -1453,7 +1452,7 @@ export default function DashboardPage() {
               );
             })
           ) : (
-            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">No session series yet. Use <strong>Create session series</strong> to add the first one.</div>
+            <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">No event series yet. Use <strong>New event series</strong> to add the first one.</div>
           )}
         </section>
       </div>

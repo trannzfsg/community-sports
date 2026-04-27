@@ -78,6 +78,23 @@ export function getSuggestedNextGameOn(
   return formatDateLocal(start);
 }
 
+export function getNextDateForDayOfWeekAfterToday(
+  dayOfWeek: DayOfWeek,
+  from = new Date(),
+) {
+  const start = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const currentDayIndex = start.getDay();
+  const targetDayIndex = DAY_TO_INDEX[dayOfWeek];
+
+  let daysAhead = (targetDayIndex - currentDayIndex + 7) % 7;
+  if (daysAhead === 0) {
+    daysAhead = 7;
+  }
+
+  start.setDate(start.getDate() + daysAhead);
+  return formatDateLocal(start);
+}
+
 export function getEffectiveNextGameOn(
   dayOfWeek: DayOfWeek,
   startAt: string,

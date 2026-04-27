@@ -47,7 +47,7 @@ export const ONBOARDING_CONTENT: Record<OnboardingRole, OnboardingContent> = {
         points: [
           "When a registered player leaves, the first waiting-list player moves up automatically.",
           "Waiting-list players cannot complete payment steps until they become registered.",
-          "Cancellation rules depend on the organiser's session-series policy. Inside the cutoff window, contact the organiser instead of removing yourself.",
+          "Cancellation rules depend on the organiser's event-series policy. Inside the cutoff window, contact the organiser instead of removing yourself.",
         ],
       },
       {
@@ -64,7 +64,7 @@ export const ONBOARDING_CONTENT: Record<OnboardingRole, OnboardingContent> = {
     version: "2026-04-23-organiser-v1",
     badge: "Organiser onboarding",
     title: "How organiser workflows fit together",
-    intro: "This walkthrough focuses on the day-to-day organiser flow: bringing players in, running session series, handling event overrides, and managing payments and memberships.",
+    intro: "This walkthrough focuses on the day-to-day organiser flow: bringing players in, running event series, handling event overrides, and managing payments and memberships.",
     sections: [
       {
         title: "Bringing players in",
@@ -77,8 +77,8 @@ export const ONBOARDING_CONTENT: Record<OnboardingRole, OnboardingContent> = {
       {
         title: "Series and events",
         points: [
-          "Create a session series first, then create each dated event from that series.",
-          "Series defaults set the starting values for new events. Existing events keep their own copied values for audit history.",
+          "Create an event series first, then create each dated event from that series.",
+          "Event series defaults set the starting values for new events. Existing events keep their own copied values for audit history.",
           "Use event history to override an individual event's location, time, price, capacity, or waitlist without changing older events.",
         ],
       },
