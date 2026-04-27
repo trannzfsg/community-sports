@@ -13,13 +13,13 @@ Validated assumptions (2026-04-24):
   - Card / Apple Pay / Google Pay is **deferred** to a later iteration unless user opts back in — fee profile too high for small tickets.
 - **Bundling / membership payment request**:
   - Members pay in prepaid blocks (e.g. 4 sessions for A$60) → one transaction instead of four.
-  - New flow: organiser requests payment from a player as a condition of membership. Player pays via PayTo/PayID or manual ref → on confirmation, organiser promotes them to member (`autoPaidUntilDate` extended).
+  - New flow: organiser requests payment from a player as a condition of membership. Player pays via PayTo/PayID (or Stripe) or manual ref → on confirmation, organiser promotes them to member (`autoPaidUntilDate` extended).
   - Flow is optional — organiser can still promote a player to member without requesting payment (existing behaviour preserved).
 - **Subscription / feature gating**:
   - **Only organisers pay.** Players never subscribe.
   - **Monetisation model** — keep flexible; design supports both, pick final pricing at rollout:
     - **A**: flat monthly Pro sub (e.g. A$X/month) collected via Stripe Billing card.
-    - **B**: per-transaction platform cut (e.g. Y% or Zc) skimmed from PayTo/PayID transfers. Organiser absorbs, never the player.
+    - **B**: per-transaction platform cut (e.g. Y% or Zc) skimmed from PayTo/PayID (or Stripe) transfers. Organiser absorbs, never the player.
   - **Tier structure**: single Pro tier unlocks all three premium features (payments, accounting, push). Admin can grant free Pro to specific organisers via user flag (beta, comps, friends-of-platform).
 - Refunds: organiser-initiated via gateway + auto-refund when a player self-cancels inside the cancellation-policy window (unchanged).
 - Stripe Connect model for payout destination is dropped (used to solve card Connect split). New rails settle directly organiser-side; platform cut (option B) or flat sub (option A) collected separately via Stripe Billing on the organiser's own card.
@@ -47,7 +47,7 @@ Existing foundation to reuse:
 - Pro unlocks: in-app payment rails, accounting pages, mobile push preferences + delivery.
 - Free organisers keep everything they have today: manual bank ref flow, dashboard, notifications via Telegram/email only.
 - Admin can set `subscription.tier = 'pro'` + `subscription.grantedByAdmin = true` on any user to comp Pro without Stripe.
-- Pricing decision kept open: same feature gate whether monetisation ends up being flat monthly sub (Stripe Billing) or per-transaction cut (deducted at PayTo/PayID settlement). Both models write to the same `subscription` object; only the billing source differs.
+- Pricing decision kept open: same feature gate whether monetisation ends up being flat monthly sub (Stripe Billing) or per-transaction cut (deducted at PayTo/PayID/Stripe settlement). Both models write to the same `subscription` object; only the billing source differs.
 - Visible UX hints on locked features: small "Pro" badge on menu items + on-click modal explaining the upgrade.
 
 ### Implementation
@@ -99,18 +99,18 @@ Cost-effectiveness:
 
 ---
 
-## Feature 1 — In-App Payments (PayTo/PayID AU rails, with manual fallback)
+## Feature 1 — In-App Payments (PayTo/PayID AU rails, or Stripe, with manual fallback)
 
 ### Product
 
 - **Gate**: only Pro organisers can enable in-app rails. Free organisers keep manual bank reference only.
 - **Organiser onboarding** (Pro):
-  - Profile page → "Connect bank for PayTo" → gateway onboarding (Azupay/Monoova/Stripe-PayTo-AU, vendor pick pending — see open decisions).
+  - Profile page → "Connect bank for PayTo" (or Stripe) → gateway onboarding (Azupay/Monoova/Stripe-PayTo-AU, vendor pick pending — see open decisions).
   - On success, organiser record stores `payidHandle`, `gatewayAccountId`, `settlementAccountVerified`.
 - **Session-series setting**: `paymentMode` = `manual_reference | in_app_payto | either`. Default `manual_reference` for backward compatibility.
 - **Session-series setting**: `feeBearer` = `player_surcharge | organiser_absorb`. At A$0.10–A$0.20 flat, absorbing is viable for most organisers — but still configurable.
-- **Player flow** (PayTo/PayID):
-  - Registration → "Pay now" opens a PayTo agreement (once, consented in their bank app) or a one-off PayID push. Confirmation webhook flips `playerPaid = true` + `paymentReference = payto:<ref>` + `gatewayFeeCents`.
+- **Player flow** (PayTo/PayID/Stripe):
+  - Registration → "Pay now" opens a PayTo agreement (once, consented in their bank app) or a one-off PayID push or Stripe. Confirmation webhook flips `playerPaid = true` + `paymentReference = payto:<ref>` + `gatewayFeeCents`.
   - Fallback button: "I'd rather pay manually" → existing manual ref input.
 - **Bundle / membership payment request flow** (new):
   - Organiser on player row → "Request membership payment" → picks block size (default 4 sessions × series price) → sends payment request.
@@ -171,7 +171,7 @@ Cost-effectiveness:
 
 ### Verification
 
-- Gateway sandbox end-to-end: create event, pay via PayTo/PayID, webhook flips flags, notification delivered.
+- Gateway sandbox end-to-end: create event, pay via PayTo/PayID (or Stripe - pending user decision), webhook flips flags, notification delivered.
 - Manual fallback path on same event type still works.
 - Membership payment request: organiser requests → player pays → member promoted → auto-paid for 4 upcoming events, notifications fired.
 - Refund path: full + partial; `refundedAt` + flag clear + registration state.
@@ -181,8 +181,8 @@ Cost-effectiveness:
 
 ### Open decisions (need user input before build)
 
-1. **Vendor pick** for PayTo/PayID rail — Azupay, Monoova, Zepto, or Stripe PayTo-AU. Trade-off: pricing, AU onboarding time, sandbox quality, PayTo maturity. Recommend a 1-day spike to benchmark.
-2. **Monetisation model** for subscription — flat monthly Pro (A$X) vs per-txn platform cut (Y% or Zc). Both are buildable; pick one for launch based on anticipated organiser volume.
+1. **Vendor pick** for PayTo/PayID rail — Azupay, Monoova, Zepto, or Stripe PayTo-AU. Trade-off: pricing, AU onboarding time, sandbox quality, PayTo maturity. Stripe is also viable option with higher fees. Confirm with user before proceeding.
+2. **Monetisation model** for subscription — flat monthly Pro (A$X) vs per-txn platform cut (Y% or Zc). Both are buildable; pick one for launch based on anticipated organiser volume. Preferred per-txn small cut (e.g. Stripe takes 0.30+1.7% on top of $15 casual, platform takes extra 2% on $15). It'll be good to be able to hide this from end users, so they see as $15 + transaction costs. 
 
 ---
 
@@ -256,7 +256,7 @@ As rev 1. Addition:
 - [web-app/src/lib/flow-access.ts](web-app/src/lib/flow-access.ts) — subscription-aware feature gates.
 - [web-app/src/lib/subscription.ts](web-app/src/lib/subscription.ts) (new) — tier + feature predicates.
 - [functions/src/notifications.ts](functions/src/notifications.ts) — push channel, shared retry dispatcher.
-- [functions/src/payments/](functions/src/payments/) (new) — PayTo adapter, webhook, refund, membership confirm.
+- [functions/src/payments/](functions/src/payments/) (new) — PayTo (or Stripe) adapter, webhook, refund, membership confirm.
 - [functions/src/subscription.ts](functions/src/subscription.ts) (new) — Stripe Billing callable + webhook.
 - [functions/src/index.ts](functions/src/index.ts) — register new triggers + Cloud Tasks handler.
 - [firestore.rules](firestore.rules) — `subscription` lockdown, Pro-gated collections, gateway-ID lockdown, new collections.
@@ -271,7 +271,7 @@ As rev 1. Addition:
 1. **Deploy existing Functions scaffolding to Blaze** — prove Telegram + scheduled jobs run. Smoke via `TESTING_SMOKE.md`.
 2. **Feature 0 — Subscription gating** — locks down nothing real yet (no premium code exists), but stands up Stripe Billing, `subscription` schema, admin-grant flow, and `hasFeature` predicate. Everything downstream is gated by this.
 3. **Feature 3 — Push + shared retry dispatcher** — smallest, improves reliability for payment notifications in Feature 1. Gate on `hasFeature(user, 'pushNotifications')`.
-4. **Feature 1 — PayTo/PayID payments + membership payment request** — biggest revenue-enabler for organisers. Build vendor-neutral adapter first, land manual-ref-compatible refund path, then wire membership block flow.
+4. **Feature 1 — PayTo/PayID (or Stripe) payments + membership payment request** — biggest revenue-enabler for organisers. Build vendor-neutral adapter first, land manual-ref-compatible refund path, then wire membership block flow.
 5. **Feature 2 — Accounting** — depends on Feature 1 data (refunds, platform cut) being in place.
 
 ## Open decisions blocking build
