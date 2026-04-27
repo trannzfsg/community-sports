@@ -38,6 +38,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
   if (role === "admin") {
     return [
       { href: "/dashboard", label: "Dashboard", shortLabel: "Da", matchPrefixes: ["/dashboard", "/sessions/view"] },
+      { href: "/sessions/new", label: "New event series", shortLabel: "Ne" },
       { href: "/admin/organisers", label: "Organisers", shortLabel: "Or" },
       { href: "/admin/players", label: "Players", shortLabel: "Pl" },
       { href: "/profile", label: "Profile", shortLabel: "Pr" },
@@ -47,6 +48,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
   if (role === "organiser") {
     return [
       { href: "/dashboard", label: "Dashboard", shortLabel: "Da", matchPrefixes: ["/dashboard", "/sessions/view"] },
+      { href: "/sessions/new", label: "New event series", shortLabel: "Ne" },
       { href: "/organiser/approvals", label: "Approvals", shortLabel: "Ap" },
       { href: "/organiser/players", label: "Players", shortLabel: "Pl" },
       { href: "/onboarding", label: "Onboarding", shortLabel: "On" },
@@ -99,7 +101,6 @@ export default function AppShell({
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const navigationItems = getNavigationItems(role);
   const roleLabel = getRoleLabel(role);
-  const canCreateSeries = role === "admin" || role === "organiser";
 
   useEffect(() => {
     try {
@@ -234,17 +235,6 @@ export default function AppShell({
           </div>
 
           <div className="border-t border-zinc-200 px-4 py-5">
-            {canCreateSeries ? (
-              <Link
-                href="/sessions/new"
-                data-testid="app-shell-create-series-desktop"
-                className={`mb-3 flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 ${
-                  desktopCollapsed ? "px-0" : ""
-                }`}
-              >
-                {desktopCollapsed ? "New" : "Create session series"}
-              </Link>
-            ) : null}
             <Link
               href="/logout"
               data-testid="app-shell-sign-out-desktop"
@@ -292,15 +282,6 @@ export default function AppShell({
               </div>
 
               <div className="border-t border-zinc-200 px-4 py-5">
-                {canCreateSeries ? (
-                  <Link
-                    href="/sessions/new"
-                    data-testid="app-shell-create-series-mobile"
-                    className="mb-3 flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-zinc-700"
-                  >
-                    Create session series
-                  </Link>
-                ) : null}
                 <Link
                   href="/logout"
                   data-testid="app-shell-sign-out-mobile"
@@ -330,15 +311,6 @@ export default function AppShell({
                   <div className="text-xs uppercase tracking-[0.18em] text-zinc-500">{roleLabel}</div>
                 </div>
               </div>
-              {canCreateSeries ? (
-                <Link
-                  href="/sessions/new"
-                  data-testid="app-shell-create-series-mobile-quick"
-                  className="rounded-xl bg-zinc-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-zinc-700"
-                >
-                  New series
-                </Link>
-              ) : null}
             </div>
           </div>
 

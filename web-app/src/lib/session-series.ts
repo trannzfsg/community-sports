@@ -1,11 +1,11 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   query,
   serverTimestamp,
   setDoc,
-  updateDoc,
   where,
   type Firestore,
 } from "firebase/firestore";
@@ -14,6 +14,16 @@ import type { DayOfWeek, TypeOfSport } from "./session-options";
 type DataPartition = "test" | "live";
 
 export const UNLIMITED_WAITING_LIST_CAPACITY = 100;
+
+const DAY_TO_INDEX: Record<DayOfWeek, number> = {
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+  Sun: 0,
+};
 
 export function normalizeWaitingListCapacity(value: number | string | null | undefined) {
   if (value === null || value === undefined) {
@@ -67,6 +77,23 @@ function addDays(dateText: string, days: number) {
   const date = parseLocalDate(dateText);
   date.setDate(date.getDate() + days);
   return formatDateLocal(date);
+}
+
+function getNextDateForDayOfWeekAfterToday(
+  dayOfWeek: DayOfWeek,
+  from = new Date(),
+) {
+  const start = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  const currentDayIndex = start.getDay();
+  const targetDayIndex = DAY_TO_INDEX[dayOfWeek];
+
+  let daysAhead = (targetDayIndex - currentDayIndex + 7) % 7;
+  if (daysAhead === 0) {
+    daysAhead = 7;
+  }
+
+  start.setDate(start.getDate() + daysAhead);
+  return formatDateLocal(start);
 }
 
 function parseBrisbaneDateTime(dateText: string, timeText: string) {
@@ -164,7 +191,41 @@ export function resolveNextSessionEventDate(
   return candidateDate;
 }
 
-function planEventRegistrations(input: {
+type EventCreationCandidate = Pick<SessionEvent, "id" | "eventDate" | "status">;
+
+export function getDefaultNextSessionEventDate(
+  series: Pick<SessionSeries, "dayOfWeek">,
+  from = new Date(),
+) {
+  return getNextDateForDayOfWeekAfterToday(series.dayOfWeek, from);
+}
+
+export function getActiveEventBlockingNextEventCreation(events: EventCreationCandidate[]) {
+  return events
+    .filter((event) => (event.status || "active") === "active")
+    .sort((a, b) => a.eventDate.localeCompare(b.eventDate))
+    .at(0);
+}
+
+export function getCancelledEventForDate(
+  events: EventCreationCandidate[],
+  eventDate: string,
+) {
+  return events.find(
+    (event) => event.eventDate === eventDate && event.status === "cancelled",
+  );
+}
+
+export function getExistingNonCancelledEventForDate(
+  events: EventCreationCandidate[],
+  eventDate: string,
+) {
+  return events.find(
+    (event) => event.eventDate === eventDate && event.status !== "cancelled",
+  );
+}
+
+export function planEventRegistrations(input: {
   eventDate: string;
   capacity: number;
   waitingListCapacity?: number;
@@ -393,6 +454,23 @@ async function syncPaymentRecordForRegistration(
   }, { merge: true });
 }
 
+async function clearEventRegistrationsAndPayments(
+  db: Firestore,
+  sessionEventId: string,
+  dataPartition?: DataPartition,
+) {
+  const registrationsSnapshot = await getDocs(
+    dataPartition
+      ? query(collection(db, "registrations"), where("sessionEventId", "==", sessionEventId), where("dataPartition", "==", dataPartition))
+      : query(collection(db, "registrations"), where("sessionEventId", "==", sessionEventId)),
+  );
+
+  for (const registrationDoc of registrationsSnapshot.docs) {
+    await deleteDoc(doc(db, "payments", buildPaymentId(registrationDoc.id)));
+    await deleteDoc(registrationDoc.ref);
+  }
+}
+
 export function getRegistrationCapacityState(input: {
   capacity: number;
   waitingListCapacity?: number;
@@ -582,10 +660,10 @@ export async function updateSessionEventOverrides(
 export async function createSessionEventForSeries(
   db: Firestore,
   series: SessionSeries,
-  eventDate = series.nextGameOn,
+  eventDate = getDefaultNextSessionEventDate(series),
 ) {
   if (!eventDate) {
-    throw new Error("Session series is missing nextGameOn.");
+    throw new Error("Event series is missing an event date.");
   }
 
   const sameSeriesEventsSnapshot = await getDocs(
@@ -595,24 +673,30 @@ export async function createSessionEventForSeries(
       where("dataPartition", "==", series.dataPartition || "live"),
     ),
   );
-  const resolvedEventDate = resolveNextSessionEventDate(
-    eventDate,
-    sameSeriesEventsSnapshot.docs.map((eventDoc) => {
-      const data = eventDoc.data() as Omit<SessionEvent, "id">;
-      return data.eventDate;
-    }),
-  );
+  const sameSeriesEvents = sameSeriesEventsSnapshot.docs.map((eventDoc) => ({
+    id: eventDoc.id,
+    ...(eventDoc.data() as Omit<SessionEvent, "id">),
+  }));
+  const resolvedEventDate = eventDate;
+  const activeEvent = getActiveEventBlockingNextEventCreation(sameSeriesEvents);
+
+  if (activeEvent) {
+    throw new Error(`There is already an active event on ${activeEvent.eventDate}. Mark it completed or cancelled before creating the next event.`);
+  }
+
+  const conflictingEvent = getExistingNonCancelledEventForDate(sameSeriesEvents, resolvedEventDate);
+  if (conflictingEvent) {
+    throw new Error(`There is already a ${conflictingEvent.status || "active"} event on ${resolvedEventDate}.`);
+  }
+
+  const reusableCancelledEvent = getCancelledEventForDate(sameSeriesEvents, resolvedEventDate);
   const eventId = buildSessionEventId(series.id, resolvedEventDate);
   const eventRef = doc(db, "sessionEvents", eventId);
 
-  const currentActiveEvent = sameSeriesEventsSnapshot.docs
-    .map((eventDoc) => ({
-      id: eventDoc.id,
-      ...(eventDoc.data() as Omit<SessionEvent, "id">),
-    }))
-    .filter((event) => event.eventDate < resolvedEventDate && event.status !== "completed" && event.status !== "cancelled")
-    .sort((a, b) => a.eventDate.localeCompare(b.eventDate))
-    .at(-1);
+  if (reusableCancelledEvent) {
+    await setDoc(eventRef, { locked: false }, { merge: true });
+    await clearEventRegistrationsAndPayments(db, eventId, series.dataPartition);
+  }
 
   await setDoc(eventRef, {
     sessionSeriesId: series.id,
@@ -632,14 +716,10 @@ export async function createSessionEventForSeries(
     bookedCount: 0,
     waitingCount: 0,
     status: "active",
+    locked: false,
     createdAt: serverTimestamp(),
+    ...(reusableCancelledEvent ? { updatedAt: serverTimestamp() } : {}),
   });
-
-  if (currentActiveEvent) {
-    await updateDoc(doc(db, "sessionEvents", currentActiveEvent.id), {
-      status: "completed",
-    });
-  }
 
   const seriesMembershipsSnapshot = series.seriesMembershipEnabled
     ? await getDocs(

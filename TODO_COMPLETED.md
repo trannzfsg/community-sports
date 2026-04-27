@@ -1,5 +1,16 @@
 # To-Do List - Completed tasks
 
+- [x] Fix next-event creation, event-series wording, dashboard event actions, and event-history delete support.
+  - [x] Made new event creation use the next series weekday after today as the event date.
+  - [x] Blocked creating another event while an active event exists, with a clear organiser-facing error.
+  - [x] Reused a cancelled event on the target date by resetting it to a clean active event, including registration/payment cleanup before member auto-registration.
+  - [x] Removed the Start date / Next event date controls from event-series settings while keeping legacy fields maintained internally.
+  - [x] Added focused tests for date selection, active-event blocking, cancelled-event reuse, and member auto-registration planning.
+  - [x] Renamed visible "session series" wording to "event series" and moved creation into the menu navigation.
+  - [x] Put "View all events" above "Edit event series" in dashboard actions.
+  - [x] Added a confirmed "Delete event" action in event history that removes linked registrations and payment records.
+  - [x] Verified with lint, tests, build, and a live browser flow using the organiser test account.
+
 - [x] Hide completed or cancelled events from dashboard.
   - [x] Use only active events when choosing the dashboard event for each series.
   - [x] Keep completed and cancelled events available through the view-all-events page only.

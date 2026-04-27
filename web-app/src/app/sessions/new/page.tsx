@@ -11,7 +11,7 @@ import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } fr
 import type { AppRole } from "@/lib/roles";
 import {
   DAY_OF_WEEK_OPTIONS,
-  getSuggestedNextGameOn,
+  getNextDateForDayOfWeekAfterToday,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
 import { createSessionEventForSeries, normalizeWaitingListCapacity, type SessionSeries } from "@/lib/session-series";
@@ -40,7 +40,6 @@ export default function NewSessionPage() {
   const [dayOfWeek, setDayOfWeek] = useState<(typeof DAY_OF_WEEK_OPTIONS)[number]>("Mon");
   const [startAt, setStartAt] = useState("19:00");
   const [endAt, setEndAt] = useState("21:00");
-  const [firstSessionOn, setFirstSessionOn] = useState("");
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
   const [capacity, setCapacity] = useState("12");
   const [waitingListCapacity, setWaitingListCapacity] = useState("");
@@ -52,14 +51,9 @@ export default function NewSessionPage() {
   const [seriesMembershipAutoPaidUntilDate, setSeriesMembershipAutoPaidUntilDate] = useState("");
   const [createNextEventNow, setCreateNextEventNow] = useState(true);
   const computedNextGameOn = useMemo(
-    () => getSuggestedNextGameOn(dayOfWeek, startAt),
-    [dayOfWeek, startAt],
+    () => getNextDateForDayOfWeekAfterToday(dayOfWeek),
+    [dayOfWeek],
   );
-  const [nextGameOn, setNextGameOn] = useState(computedNextGameOn);
-
-  useEffect(() => {
-    setNextGameOn(computedNextGameOn);
-  }, [computedNextGameOn]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -105,7 +99,7 @@ export default function NewSessionPage() {
 
       const organiserId = currentRole === "organiser" ? currentUser.uid : ownerOrganiserId;
       if (!organiserId) {
-        throw new Error("Session series must have an organiser owner.");
+        throw new Error("Event series must have an organiser owner.");
       }
 
       const organiser = await getUserById(db, organiserId);
@@ -119,10 +113,10 @@ export default function NewSessionPage() {
         typeOfSport,
         location: location.trim(),
         dayOfWeek,
-        nextGameOn,
+        nextGameOn: computedNextGameOn,
         startAt,
         endAt,
-        firstSessionOn,
+        firstSessionOn: computedNextGameOn,
         defaultPriceCasual: Number(defaultPriceCasual),
         capacity: Number(capacity),
         waitingListCapacity: normalizedWaitingListCapacity,
@@ -145,10 +139,10 @@ export default function NewSessionPage() {
           typeOfSport,
           location: location.trim(),
           dayOfWeek,
-          nextGameOn,
+          nextGameOn: computedNextGameOn,
           startAt,
           endAt,
-          firstSessionOn,
+          firstSessionOn: computedNextGameOn,
           defaultPriceCasual: Number(defaultPriceCasual),
           capacity: Number(capacity),
           waitingListCapacity: normalizedWaitingListCapacity,
@@ -162,7 +156,7 @@ export default function NewSessionPage() {
           seriesMembershipDefaultEndDate: seriesMembershipDefaultEndDate || null,
           seriesMembershipAutoPaidUntilDate: seriesMembershipAutoPaidUntilDate || null,
         };
-        await createSessionEventForSeries(db, series, nextGameOn);
+        await createSessionEventForSeries(db, series);
       }
 
       router.push("/dashboard");
@@ -170,7 +164,7 @@ export default function NewSessionPage() {
       if (submitError instanceof Error) {
         setError(submitError.message);
       } else {
-        setError("Failed to create session series.");
+        setError("Failed to create event series.");
       }
     } finally {
       setBusy(false);
@@ -195,11 +189,11 @@ export default function NewSessionPage() {
     <AppShell role={currentRole ?? "organiser"} contentClassName="max-w-3xl">
       <div className="w-full rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
         <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">
-          Session series
+          Event series
         </p>
-        <h1 className="text-3xl font-semibold tracking-tight">Create a session series</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Create an event series</h1>
         <p className="mt-3 text-zinc-600">
-          A session series defines the recurring event. Individual session events happen on specific dates inside that series.
+          An event series defines the recurring schedule. Individual events happen on specific dates inside that series.
         </p>
 
         <form className="mt-8 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
@@ -217,7 +211,7 @@ export default function NewSessionPage() {
           ) : null}
 
           <label className="block md:col-span-2">
-            <span className="mb-2 block text-sm font-medium text-zinc-700">Series title</span>
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Event series title</span>
             <input value={title} onChange={(event) => setTitle(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" placeholder="Monday Social Badminton" required />
           </label>
 
@@ -238,19 +232,6 @@ export default function NewSessionPage() {
             <select value={dayOfWeek} onChange={(event) => setDayOfWeek(event.target.value as (typeof DAY_OF_WEEK_OPTIONS)[number])} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">
               {DAY_OF_WEEK_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
             </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-zinc-700">Next game on</span>
-            <DatePicker value={nextGameOn} onChange={setNextGameOn} required />
-            <button type="button" onClick={() => setNextGameOn(computedNextGameOn)} className="mt-2 text-sm font-medium text-zinc-600 underline-offset-4 hover:underline">
-              Reset to suggested date ({computedNextGameOn})
-            </button>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-zinc-700">First session on</span>
-            <DatePicker value={firstSessionOn} onChange={setFirstSessionOn} required />
           </label>
 
           <label className="block">
@@ -343,14 +324,14 @@ export default function NewSessionPage() {
 
           <label className="flex items-start gap-3 md:col-span-2">
             <input type="checkbox" checked={createNextEventNow} onChange={(event) => setCreateNextEventNow(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span className="text-sm text-zinc-700">Create the next session event immediately for the selected next game date.</span>
+            <span className="text-sm text-zinc-700">Create the next event immediately for the next scheduled date.</span>
           </label>
 
           {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">{error}</div> : null}
 
           <div className="md:col-span-2 flex gap-3">
             <button type="submit" disabled={busy} className="rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">
-              {busy ? "Creating..." : "Create session series"}
+              {busy ? "Creating..." : "Create event series"}
             </button>
             <button type="button" onClick={() => router.push("/dashboard")} className="rounded-full border border-zinc-300 px-6 py-3 text-sm font-medium hover:bg-zinc-100">
               Cancel

@@ -2,12 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildRegistrationId,
+  getActiveEventBlockingNextEventCreation,
+  getCancelledEventForDate,
   getCancellationPolicyLabel,
+  getDefaultNextSessionEventDate,
+  getExistingNonCancelledEventForDate,
   getRegistrationCapacityState,
   getSessionEventOverrideValidationError,
   isCancellationPolicyActive,
   normalizeSessionEventOverrides,
   normalizeWaitingListCapacity,
+  planEventRegistrations,
   resolveNextSessionEventDate,
   UNLIMITED_WAITING_LIST_CAPACITY,
 } from "../src/lib/session-series.ts";
@@ -81,6 +86,89 @@ test("next session event date skips over an existing weekly event on the request
   ]);
 
   assert.equal(nextDate, "2026-05-04");
+});
+
+test("default next event date is the next series weekday after today", () => {
+  const nextDate = getDefaultNextSessionEventDate(
+    { dayOfWeek: "Mon" },
+    new Date("2026-04-27T08:00:00.000+10:00"),
+  );
+
+  assert.equal(nextDate, "2026-05-04");
+});
+
+test("active events block next-event creation until they are closed", () => {
+  const activeEvent = getActiveEventBlockingNextEventCreation([
+    { id: "old-complete", eventDate: "2026-04-20", status: "completed" },
+    { id: "current-active", eventDate: "2026-04-27", status: "active" },
+    { id: "cancelled", eventDate: "2026-05-04", status: "cancelled" },
+  ]);
+
+  assert.equal(activeEvent?.id, "current-active");
+});
+
+test("cancelled event on the target date is reusable without treating it as a conflict", () => {
+  const events = [
+    { id: "cancelled", eventDate: "2026-05-04", status: "cancelled" },
+    { id: "completed", eventDate: "2026-04-27", status: "completed" },
+  ];
+
+  assert.equal(getCancelledEventForDate(events, "2026-05-04")?.id, "cancelled");
+  assert.equal(getExistingNonCancelledEventForDate(events, "2026-05-04"), undefined);
+  assert.equal(getExistingNonCancelledEventForDate(events, "2026-04-27")?.id, "completed");
+});
+
+test("event creation planning auto-registers active series members", () => {
+  const result = planEventRegistrations({
+    eventDate: "2026-05-05",
+    capacity: 1,
+    waitingListCapacity: 1,
+    activeMemberships: [
+      {
+        id: "membership-1",
+        playerId: "player-1",
+        playerName: "Member One",
+        playerEmail: "member1@example.com",
+        status: "active",
+        autoPaidUntilDate: "2026-05-31",
+        joinedOrder: 1,
+      },
+      {
+        id: "membership-2",
+        playerId: "player-2",
+        playerName: "Member Two",
+        playerEmail: "member2@example.com",
+        status: "active",
+        joinedOrder: 2,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    result.plannedRegistrations.map((registration) => ({
+      userId: registration.userId,
+      source: registration.source,
+      status: registration.status,
+      playerPaid: registration.playerPaid,
+      organiserPaid: registration.organiserPaid,
+    })),
+    [
+      {
+        userId: "player-1",
+        source: "series-membership",
+        status: "registered",
+        playerPaid: true,
+        organiserPaid: true,
+      },
+      {
+        userId: "player-2",
+        source: "series-membership",
+        status: "waiting",
+        playerPaid: false,
+        organiserPaid: false,
+      },
+    ],
+  );
 });
 
 test("cancellation policy becomes active inside the configured hour window", () => {
