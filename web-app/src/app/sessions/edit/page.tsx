@@ -66,7 +66,7 @@ type MembershipDraft = {
   endDate: string;
   autoPaidUntilDate: string;
   playerPaid: boolean;
-  organiserPaid: boolean;
+  organiserReceived: boolean;
   paymentReference: string;
 };
 
@@ -76,7 +76,7 @@ function buildMembershipDraft(membership: SeriesMembership): MembershipDraft {
     endDate: membership.endDate ?? "",
     autoPaidUntilDate: membership.autoPaidUntilDate ?? "",
     playerPaid: !!membership.playerPaid,
-    organiserPaid: !!membership.organiserPaid,
+    organiserReceived: !!(membership.organiserReceived ?? membership.organiserPaid),
     paymentReference: membership.paymentReference ?? "",
   };
 }
@@ -219,7 +219,7 @@ function EditSessionPageInner() {
           endDate: "",
           autoPaidUntilDate: "",
           playerPaid: false,
-          organiserPaid: false,
+          organiserReceived: false,
           paymentReference: "",
         }),
         [field]: value,
@@ -252,7 +252,7 @@ function EditSessionPageInner() {
         endDate: null,
         autoPaidUntilDate: null,
         playerPaid: false,
-        organiserPaid: false,
+        organiserReceived: false,
         paymentReference: null,
         approvedAtDate: new Date().toISOString().slice(0, 10),
         skipNextEvent: false,
@@ -277,7 +277,7 @@ function EditSessionPageInner() {
         endDate: draft.endDate || null,
         autoPaidUntilDate: draft.autoPaidUntilDate || null,
         playerPaid: draft.playerPaid,
-        organiserPaid: draft.organiserPaid,
+        organiserReceived: draft.organiserReceived,
         paymentReference: draft.paymentReference || null,
       });
       await refreshSeriesMemberships(membership.organiserId);
@@ -298,7 +298,7 @@ function EditSessionPageInner() {
         endDate: draft.endDate || null,
         autoPaidUntilDate: draft.autoPaidUntilDate || null,
         playerPaid: draft.playerPaid,
-        organiserPaid: draft.organiserPaid,
+        organiserReceived: draft.organiserReceived,
         paymentReference: draft.paymentReference || null,
         approvedAtDate: status === "active"
           ? (membership.approvedAtDate || new Date().toISOString().slice(0, 10))
@@ -559,7 +559,7 @@ function EditSessionPageInner() {
                           </div>
                           <div className="mt-1 text-xs text-zinc-500">
                             Player: {membership.playerPaid ? "Paid" : "Due"}
-                            {" - "}Organiser: {membership.organiserPaid ? "Received" : "Not received"}
+                            {" - "}Organiser: {(membership.organiserReceived ?? membership.organiserPaid) ? "Received" : "Not received"}
                             {membership.paymentReference ? ` - Ref: ${membership.paymentReference}` : ""}
                           </div>
                           {membership.skipNextEvent ? (
@@ -618,8 +618,8 @@ function EditSessionPageInner() {
                         <label className="flex items-start gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs text-zinc-700">
                           <input
                             type="checkbox"
-                            checked={membershipDraft.organiserPaid}
-                            onChange={(event) => handleMembershipDraftChange(membership.id, "organiserPaid", event.target.checked)}
+                            checked={membershipDraft.organiserReceived}
+                            onChange={(event) => handleMembershipDraftChange(membership.id, "organiserReceived", event.target.checked)}
                             className="mt-0.5 h-4 w-4"
                           />
                           <span>

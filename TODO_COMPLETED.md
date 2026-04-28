@@ -1,5 +1,10 @@
 # To-Do List - Completed tasks
 
+- [x] Rename series member organiser payment flag to organiserReceived.
+  - [x] Renamed the series-membership source field and edit-page draft state to `organiserReceived`.
+  - [x] Kept legacy `organiserPaid` fallback for existing membership docs and continued mapping into event registration `organiserPaid`.
+  - [x] Verified with lint, tests, build, and browser reload of the edit series screen.
+
 - [x] Improve event series member management.
   - [x] Added create-series guidance that members can be added after creating the series.
   - [x] Fixed edit-series member selection so chosen players appear in the members list and persist.

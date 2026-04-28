@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteField,
   doc,
   getDoc,
   getDocs,
@@ -51,6 +52,7 @@ export type SeriesMembership = {
   endDate?: string | null;
   autoPaidUntilDate?: string | null;
   playerPaid?: boolean;
+  organiserReceived?: boolean;
   organiserPaid?: boolean;
   paymentReference?: string | null;
   approvedAtDate?: string | null;
@@ -188,6 +190,7 @@ export function planEventRegistrations(input: {
     endDate?: string | null;
     autoPaidUntilDate?: string | null;
     playerPaid?: boolean;
+    organiserReceived?: boolean;
     organiserPaid?: boolean;
     paymentReference?: string | null;
     skipNextEvent?: boolean;
@@ -255,7 +258,7 @@ export function planEventRegistrations(input: {
       autoPaidUntilDate: membership.autoPaidUntilDate,
     });
     const playerPaid = membership.playerPaid ?? shouldAutoPay;
-    const organiserPaid = membership.organiserPaid ?? shouldAutoPay;
+    const organiserReceived = membership.organiserReceived ?? membership.organiserPaid ?? shouldAutoPay;
 
     pushPlannedRegistration({
       userId: membership.playerId,
@@ -264,7 +267,7 @@ export function planEventRegistrations(input: {
       source: "series-membership",
       seriesMembershipId: membership.id,
       playerPaid,
-      organiserPaid,
+      organiserPaid: organiserReceived,
       paymentReference: membership.paymentReference ?? null,
     });
   });
@@ -393,7 +396,7 @@ export async function updateSeriesMembershipSettings(
     endDate?: string | null;
     autoPaidUntilDate?: string | null;
     playerPaid?: boolean;
-    organiserPaid?: boolean;
+    organiserReceived?: boolean;
     paymentReference?: string | null;
     approvedAtDate?: string | null;
   },
@@ -418,8 +421,9 @@ export async function updateSeriesMembershipSettings(
     updates.playerPaid = !!input.playerPaid;
   }
 
-  if (Object.prototype.hasOwnProperty.call(input, "organiserPaid")) {
-    updates.organiserPaid = !!input.organiserPaid;
+  if (Object.prototype.hasOwnProperty.call(input, "organiserReceived")) {
+    updates.organiserReceived = !!input.organiserReceived;
+    updates.organiserPaid = deleteField();
   }
 
   if (Object.prototype.hasOwnProperty.call(input, "paymentReference")) {

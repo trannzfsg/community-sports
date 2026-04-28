@@ -127,7 +127,7 @@ test("event planning respects membership dates and auto-paid windows", () => {
         playerEmail: "paid@example.com",
         status: "active",
         playerPaid: true,
-        organiserPaid: true,
+        organiserReceived: true,
         paymentReference: "MEM-2026",
         joinedOrder: 3,
       },

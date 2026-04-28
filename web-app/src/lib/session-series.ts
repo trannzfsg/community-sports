@@ -239,6 +239,7 @@ export function planEventRegistrations(input: {
     endDate?: string | null;
     autoPaidUntilDate?: string | null;
     playerPaid?: boolean;
+    organiserReceived?: boolean;
     organiserPaid?: boolean;
     paymentReference?: string | null;
     skipNextEvent?: boolean;
@@ -318,7 +319,7 @@ export function planEventRegistrations(input: {
 
       const shouldAutoPay = !!membership.autoPaidUntilDate && input.eventDate <= membership.autoPaidUntilDate;
       const playerPaid = membership.playerPaid ?? shouldAutoPay;
-      const organiserPaid = membership.organiserPaid ?? shouldAutoPay;
+      const organiserReceived = membership.organiserReceived ?? membership.organiserPaid ?? shouldAutoPay;
 
       pushPlannedRegistration({
         userId: membership.playerId,
@@ -327,7 +328,7 @@ export function planEventRegistrations(input: {
         source: "series-membership",
         seriesMembershipId: membership.id,
         playerPaid,
-        organiserPaid,
+        organiserPaid: organiserReceived,
         paymentReference: membership.paymentReference ?? null,
       });
     });
@@ -753,6 +754,7 @@ export async function createSessionEventForSeries(
         endDate?: string | null;
         autoPaidUntilDate?: string | null;
         playerPaid?: boolean;
+        organiserReceived?: boolean;
         organiserPaid?: boolean;
         paymentReference?: string | null;
         approvedAtDate?: string | null;
@@ -779,7 +781,7 @@ export async function createSessionEventForSeries(
         endDate: membership.endDate ?? series.seriesMembershipDefaultEndDate ?? null,
         autoPaidUntilDate: membership.autoPaidUntilDate ?? series.seriesMembershipAutoPaidUntilDate ?? null,
         playerPaid: !!membership.playerPaid,
-        organiserPaid: !!membership.organiserPaid,
+        organiserReceived: !!(membership.organiserReceived ?? membership.organiserPaid),
         paymentReference: membership.paymentReference ?? null,
         skipNextEvent: !!membership.skipNextEvent,
         joinedOrder: getTimestampMillis(membership.createdAt),

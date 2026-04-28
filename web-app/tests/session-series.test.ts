@@ -131,7 +131,7 @@ test("event creation planning auto-registers active series members", () => {
         playerEmail: "member1@example.com",
         status: "active",
         playerPaid: true,
-        organiserPaid: true,
+        organiserReceived: true,
         paymentReference: "MEM-PAID",
         joinedOrder: 1,
       },
