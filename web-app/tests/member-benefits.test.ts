@@ -126,7 +126,9 @@ test("event planning respects membership dates and auto-paid windows", () => {
         playerName: "Paid Member",
         playerEmail: "paid@example.com",
         status: "active",
-        autoPaidUntilDate: "2026-04-30",
+        playerPaid: true,
+        organiserPaid: true,
+        paymentReference: "MEM-2026",
         joinedOrder: 3,
       },
     ],
@@ -138,12 +140,14 @@ test("event planning respects membership dates and auto-paid windows", () => {
       userId: registration.userId,
       playerPaid: registration.playerPaid,
       organiserPaid: registration.organiserPaid,
+      paymentReference: registration.paymentReference,
     })),
     [
       {
         userId: "paid-member",
         playerPaid: true,
         organiserPaid: true,
+        paymentReference: "MEM-2026",
       },
     ],
   );

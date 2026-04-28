@@ -322,6 +322,13 @@ export default function NewSessionPage() {
             </div>
           ) : null}
 
+          <section className="rounded-2xl border border-zinc-200 p-4 md:col-span-2">
+            <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Series members</h2>
+            <p className="mt-2 text-sm text-zinc-600">
+              Create the series first, then open Edit event series to add recurring members and track member payments.
+            </p>
+          </section>
+
           <label className="flex items-start gap-3 md:col-span-2">
             <input type="checkbox" checked={createNextEventNow} onChange={(event) => setCreateNextEventNow(event.target.checked)} className="mt-1 h-4 w-4" />
             <span className="text-sm text-zinc-700">Create the next event immediately for the next scheduled date.</span>

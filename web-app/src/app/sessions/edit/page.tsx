@@ -65,6 +65,9 @@ type MembershipDraft = {
   startDate: string;
   endDate: string;
   autoPaidUntilDate: string;
+  playerPaid: boolean;
+  organiserPaid: boolean;
+  paymentReference: string;
 };
 
 function buildMembershipDraft(membership: SeriesMembership): MembershipDraft {
@@ -72,6 +75,9 @@ function buildMembershipDraft(membership: SeriesMembership): MembershipDraft {
     startDate: membership.startDate ?? "",
     endDate: membership.endDate ?? "",
     autoPaidUntilDate: membership.autoPaidUntilDate ?? "",
+    playerPaid: !!membership.playerPaid,
+    organiserPaid: !!membership.organiserPaid,
+    paymentReference: membership.paymentReference ?? "",
   };
 }
 
@@ -203,12 +209,19 @@ function EditSessionPageInner() {
   function handleMembershipDraftChange(
     membershipId: string,
     field: keyof MembershipDraft,
-    value: string,
+    value: string | boolean,
   ) {
     setMembershipDraftsById((current) => ({
       ...current,
       [membershipId]: {
-        ...(current[membershipId] || { startDate: "", endDate: "", autoPaidUntilDate: "" }),
+        ...(current[membershipId] || {
+          startDate: "",
+          endDate: "",
+          autoPaidUntilDate: "",
+          playerPaid: false,
+          organiserPaid: false,
+          paymentReference: "",
+        }),
         [field]: value,
       },
     }));
@@ -238,6 +251,9 @@ function EditSessionPageInner() {
         startDate: null,
         endDate: null,
         autoPaidUntilDate: null,
+        playerPaid: false,
+        organiserPaid: false,
+        paymentReference: null,
         approvedAtDate: new Date().toISOString().slice(0, 10),
         skipNextEvent: false,
         skipCount: 0,
@@ -260,6 +276,9 @@ function EditSessionPageInner() {
         startDate: draft.startDate || null,
         endDate: draft.endDate || null,
         autoPaidUntilDate: draft.autoPaidUntilDate || null,
+        playerPaid: draft.playerPaid,
+        organiserPaid: draft.organiserPaid,
+        paymentReference: draft.paymentReference || null,
       });
       await refreshSeriesMemberships(membership.organiserId);
     } finally {
@@ -278,6 +297,9 @@ function EditSessionPageInner() {
         startDate: draft.startDate || null,
         endDate: draft.endDate || null,
         autoPaidUntilDate: draft.autoPaidUntilDate || null,
+        playerPaid: draft.playerPaid,
+        organiserPaid: draft.organiserPaid,
+        paymentReference: draft.paymentReference || null,
         approvedAtDate: status === "active"
           ? (membership.approvedAtDate || new Date().toISOString().slice(0, 10))
           : membership.approvedAtDate,
@@ -528,12 +550,17 @@ function EditSessionPageInner() {
                           <div className="font-medium text-zinc-900">{membership.playerName}</div>
                           <div className="text-sm text-zinc-500">{membership.playerEmail}</div>
                           <div className="mt-1 text-xs text-zinc-500">
-                            Status: {membership.status} · Total skips: {membership.skipCount} · Recent 10 weeks: {membership.recentTenWeekSkipCount || 0}
+                            Status: {membership.status} - Total skips: {membership.skipCount} - Recent 10 weeks: {membership.recentTenWeekSkipCount || 0}
                           </div>
                           <div className="mt-1 text-xs text-zinc-500">
                             Start: {formatDateOnly(membership.startDate || seriesMembershipDefaultStartDate || membership.approvedAtDate)}
-                            {" · "}End: {formatDateOnly(membership.endDate || seriesMembershipDefaultEndDate)}
-                            {" · "}Auto paid: {formatDateOnly(membership.autoPaidUntilDate || seriesMembershipAutoPaidUntilDate)}
+                            {" - "}End: {formatDateOnly(membership.endDate || seriesMembershipDefaultEndDate)}
+                            {" - "}Auto paid: {formatDateOnly(membership.autoPaidUntilDate || seriesMembershipAutoPaidUntilDate)}
+                          </div>
+                          <div className="mt-1 text-xs text-zinc-500">
+                            Player: {membership.playerPaid ? "Paid" : "Due"}
+                            {" - "}Organiser: {membership.organiserPaid ? "Received" : "Not received"}
+                            {membership.paymentReference ? ` - Ref: ${membership.paymentReference}` : ""}
                           </div>
                           {membership.skipNextEvent ? (
                             <div className="mt-1 text-xs font-medium text-amber-700">Will skip the next auto-registration.</div>
@@ -571,6 +598,43 @@ function EditSessionPageInner() {
                             value={membershipDraft.autoPaidUntilDate}
                             onChange={(event) => handleMembershipDraftChange(membership.id, "autoPaidUntilDate", event.target.value)}
                             className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-[1fr_1fr_2fr]">
+                        <label className="flex items-start gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs text-zinc-700">
+                          <input
+                            type="checkbox"
+                            checked={membershipDraft.playerPaid}
+                            onChange={(event) => handleMembershipDraftChange(membership.id, "playerPaid", event.target.checked)}
+                            className="mt-0.5 h-4 w-4"
+                          />
+                          <span>
+                            <span className="block font-medium">Player paid</span>
+                            <span className="text-zinc-500">Copied to new events.</span>
+                          </span>
+                        </label>
+                        <label className="flex items-start gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs text-zinc-700">
+                          <input
+                            type="checkbox"
+                            checked={membershipDraft.organiserPaid}
+                            onChange={(event) => handleMembershipDraftChange(membership.id, "organiserPaid", event.target.checked)}
+                            className="mt-0.5 h-4 w-4"
+                          />
+                          <span>
+                            <span className="block font-medium">Received</span>
+                            <span className="text-zinc-500">Organiser confirmation.</span>
+                          </span>
+                        </label>
+                        <label className="block text-xs text-zinc-600">
+                          <span className="mb-1 block font-medium text-zinc-700">Manual payment reference</span>
+                          <input
+                            type="text"
+                            value={membershipDraft.paymentReference}
+                            onChange={(event) => handleMembershipDraftChange(membership.id, "paymentReference", event.target.value)}
+                            className="w-full rounded-xl border border-zinc-300 px-3 py-2 text-sm outline-none transition focus:border-zinc-500"
+                            placeholder="Bank ref, receipt, note"
                           />
                         </label>
                       </div>

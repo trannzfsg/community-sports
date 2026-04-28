@@ -1,5 +1,13 @@
 # To-Do List - Completed tasks
 
+- [x] Improve event series member management.
+  - [x] Added create-series guidance that members can be added after creating the series.
+  - [x] Fixed edit-series member selection so chosen players appear in the members list and persist.
+  - [x] Added paid/received flags, controls, and manual payment reference support for series members.
+  - [x] Kept auto-add-to-events based on membership status/date/skip rules, not payment state.
+  - [x] Copied member paid/received/reference state into generated event registrations.
+  - [x] Verified with lint, unit tests, production build, and live browser checks.
+
 - [x] Fix next-event creation, event-series wording, dashboard event actions, and event-history delete support.
   - [x] Made new event creation use the next series weekday after today as the event date.
   - [x] Blocked creating another event while an active event exists, with a clear organiser-facing error.

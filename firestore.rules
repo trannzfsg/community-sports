@@ -196,7 +196,17 @@ service cloud.firestore {
         && data.organiserId is string
         && data.playerId is string
         && exists(/databases/$(database)/documents/sessions/$(data.seriesId))
-        && exists(/databases/$(database)/documents/users/$(data.playerId))
+        && (
+          exists(/databases/$(database)/documents/users/$(data.playerId))
+          || (
+            exists(/databases/$(database)/documents/players/$(data.playerId))
+            && get(/databases/$(database)/documents/players/$(data.playerId)).data.dataPartition == seriesMembershipPartitionFromData(data)
+            && (
+              get(/databases/$(database)/documents/players/$(data.playerId)).data.ownerOrganiserId == null
+              || get(/databases/$(database)/documents/players/$(data.playerId)).data.ownerOrganiserId == data.organiserId
+            )
+          )
+        )
         && get(/databases/$(database)/documents/sessions/$(data.seriesId)).data.organiserId == data.organiserId
         && seriesMembershipPartitionFromData(data) == sessionPartitionById(data.seriesId)
         && emailPartitionMatches(seriesMembershipPartitionFromData(data), data.playerEmail);
@@ -389,10 +399,6 @@ service cloud.firestore {
     function registrationUserNeedsApproval(userId) {
       return exists(/databases/$(database)/documents/users/$(userId))
         && get(/databases/$(database)/documents/users/$(userId)).data.role == "player";
-    }
-
-    function seriesMembershipOwnedByCurrentPlayer() {
-      return isSignedIn() && resource.data.playerId == request.auth.uid;
     }
 
     function newSeriesMembershipOwnedByCurrentPlayer() {

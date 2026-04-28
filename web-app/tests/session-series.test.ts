@@ -130,7 +130,9 @@ test("event creation planning auto-registers active series members", () => {
         playerName: "Member One",
         playerEmail: "member1@example.com",
         status: "active",
-        autoPaidUntilDate: "2026-05-31",
+        playerPaid: true,
+        organiserPaid: true,
+        paymentReference: "MEM-PAID",
         joinedOrder: 1,
       },
       {
@@ -151,6 +153,7 @@ test("event creation planning auto-registers active series members", () => {
       status: registration.status,
       playerPaid: registration.playerPaid,
       organiserPaid: registration.organiserPaid,
+      paymentReference: registration.paymentReference,
     })),
     [
       {
@@ -159,6 +162,7 @@ test("event creation planning auto-registers active series members", () => {
         status: "registered",
         playerPaid: true,
         organiserPaid: true,
+        paymentReference: "MEM-PAID",
       },
       {
         userId: "player-2",
@@ -166,6 +170,7 @@ test("event creation planning auto-registers active series members", () => {
         status: "waiting",
         playerPaid: false,
         organiserPaid: false,
+        paymentReference: null,
       },
     ],
   );

@@ -50,6 +50,9 @@ export type SeriesMembership = {
   startDate?: string | null;
   endDate?: string | null;
   autoPaidUntilDate?: string | null;
+  playerPaid?: boolean;
+  organiserPaid?: boolean;
+  paymentReference?: string | null;
   approvedAtDate?: string | null;
   skipNextEvent: boolean;
   skipCount: number;
@@ -69,6 +72,7 @@ type PlannedRegistrationInput = {
   seriesMembershipId?: string | null;
   playerPaid?: boolean;
   organiserPaid?: boolean;
+  paymentReference?: string | null;
 };
 
 export type PlannedRegistration = PlannedRegistrationInput & {
@@ -183,6 +187,9 @@ export function planEventRegistrations(input: {
     startDate?: string | null;
     endDate?: string | null;
     autoPaidUntilDate?: string | null;
+    playerPaid?: boolean;
+    organiserPaid?: boolean;
+    paymentReference?: string | null;
     skipNextEvent?: boolean;
     joinedOrder?: number;
   }>;
@@ -247,6 +254,8 @@ export function planEventRegistrations(input: {
       eventDate: input.eventDate,
       autoPaidUntilDate: membership.autoPaidUntilDate,
     });
+    const playerPaid = membership.playerPaid ?? shouldAutoPay;
+    const organiserPaid = membership.organiserPaid ?? shouldAutoPay;
 
     pushPlannedRegistration({
       userId: membership.playerId,
@@ -254,8 +263,9 @@ export function planEventRegistrations(input: {
       playerEmail: membership.playerEmail,
       source: "series-membership",
       seriesMembershipId: membership.id,
-      playerPaid: shouldAutoPay,
-      organiserPaid: shouldAutoPay,
+      playerPaid,
+      organiserPaid,
+      paymentReference: membership.paymentReference ?? null,
     });
   });
 
@@ -382,6 +392,9 @@ export async function updateSeriesMembershipSettings(
     startDate?: string | null;
     endDate?: string | null;
     autoPaidUntilDate?: string | null;
+    playerPaid?: boolean;
+    organiserPaid?: boolean;
+    paymentReference?: string | null;
     approvedAtDate?: string | null;
   },
 ) {
@@ -399,6 +412,22 @@ export async function updateSeriesMembershipSettings(
 
   if (Object.prototype.hasOwnProperty.call(input, "autoPaidUntilDate")) {
     updates.autoPaidUntilDate = normalizeDateOnly(input.autoPaidUntilDate) ?? null;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, "playerPaid")) {
+    updates.playerPaid = !!input.playerPaid;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, "organiserPaid")) {
+    updates.organiserPaid = !!input.organiserPaid;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(input, "paymentReference")) {
+    const reference = input.paymentReference?.trim() || null;
+    updates.paymentReference = reference;
+    if (reference) {
+      updates.playerPaid = true;
+    }
   }
 
   if (Object.prototype.hasOwnProperty.call(input, "approvedAtDate")) {

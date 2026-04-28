@@ -238,6 +238,9 @@ export function planEventRegistrations(input: {
     startDate?: string | null;
     endDate?: string | null;
     autoPaidUntilDate?: string | null;
+    playerPaid?: boolean;
+    organiserPaid?: boolean;
+    paymentReference?: string | null;
     skipNextEvent?: boolean;
     joinedOrder?: number;
   }>;
@@ -250,6 +253,7 @@ export function planEventRegistrations(input: {
     seriesMembershipId?: string | null;
     playerPaid: boolean;
     organiserPaid: boolean;
+    paymentReference?: string | null;
     status: "registered" | "waiting";
   }> = [];
   const skippedMembershipIds: string[] = [];
@@ -262,6 +266,7 @@ export function planEventRegistrations(input: {
     seriesMembershipId?: string | null;
     playerPaid?: boolean;
     organiserPaid?: boolean;
+    paymentReference?: string | null;
   }) => {
     const bookedCount = plannedRegistrations.filter((item) => item.status === "registered").length;
     const waitingCount = plannedRegistrations.filter((item) => item.status === "waiting").length;
@@ -280,6 +285,7 @@ export function planEventRegistrations(input: {
       ...entry,
       playerPaid: entry.playerPaid ?? false,
       organiserPaid: entry.organiserPaid ?? false,
+      paymentReference: entry.paymentReference ?? null,
       status: nextStatus,
     });
   };
@@ -311,6 +317,8 @@ export function planEventRegistrations(input: {
       }
 
       const shouldAutoPay = !!membership.autoPaidUntilDate && input.eventDate <= membership.autoPaidUntilDate;
+      const playerPaid = membership.playerPaid ?? shouldAutoPay;
+      const organiserPaid = membership.organiserPaid ?? shouldAutoPay;
 
       pushPlannedRegistration({
         userId: membership.playerId,
@@ -318,8 +326,9 @@ export function planEventRegistrations(input: {
         playerEmail: membership.playerEmail,
         source: "series-membership",
         seriesMembershipId: membership.id,
-        playerPaid: shouldAutoPay,
-        organiserPaid: shouldAutoPay,
+        playerPaid,
+        organiserPaid,
+        paymentReference: membership.paymentReference ?? null,
       });
     });
 
@@ -743,6 +752,9 @@ export async function createSessionEventForSeries(
         startDate?: string | null;
         endDate?: string | null;
         autoPaidUntilDate?: string | null;
+        playerPaid?: boolean;
+        organiserPaid?: boolean;
+        paymentReference?: string | null;
         approvedAtDate?: string | null;
         skipNextEvent?: boolean;
         skipCount?: number;
@@ -766,6 +778,9 @@ export async function createSessionEventForSeries(
         startDate: membership.startDate ?? series.seriesMembershipDefaultStartDate ?? membership.approvedAtDate ?? null,
         endDate: membership.endDate ?? series.seriesMembershipDefaultEndDate ?? null,
         autoPaidUntilDate: membership.autoPaidUntilDate ?? series.seriesMembershipAutoPaidUntilDate ?? null,
+        playerPaid: !!membership.playerPaid,
+        organiserPaid: !!membership.organiserPaid,
+        paymentReference: membership.paymentReference ?? null,
         skipNextEvent: !!membership.skipNextEvent,
         joinedOrder: getTimestampMillis(membership.createdAt),
       })),
@@ -783,6 +798,7 @@ export async function createSessionEventForSeries(
         dataPartition: series.dataPartition,
         playerPaid: registration.playerPaid,
         organiserPaid: registration.organiserPaid,
+        paymentReference: registration.paymentReference ?? null,
         status: registration.status,
         source: registration.source,
         seriesMembershipId: registration.seriesMembershipId || null,
@@ -819,7 +835,7 @@ export async function createSessionEventForSeries(
       dataPartition: series.dataPartition,
       playerPaid: registration.playerPaid,
       organiserPaid: registration.organiserPaid,
-      paymentReference: null,
+      paymentReference: registration.paymentReference ?? null,
       status: registration.status,
       source: registration.source,
       seriesMembershipId: registration.seriesMembershipId || null,
