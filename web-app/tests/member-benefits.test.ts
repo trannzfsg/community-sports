@@ -5,6 +5,7 @@ import {
   getRecentSkipCount,
   planEventRegistrations,
 } from "../src/lib/member-benefits.ts";
+import { resolvePaidUntilAfterDefaultEndDateChange } from "../src/lib/series-membership-defaults.ts";
 
 test("benefit status reports qualification once minimum games is reached", () => {
   assert.deepEqual(
@@ -26,6 +27,11 @@ test("recent skip count only includes the last 10 weeks", () => {
   );
 
   assert.equal(count, 3);
+});
+
+test("default member end date fills paid until only when paid until is empty", () => {
+  assert.equal(resolvePaidUntilAfterDefaultEndDateChange("", "2026-12-31"), "2026-12-31");
+  assert.equal(resolvePaidUntilAfterDefaultEndDateChange("2026-06-30", "2026-12-31"), "2026-06-30");
 });
 
 test("event planning gives active members priority before roster copy", () => {

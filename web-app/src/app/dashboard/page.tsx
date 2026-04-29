@@ -29,6 +29,7 @@ import {
   getVisiblePlayersForOrganiser,
   type PlayerDirectoryEntry,
 } from "@/lib/players";
+import { filterPlayersSelectableByOrganiserApproval } from "@/lib/player-selection";
 import {
   getOrganiserApprovalRequests,
   getPlayerOrganiserApprovals,
@@ -950,25 +951,16 @@ export default function DashboardPage() {
                   startAt: nextEvent.startAt,
                   cancellationPolicyHours: series.cancellationPolicyHours,
                 });
-              const showStartsFrom = profile?.role !== "player";
-              const visiblePlayersForSeries = playerDirectory.filter(
-                (player) => {
-                  if (player.ownerOrganiserId && player.ownerOrganiserId !== series.organiserId) {
-                    return false;
-                  }
+              const playersForSeriesOwner = playerDirectory.filter((player) => {
+                if (player.ownerOrganiserId && player.ownerOrganiserId !== series.organiserId) {
+                  return false;
+                }
 
-                  if (
-                    profile?.role === "organiser"
-                    && player.ownerOrganiserId === null
-                    && player.userId
-                    && !approvedPlayerIdsForOrganiser.has(player.userId)
-                  ) {
-                    return false;
-                  }
-
-                  return true;
-                },
-              );
+                return true;
+              });
+              const visiblePlayersForSeries = profile?.role === "organiser"
+                ? filterPlayersSelectableByOrganiserApproval(playersForSeriesOwner, approvedPlayerIdsForOrganiser)
+                : playersForSeriesOwner;
               const capacityState = getRegistrationCapacityState({
                 capacity: nextEvent?.capacity || series.capacity,
                 waitingListCapacity: nextEvent?.waitingListCapacity ?? series.waitingListCapacity,
@@ -1055,7 +1047,6 @@ export default function DashboardPage() {
                     <div><dt className="text-zinc-500">Date</dt><dd>{nextEvent?.eventDate || getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn)}</dd></div>
                     <div><dt className="text-zinc-500">Time</dt><dd>{nextEvent ? `${nextEvent.startAt} - ${nextEvent.endAt}` : `${series.startAt} - ${series.endAt}`}</dd></div>
                     <div><dt className="text-zinc-500">Location</dt><dd>{nextEvent?.location || series.location}</dd></div>
-                    {showStartsFrom ? <div><dt className="text-zinc-500">Starts from</dt><dd>{series.firstSessionOn}</dd></div> : null}
                     <div><dt className="text-zinc-500">Casual price</dt><dd>${nextEvent?.defaultPriceCasual ?? series.defaultPriceCasual}</dd></div>
                     <div><dt className="text-zinc-500">Capacity</dt><dd>{nextEvent?.capacity ?? series.capacity}</dd></div>
                     <div><dt className="text-zinc-500">Waiting list</dt><dd>{formatWaitingListCapacity(nextEvent?.waitingListCapacity ?? series.waitingListCapacity)}</dd></div>

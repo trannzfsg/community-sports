@@ -17,12 +17,18 @@ import {
   updateSeriesMembershipStatus,
   type SeriesMembership,
 } from "@/lib/member-benefits";
-import { getVisiblePlayersForOrganiser, type PlayerDirectoryEntry } from "@/lib/players";
+import { getOrganiserApprovalRequests } from "@/lib/organiser-approvals";
+import {
+  getVisiblePlayersForOrganiser,
+  type PlayerDirectoryEntry,
+} from "@/lib/players";
+import { filterPlayersSelectableByOrganiserApproval } from "@/lib/player-selection";
 import {
   DAY_OF_WEEK_OPTIONS,
   getNextDateForDayOfWeekAfterToday,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
+import { resolvePaidUntilAfterDefaultEndDateChange } from "@/lib/series-membership-defaults";
 import {
   getWaitingListCapacityInputValue,
   normalizeWaitingListCapacity,
@@ -105,6 +111,7 @@ function EditSessionPageInner() {
   const [seriesMemberships, setSeriesMemberships] = useState<SeriesMembership[]>([]);
   const [membershipDraftsById, setMembershipDraftsById] = useState<Record<string, MembershipDraft>>({});
   const [memberBusyKey, setMemberBusyKey] = useState<string | null>(null);
+  const [approvedPlayerIdsForOrganiser, setApprovedPlayerIdsForOrganiser] = useState<Set<string>>(new Set());
 
   const [title, setTitle] = useState("");
   const [typeOfSport, setTypeOfSport] = useState<(typeof SPORT_OPTIONS)[number]>("Badminton");
@@ -170,11 +177,23 @@ function EditSessionPageInner() {
         const organiserUsers = await getUsersByRole(db, "organiser", resolvedPartition);
         setOrganisers(organiserUsers);
       }
-      const [visiblePlayers, memberships] = await Promise.all([
+      const [visiblePlayers, memberships, approvals] = await Promise.all([
         getVisiblePlayersForOrganiser(db, session.organiserId || user.uid, resolvedPartition),
         getSeriesMembershipsForSeries(db, sessionId, session.organiserId || user.uid, resolvedPartition),
+        profile.role === "organiser"
+          ? getOrganiserApprovalRequests(db, session.organiserId || user.uid, resolvedPartition)
+          : Promise.resolve([]),
       ]);
-      setPlayerDirectory(visiblePlayers.sort((a, b) => a.displayName.localeCompare(b.displayName)));
+      const approvedPlayerIds = new Set(
+        approvals
+          .filter((approval) => approval.status === "approved")
+          .map((approval) => approval.playerId),
+      );
+      setApprovedPlayerIdsForOrganiser(approvedPlayerIds);
+      const selectablePlayers = profile.role === "organiser"
+        ? filterPlayersSelectableByOrganiserApproval(visiblePlayers, approvedPlayerIds)
+        : visiblePlayers;
+      setPlayerDirectory(selectablePlayers.sort((a, b) => a.displayName.localeCompare(b.displayName)));
       setSeriesMemberships(memberships.sort((a, b) => a.playerName.localeCompare(b.playerName)));
       setAllowed(true);
       setTitle(session.title);
@@ -199,6 +218,11 @@ function EditSessionPageInner() {
 
     return () => unsubscribe();
   }, [router, sessionId]);
+
+  function handleSeriesMembershipDefaultEndDateChange(value: string) {
+    setSeriesMembershipDefaultEndDate(value);
+    setSeriesMembershipAutoPaidUntilDate((current) => resolvePaidUntilAfterDefaultEndDateChange(current, value));
+  }
 
   async function refreshSeriesMemberships(nextOrganiserId = ownerOrganiserId) {
     if (!sessionId || !nextOrganiserId) return;
@@ -234,6 +258,9 @@ function EditSessionPageInner() {
 
     const player = selection.player;
     const playerId = player.userId || player.id;
+    if (currentRole === "organiser" && player.userId && !approvedPlayerIdsForOrganiser.has(player.userId)) {
+      return;
+    }
     if (seriesMemberships.some((membership) => membership.playerId === playerId && membership.status !== "cancelled")) {
       return;
     }
@@ -499,7 +526,7 @@ function EditSessionPageInner() {
                   <span className="mb-2 block text-sm font-medium text-zinc-700">Default member end date</span>
                   <DatePicker
                     value={seriesMembershipDefaultEndDate}
-                    onChange={setSeriesMembershipDefaultEndDate}
+                    onChange={handleSeriesMembershipDefaultEndDateChange}
                     allowClear
                     min={seriesMembershipDefaultStartDate || undefined}
                     placeholder="No end date"
@@ -507,13 +534,13 @@ function EditSessionPageInner() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-zinc-700">Auto paid and received until</span>
+                  <span className="mb-2 block text-sm font-medium text-zinc-700">Paid until</span>
                   <DatePicker
                     value={seriesMembershipAutoPaidUntilDate}
                     onChange={setSeriesMembershipAutoPaidUntilDate}
                     allowClear
-                    placeholder="No auto-paid date"
-                    clearLabel="No auto-paid date"
+                    placeholder="No paid-until date"
+                    clearLabel="No paid-until date"
                   />
                 </label>
               </div>
