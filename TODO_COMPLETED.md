@@ -1,5 +1,11 @@
 # To-Do List - Completed tasks
 
+- [x] Remove player contact organiser cancel buttons.
+  - [x] Found the player registration and details button locations.
+  - [x] Removed the blocked-cancellation contact organiser button from the registration action area.
+  - [x] Removed the blocked-cancellation contact organiser button from registration details.
+  - [x] Verified with lint, tests, build, and a live browser player dashboard check.
+
 - [x] Continue organiser/event-series TODO cleanup until the onboarding stop point.
   - [x] Changed series member checkboxes to `Paid` and `Received`.
   - [x] Renamed member override fields to `Member start`, `Member end`, and `Paid until`, with defaults filled from series membership defaults.

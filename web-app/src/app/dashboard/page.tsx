@@ -1412,8 +1412,11 @@ export default function DashboardPage() {
                           {!canManageSessions ? (
                             currentRegistration ? (
                               <div className="flex flex-col items-start gap-2">
-                                <button type="button" data-testid="series-self-remove-button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{selfRemovalBlocked ? "Contact organiser to cancel" : "Leave event"}</button>
-                                {selfRemovalBlocked ? <div className="text-xs text-amber-700">{getPlayerCancellationPolicyMessage(series.cancellationPolicyHours)}</div> : null}
+                                {selfRemovalBlocked ? (
+                                  <div className="text-xs text-amber-700">{getPlayerCancellationPolicyMessage(series.cancellationPolicyHours)}</div>
+                                ) : (
+                                  <button type="button" data-testid="series-self-remove-button" onClick={() => handleRemoveRegistration(currentRegistration, series, nextEvent)} disabled={busyKey === currentRegistration.id} className="rounded-full border border-red-300 bg-white px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Leave event</button>
+                                )}
                               </div>
                             ) : (
                               <button type="button" data-testid="series-register-button" onClick={() => handleRegister(series, nextEvent)} disabled={busyKey === nextEvent.id || !playerCanJoin} className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">{eventIsFull ? "Join waiting list" : "Register"}</button>
@@ -1470,10 +1473,10 @@ export default function DashboardPage() {
                                         </div>
                                       )
                                     ) : null}
-                                    {canManageSessions || isOwnRegistration ? (
+                                    {canManageSessions || (isOwnRegistration && !selfRemovalBlocked) ? (
                                       <div className="flex flex-wrap items-center gap-2">
                                         {canManageSessions && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? "Undo confirm" : "Confirm"}</button> : null}
-                                        <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions && selfRemovalBlocked ? "Contact organiser" : isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button>
+                                        <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button>
                                       </div>
                                     ) : null}
                                   </EventRegistrationRow>
