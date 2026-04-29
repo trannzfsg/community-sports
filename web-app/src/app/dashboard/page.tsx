@@ -29,7 +29,10 @@ import {
   getVisiblePlayersForOrganiser,
   type PlayerDirectoryEntry,
 } from "@/lib/players";
-import { filterPlayersSelectableByOrganiserApproval } from "@/lib/player-selection";
+import {
+  filterActiveSelectablePlayers,
+  filterPlayersSelectableByOrganiserApproval,
+} from "@/lib/player-selection";
 import {
   getOrganiserApprovalRequests,
   getPlayerOrganiserApprovals,
@@ -81,6 +84,11 @@ type EventEditDraft = {
   defaultPriceCasual: string;
   capacity: string;
   waitingListCapacity: string;
+};
+
+type ActionAlert = {
+  id: number;
+  message: string;
 };
 
 function requiresVerifiedEmail(user: User) {
@@ -146,6 +154,7 @@ export default function DashboardPage() {
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   const [eventEditDrafts, setEventEditDrafts] = useState<Record<string, EventEditDraft>>({});
   const [openActionsSeriesId, setOpenActionsSeriesId] = useState<string | null>(null);
+  const [actionAlert, setActionAlert] = useState<ActionAlert | null>(null);
 
   function splitIntoChunks<T>(items: T[], size: number) {
     const chunks: T[][] = [];
@@ -154,6 +163,20 @@ export default function DashboardPage() {
     }
     return chunks;
   }
+
+  function showActionAlert(message: string) {
+    setActionAlert({ id: Date.now(), message });
+  }
+
+  useEffect(() => {
+    if (!actionAlert) return undefined;
+
+    const timeoutId = window.setTimeout(() => {
+      setActionAlert((current) => (current?.id === actionAlert.id ? null : current));
+    }, 3000);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [actionAlert]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -459,7 +482,7 @@ export default function DashboardPage() {
       await refreshSeriesData(series.id, series.organiserId);
     } catch (error) {
       console.error("[dashboard] create next event failed", error);
-      setLoadError(error instanceof Error ? error.message : "Failed to create the next event.");
+      showActionAlert(error instanceof Error ? error.message : "Failed to create the next event.");
     } finally {
       setBusyKey(null);
     }
@@ -850,7 +873,7 @@ export default function DashboardPage() {
       await refreshSeriesData(series.id, series.organiserId);
     } catch (error) {
       console.error("[dashboard] event edit failed", error);
-      setLoadError(error instanceof Error ? error.message : "Failed to update event details.");
+      showActionAlert(error instanceof Error ? error.message : "Failed to update event details.");
     } finally {
       setBusyKey(null);
     }
@@ -880,6 +903,22 @@ export default function DashboardPage() {
 
   return (
     <AppShell role={profile?.role ?? "player"} contentClassName="max-w-6xl">
+      {actionAlert ? (
+        <div className="fixed right-4 top-4 z-50 max-w-sm rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-lg" role="alert">
+          <div className="flex items-start gap-3">
+            <div>{actionAlert.message}</div>
+            <button
+              type="button"
+              onClick={() => setActionAlert(null)}
+              className="ml-auto shrink-0 rounded-full px-2 text-xs font-semibold text-red-700 hover:bg-red-100"
+              aria-label="Close alert"
+            >
+              x
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex w-full flex-col gap-6">
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
           <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Dashboard</p>
@@ -951,7 +990,7 @@ export default function DashboardPage() {
                   startAt: nextEvent.startAt,
                   cancellationPolicyHours: series.cancellationPolicyHours,
                 });
-              const playersForSeriesOwner = playerDirectory.filter((player) => {
+              const playersForSeriesOwner = filterActiveSelectablePlayers(playerDirectory).filter((player) => {
                 if (player.ownerOrganiserId && player.ownerOrganiserId !== series.organiserId) {
                   return false;
                 }
@@ -1017,26 +1056,32 @@ export default function DashboardPage() {
                         Actions
                       </button>
                       {openActionsSeriesId === series.id ? (
-                        <div className="absolute right-0 z-10 mt-2 grid w-48 gap-1 rounded-2xl border border-zinc-200 bg-white p-2 text-sm shadow-lg">
-                          {canManageSessions ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                        <div className="absolute right-0 z-10 mt-2 grid w-56 gap-2 rounded-2xl border border-zinc-200 bg-white p-2 text-sm shadow-lg">
                           {canManageSessions && nextEvent ? (
-                            <button type="button" data-testid="series-edit-event-button" onClick={() => handleEventEditStart(nextEvent)} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100">
-                              Edit event
-                            </button>
+                            <div className="grid gap-1">
+                              <div className="px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Event actions</div>
+                              <button type="button" data-testid="series-edit-event-button" onClick={() => handleEventEditStart(nextEvent)} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100">
+                                Edit event
+                              </button>
+                              {nextEvent.status !== "completed" && nextEvent.status !== "cancelled" ? (
+                                <>
+                                  <button type="button" data-testid="series-mark-completed-button" onClick={() => { setOpenActionsSeriesId(null); void handleSetEventStatus(series, nextEvent, "completed"); }} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark completed</button>
+                                  <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleSetEventStatus(series, nextEvent, "cancelled"); }} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark cancelled</button>
+                                </>
+                              ) : null}
+                            </div>
                           ) : null}
-                          {canManageSessions && nextEvent && nextEvent.status !== "completed" && nextEvent.status !== "cancelled" ? (
-                            <>
-                              <button type="button" data-testid="series-mark-completed-button" onClick={() => { setOpenActionsSeriesId(null); void handleSetEventStatus(series, nextEvent, "completed"); }} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark completed</button>
-                              <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleSetEventStatus(series, nextEvent, "cancelled"); }} disabled={busyKey === nextEvent.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Mark cancelled</button>
-                            </>
-                          ) : null}
-                          <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">View all events</Link>
-                          {canManageSessions ? (
-                            <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit event series</Link>
-                          ) : null}
-                          {canManageSessions ? (
-                            <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleDeleteSeries(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete event series</button>
-                          ) : null}
+                          <div className="grid gap-1 border-t border-zinc-100 pt-2">
+                            <div className="px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Series actions</div>
+                            {canManageSessions ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                            <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">View all events</Link>
+                            {canManageSessions ? (
+                              <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit event series</Link>
+                            ) : null}
+                            {canManageSessions ? (
+                              <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleDeleteSeries(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete event series</button>
+                            ) : null}
+                          </div>
                         </div>
                       ) : null}
                     </div>

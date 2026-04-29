@@ -46,11 +46,10 @@ export default function NewSessionPage() {
   const [waitingListCapacity, setWaitingListCapacity] = useState("");
   const [cancellationPolicyHours, setCancellationPolicyHours] = useState("24");
   const [status, setStatus] = useState("active");
-  const [seriesMembershipEnabled, setSeriesMembershipEnabled] = useState(false);
+  const [seriesMembershipEnabled, setSeriesMembershipEnabled] = useState(true);
   const [seriesMembershipDefaultStartDate, setSeriesMembershipDefaultStartDate] = useState("");
   const [seriesMembershipDefaultEndDate, setSeriesMembershipDefaultEndDate] = useState("");
   const [seriesMembershipAutoPaidUntilDate, setSeriesMembershipAutoPaidUntilDate] = useState("");
-  const [createNextEventNow, setCreateNextEventNow] = useState(true);
   const computedNextGameOn = useMemo(
     () => getNextDateForDayOfWeekAfterToday(dayOfWeek),
     [dayOfWeek],
@@ -138,32 +137,30 @@ export default function NewSessionPage() {
         createdAt: serverTimestamp(),
       });
 
-      if (createNextEventNow) {
-        const series: SessionSeries = {
-          id: seriesRef.id,
-          title: title.trim(),
-          typeOfSport,
-          location: location.trim(),
-          dayOfWeek,
-          nextGameOn: computedNextGameOn,
-          startAt,
-          endAt,
-          firstSessionOn: computedNextGameOn,
-          defaultPriceCasual: Number(defaultPriceCasual),
-          capacity: Number(capacity),
-          waitingListCapacity: normalizedWaitingListCapacity,
-          cancellationPolicyHours: Number(cancellationPolicyHours || 0),
-          organiserId,
-          organiserName,
-          dataPartition,
-          status,
-          seriesMembershipEnabled,
-          seriesMembershipDefaultStartDate: seriesMembershipDefaultStartDate || null,
-          seriesMembershipDefaultEndDate: seriesMembershipDefaultEndDate || null,
-          seriesMembershipAutoPaidUntilDate: seriesMembershipAutoPaidUntilDate || null,
-        };
-        await createSessionEventForSeries(db, series);
-      }
+      const series: SessionSeries = {
+        id: seriesRef.id,
+        title: title.trim(),
+        typeOfSport,
+        location: location.trim(),
+        dayOfWeek,
+        nextGameOn: computedNextGameOn,
+        startAt,
+        endAt,
+        firstSessionOn: computedNextGameOn,
+        defaultPriceCasual: Number(defaultPriceCasual),
+        capacity: Number(capacity),
+        waitingListCapacity: normalizedWaitingListCapacity,
+        cancellationPolicyHours: Number(cancellationPolicyHours || 0),
+        organiserId,
+        organiserName,
+        dataPartition,
+        status,
+        seriesMembershipEnabled,
+        seriesMembershipDefaultStartDate: seriesMembershipDefaultStartDate || null,
+        seriesMembershipDefaultEndDate: seriesMembershipDefaultEndDate || null,
+        seriesMembershipAutoPaidUntilDate: seriesMembershipAutoPaidUntilDate || null,
+      };
+      await createSessionEventForSeries(db, series);
 
       router.push("/dashboard");
     } catch (submitError) {
@@ -283,14 +280,14 @@ export default function NewSessionPage() {
 
           <label className="flex items-start gap-3 md:col-span-2">
             <input type="checkbox" checked={seriesMembershipEnabled} onChange={(event) => setSeriesMembershipEnabled(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span className="text-sm text-zinc-700">Enable organiser-managed recurring membership for automatic registration into future events.</span>
+            <span className="text-sm text-zinc-700">Series membership</span>
           </label>
 
           {seriesMembershipEnabled ? (
             <div className="rounded-2xl border border-zinc-200 p-4 md:col-span-2">
               <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Membership defaults</h2>
               <p className="mt-2 text-sm text-zinc-600">
-                Leave the start date blank to use the organiser approval date. Leave the end date blank for open-ended membership. If auto paid is set, auto-registered members are marked as paid and received through that event date.
+                Leave the start date blank to use the organiser approval date. Leave the end date blank for open-ended membership. If paid until is set, auto-registered members are marked as paid and received through that event date.
               </p>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <label className="block">
@@ -334,11 +331,6 @@ export default function NewSessionPage() {
               Create the series first, then open Edit event series to add recurring members and track member payments.
             </p>
           </section>
-
-          <label className="flex items-start gap-3 md:col-span-2">
-            <input type="checkbox" checked={createNextEventNow} onChange={(event) => setCreateNextEventNow(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span className="text-sm text-zinc-700">Create the next event immediately for the next scheduled date.</span>
-          </label>
 
           {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 md:col-span-2">{error}</div> : null}
 

@@ -6,3 +6,7 @@ export function filterPlayersSelectableByOrganiserApproval(
 ) {
   return players.filter((player) => !player.userId || approvedPlayerIds.has(player.userId));
 }
+
+export function filterActiveSelectablePlayers(players: PlayerDirectoryEntry[]) {
+  return players.filter((player) => player.status !== "inactive");
+}
