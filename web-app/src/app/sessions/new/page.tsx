@@ -14,6 +14,7 @@ import {
   getNextDateForDayOfWeekAfterToday,
   SPORT_OPTIONS,
 } from "@/lib/session-options";
+import { resolvePaidUntilAfterDefaultEndDateChange } from "@/lib/series-membership-defaults";
 import { createSessionEventForSeries, normalizeWaitingListCapacity, type SessionSeries } from "@/lib/session-series";
 import { getUserById, getUsersByRole, type UserRecord } from "@/lib/users";
 
@@ -85,6 +86,11 @@ export default function NewSessionPage() {
 
     return () => unsubscribe();
   }, [router]);
+
+  function handleSeriesMembershipDefaultEndDateChange(value: string) {
+    setSeriesMembershipDefaultEndDate(value);
+    setSeriesMembershipAutoPaidUntilDate((current) => resolvePaidUntilAfterDefaultEndDateChange(current, value));
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -301,7 +307,7 @@ export default function NewSessionPage() {
                   <span className="mb-2 block text-sm font-medium text-zinc-700">Default member end date</span>
                   <DatePicker
                     value={seriesMembershipDefaultEndDate}
-                    onChange={setSeriesMembershipDefaultEndDate}
+                    onChange={handleSeriesMembershipDefaultEndDateChange}
                     allowClear
                     min={seriesMembershipDefaultStartDate || undefined}
                     placeholder="No end date"
@@ -309,13 +315,13 @@ export default function NewSessionPage() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-zinc-700">Auto paid and received until</span>
+                  <span className="mb-2 block text-sm font-medium text-zinc-700">Paid until</span>
                   <DatePicker
                     value={seriesMembershipAutoPaidUntilDate}
                     onChange={setSeriesMembershipAutoPaidUntilDate}
                     allowClear
-                    placeholder="No auto-paid date"
-                    clearLabel="No auto-paid date"
+                    placeholder="No paid-until date"
+                    clearLabel="No paid-until date"
                   />
                 </label>
               </div>

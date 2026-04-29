@@ -1,5 +1,21 @@
 # To-Do List - Completed tasks
 
+- [x] Rename "Auto paid and received until" to "Paid until" and default it from member end date.
+  - [x] Updated create/edit event-series labels and empty-state text to use `Paid until`.
+  - [x] Filled `Paid until` from `Default member end date` only when paid-until is empty.
+  - [x] Added unit coverage for the default-copy rule.
+  - [x] Verified with lint, tests, build, and browser text checks.
+
+- [x] Hide rejected players from organiser membership and event dropdowns.
+  - [x] Added a shared organiser-approval player selection filter.
+  - [x] Applied it to dashboard event registration dropdowns and edit-series membership dropdowns.
+  - [x] Added a guard so stale edit-series selections cannot add unapproved self-registered players.
+  - [x] Verified with lint, tests, build, and browser searches for rejected and approved players.
+
+- [x] Remove "start from" field from dashboard user interface in event series/event section.
+  - [x] Removed the dashboard event-series metadata row that displayed `Starts from`.
+  - [x] Kept the underlying series start date fields intact for scheduling logic.
+
 - [x] Rename series member organiser payment flag to organiserReceived.
   - [x] Renamed the series-membership source field and edit-page draft state to `organiserReceived`.
   - [x] Kept legacy `organiserPaid` fallback for existing membership docs and continued mapping into event registration `organiserPaid`.
