@@ -1,5 +1,17 @@
 # To-Do List - Completed tasks
 
+- [x] Continue organiser/event-series TODO cleanup until the onboarding stop point.
+  - [x] Changed series member checkboxes to `Paid` and `Received`.
+  - [x] Renamed member override fields to `Member start`, `Member end`, and `Paid until`, with defaults filled from series membership defaults.
+  - [x] Changed member summaries to show `Paid until` and compact payment text like `Paid (Ref: test) Received`.
+  - [x] Replaced create-next-event action failures with a dismissible top-right red alert that clears after 3 seconds.
+  - [x] Grouped dashboard action-menu items into `Event actions` and `Series actions`.
+  - [x] Removed the create-series `Create the next event immediately...` checkbox while preserving immediate event creation.
+  - [x] Renamed the membership toggle to `Series membership` and enabled it by default for new series.
+  - [x] Filtered inactive registered/private players from event and member dropdowns.
+  - [x] Added organiser approval `Remove` action for approved players by moving them to rejected status.
+  - [x] Verified with lint, tests, build, and live browser checks.
+
 - [x] Rename "Auto paid and received until" to "Paid until" and default it from member end date.
   - [x] Updated create/edit event-series labels and empty-state text to use `Paid until`.
   - [x] Filled `Paid until` from `Default member end date` only when paid-until is empty.

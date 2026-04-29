@@ -22,7 +22,10 @@ import {
   getVisiblePlayersForOrganiser,
   type PlayerDirectoryEntry,
 } from "@/lib/players";
-import { filterPlayersSelectableByOrganiserApproval } from "@/lib/player-selection";
+import {
+  filterActiveSelectablePlayers,
+  filterPlayersSelectableByOrganiserApproval,
+} from "@/lib/player-selection";
 import {
   DAY_OF_WEEK_OPTIONS,
   getNextDateForDayOfWeekAfterToday,
@@ -76,15 +79,29 @@ type MembershipDraft = {
   paymentReference: string;
 };
 
-function buildMembershipDraft(membership: SeriesMembership): MembershipDraft {
+function buildMembershipDraft(
+  membership: SeriesMembership,
+  defaults?: {
+    startDate?: string | null;
+    endDate?: string | null;
+    autoPaidUntilDate?: string | null;
+  },
+): MembershipDraft {
   return {
-    startDate: membership.startDate ?? "",
-    endDate: membership.endDate ?? "",
-    autoPaidUntilDate: membership.autoPaidUntilDate ?? "",
+    startDate: membership.startDate ?? defaults?.startDate ?? membership.approvedAtDate ?? "",
+    endDate: membership.endDate ?? defaults?.endDate ?? "",
+    autoPaidUntilDate: membership.autoPaidUntilDate ?? defaults?.autoPaidUntilDate ?? "",
     playerPaid: !!membership.playerPaid,
     organiserReceived: !!(membership.organiserReceived ?? membership.organiserPaid),
     paymentReference: membership.paymentReference ?? "",
   };
+}
+
+function formatMembershipPaymentSummary(membership: SeriesMembership) {
+  const paidLabel = membership.playerPaid ? "Paid" : "Due";
+  const referenceLabel = membership.paymentReference ? ` (Ref: ${membership.paymentReference})` : "";
+  const receivedLabel = (membership.organiserReceived ?? membership.organiserPaid) ? " Received" : " Not received";
+  return `${paidLabel}${referenceLabel}${receivedLabel}`;
 }
 
 function formatDateOnly(value?: string | null) {
@@ -138,10 +155,14 @@ function EditSessionPageInner() {
   useEffect(() => {
     const nextDrafts: Record<string, MembershipDraft> = {};
     seriesMemberships.forEach((membership) => {
-      nextDrafts[membership.id] = buildMembershipDraft(membership);
+      nextDrafts[membership.id] = buildMembershipDraft(membership, {
+        startDate: seriesMembershipDefaultStartDate,
+        endDate: seriesMembershipDefaultEndDate,
+        autoPaidUntilDate: seriesMembershipAutoPaidUntilDate,
+      });
     });
     setMembershipDraftsById(nextDrafts);
-  }, [seriesMemberships]);
+  }, [seriesMemberships, seriesMembershipDefaultStartDate, seriesMembershipDefaultEndDate, seriesMembershipAutoPaidUntilDate]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -190,9 +211,10 @@ function EditSessionPageInner() {
           .map((approval) => approval.playerId),
       );
       setApprovedPlayerIdsForOrganiser(approvedPlayerIds);
+      const activePlayers = filterActiveSelectablePlayers(visiblePlayers);
       const selectablePlayers = profile.role === "organiser"
-        ? filterPlayersSelectableByOrganiserApproval(visiblePlayers, approvedPlayerIds)
-        : visiblePlayers;
+        ? filterPlayersSelectableByOrganiserApproval(activePlayers, approvedPlayerIds)
+        : activePlayers;
       setPlayerDirectory(selectablePlayers.sort((a, b) => a.displayName.localeCompare(b.displayName)));
       setSeriesMemberships(memberships.sort((a, b) => a.playerName.localeCompare(b.playerName)));
       setAllowed(true);
@@ -298,7 +320,11 @@ function EditSessionPageInner() {
   async function handleSeriesMembershipDetailsSave(membership: SeriesMembership) {
     setMemberBusyKey(`save-membership-${membership.id}`);
     try {
-      const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+      const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership, {
+        startDate: seriesMembershipDefaultStartDate,
+        endDate: seriesMembershipDefaultEndDate,
+        autoPaidUntilDate: seriesMembershipAutoPaidUntilDate,
+      });
       await updateSeriesMembershipSettings(db, membership.id, {
         startDate: draft.startDate || null,
         endDate: draft.endDate || null,
@@ -319,7 +345,11 @@ function EditSessionPageInner() {
   ) {
     setMemberBusyKey(`${status}-membership-${membership.id}`);
     try {
-      const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+      const draft = membershipDraftsById[membership.id] || buildMembershipDraft(membership, {
+        startDate: seriesMembershipDefaultStartDate,
+        endDate: seriesMembershipDefaultEndDate,
+        autoPaidUntilDate: seriesMembershipAutoPaidUntilDate,
+      });
       await updateSeriesMembershipSettings(db, membership.id, {
         startDate: draft.startDate || null,
         endDate: draft.endDate || null,
@@ -502,14 +532,14 @@ function EditSessionPageInner() {
 
           <label className="flex items-start gap-3 md:col-span-2">
             <input type="checkbox" checked={seriesMembershipEnabled} onChange={(event) => setSeriesMembershipEnabled(event.target.checked)} className="mt-1 h-4 w-4" />
-            <span className="text-sm text-zinc-700">Enable organiser-managed recurring membership for automatic registration into future events.</span>
+            <span className="text-sm text-zinc-700">Series membership</span>
           </label>
 
           {seriesMembershipEnabled ? (
             <div className="rounded-2xl border border-zinc-200 p-4 md:col-span-2">
               <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Membership defaults</h2>
               <p className="mt-2 text-sm text-zinc-600">
-                Leave the start date blank to use the organiser approval date. Leave the end date blank for open-ended membership. If auto paid is set, auto-registered members are marked as paid and received through that event date.
+                Leave the start date blank to use the organiser approval date. Leave the end date blank for open-ended membership. If paid until is set, auto-registered members are marked as paid and received through that event date.
               </p>
               <div className="mt-4 grid gap-4 md:grid-cols-3">
                 <label className="block">
@@ -567,7 +597,11 @@ function EditSessionPageInner() {
 
             <div className="mt-4 space-y-3">
               {seriesMemberships.length ? seriesMemberships.map((membership) => {
-                const membershipDraft = membershipDraftsById[membership.id] || buildMembershipDraft(membership);
+                const membershipDraft = membershipDraftsById[membership.id] || buildMembershipDraft(membership, {
+                  startDate: seriesMembershipDefaultStartDate,
+                  endDate: seriesMembershipDefaultEndDate,
+                  autoPaidUntilDate: seriesMembershipAutoPaidUntilDate,
+                });
 
                 return (
                   <div key={membership.id} className="rounded-2xl border border-zinc-200 p-4" data-testid={`series-membership-card-${membership.id}`}>
@@ -582,12 +616,10 @@ function EditSessionPageInner() {
                           <div className="mt-1 text-xs text-zinc-500">
                             Start: {formatDateOnly(membership.startDate || seriesMembershipDefaultStartDate || membership.approvedAtDate)}
                             {" - "}End: {formatDateOnly(membership.endDate || seriesMembershipDefaultEndDate)}
-                            {" - "}Auto paid: {formatDateOnly(membership.autoPaidUntilDate || seriesMembershipAutoPaidUntilDate)}
+                            {" - "}Paid until: {formatDateOnly(membership.autoPaidUntilDate || seriesMembershipAutoPaidUntilDate)}
                           </div>
                           <div className="mt-1 text-xs text-zinc-500">
-                            Player: {membership.playerPaid ? "Paid" : "Due"}
-                            {" - "}Organiser: {(membership.organiserReceived ?? membership.organiserPaid) ? "Received" : "Not received"}
-                            {membership.paymentReference ? ` - Ref: ${membership.paymentReference}` : ""}
+                            {formatMembershipPaymentSummary(membership)}
                           </div>
                           {membership.skipNextEvent ? (
                             <div className="mt-1 text-xs font-medium text-amber-700">Will skip the next auto-registration.</div>
@@ -600,7 +632,7 @@ function EditSessionPageInner() {
 
                       <div className="grid gap-3 md:grid-cols-3">
                         <label className="block text-xs text-zinc-600">
-                          <span className="mb-1 block font-medium text-zinc-700">Member start override</span>
+                          <span className="mb-1 block font-medium text-zinc-700">Member start</span>
                           <input
                             type="date"
                             value={membershipDraft.startDate}
@@ -609,7 +641,7 @@ function EditSessionPageInner() {
                           />
                         </label>
                         <label className="block text-xs text-zinc-600">
-                          <span className="mb-1 block font-medium text-zinc-700">Member end override</span>
+                          <span className="mb-1 block font-medium text-zinc-700">Member end</span>
                           <input
                             type="date"
                             value={membershipDraft.endDate}
@@ -619,7 +651,7 @@ function EditSessionPageInner() {
                           />
                         </label>
                         <label className="block text-xs text-zinc-600">
-                          <span className="mb-1 block font-medium text-zinc-700">Auto paid override</span>
+                          <span className="mb-1 block font-medium text-zinc-700">Paid until</span>
                           <input
                             type="date"
                             value={membershipDraft.autoPaidUntilDate}
@@ -638,8 +670,7 @@ function EditSessionPageInner() {
                             className="mt-0.5 h-4 w-4"
                           />
                           <span>
-                            <span className="block font-medium">Player paid</span>
-                            <span className="text-zinc-500">Copied to new events.</span>
+                            <span className="block font-medium">Paid</span>
                           </span>
                         </label>
                         <label className="flex items-start gap-2 rounded-xl border border-zinc-200 px-3 py-2 text-xs text-zinc-700">
@@ -651,7 +682,6 @@ function EditSessionPageInner() {
                           />
                           <span>
                             <span className="block font-medium">Received</span>
-                            <span className="text-zinc-500">Organiser confirmation.</span>
                           </span>
                         </label>
                         <label className="block text-xs text-zinc-600">

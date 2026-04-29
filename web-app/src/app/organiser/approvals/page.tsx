@@ -189,15 +189,28 @@ export default function OrganiserApprovalsPage() {
                   <div className="font-medium text-zinc-900">{approval.playerName}</div>
                   <div className="text-sm text-zinc-500">{approval.playerEmail}</div>
                 </div>
-                <span
-                  className={`rounded-full px-4 py-2 text-xs font-medium ${
-                    approval.status === "approved"
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  {approval.status === "approved" ? "Approved" : "Rejected"}
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-full px-4 py-2 text-xs font-medium ${
+                      approval.status === "approved"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-red-100 text-red-700"
+                    }`}
+                  >
+                    {approval.status === "approved" ? "Approved" : "Rejected"}
+                  </span>
+                  {approval.status === "approved" ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleApprovalDecision(approval, "rejected")}
+                      disabled={busyKey === `rejected-approval-${approval.id}`}
+                      data-testid={`remove-organiser-approval-${approval.id}`}
+                      className="rounded-full border border-red-300 px-4 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {busyKey === `rejected-approval-${approval.id}` ? "Removing..." : "Remove"}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             </div>
           )) : (
