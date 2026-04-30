@@ -1,5 +1,11 @@
 # To-Do List - Completed tasks
 
+- [x] Hide organiser Pro subscription for now and make feature gates broadly available.
+  - [x] Removed visible Pro subscription navigation/admin controls from current workflows.
+  - [x] Redirected the hidden organiser subscription route back to dashboard.
+  - [x] Relaxed premium feature gates for organisers and players.
+  - [x] Verified with lint, tests, build, hosting deploy, and live browser checks.
+
 - [x] Allow all user types to add comments to feedback items.
   - [x] Added `siteFeedbackComments` helpers and Firestore rules.
   - [x] Added collapsed comment panels with visible counts on every feedback item.

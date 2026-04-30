@@ -17,7 +17,7 @@ import {
   type ManagedUserRecord,
 } from "@/lib/managed-users";
 import { getAllUsers } from "@/lib/users";
-import { getSubscriptionLabel, isPro, type UserSubscription } from "@/lib/subscription";
+import type { UserSubscription } from "@/lib/subscription";
 
 type UserProfile = {
   displayName?: string;
@@ -384,62 +384,6 @@ export default function AdminOrganisersPage() {
     }
   }
 
-  async function handleGrantPro(organiser: OrganiserListRecord) {
-    if (!organiser.userId) return;
-    setBusyKey(`grant-pro-${organiser.id}`);
-    setError("");
-
-    try {
-      await setDoc(doc(db, "users", organiser.userId), {
-        subscription: {
-          tier: "pro",
-          status: "active",
-          model: "admin_grant",
-          grantedByAdmin: true,
-          grantedByAdminAt: serverTimestamp(),
-          grantedByAdminBy: auth.currentUser?.uid || null,
-          currentPeriodEnd: null,
-          stripeCustomerId: null,
-          stripeSubscriptionId: null,
-        },
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      await loadOrganisers();
-    } catch (grantError) {
-      setError(grantError instanceof Error ? grantError.message : "Failed to grant Pro.");
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
-  async function handleRevokePro(organiser: OrganiserListRecord) {
-    if (!organiser.userId) return;
-    setBusyKey(`revoke-pro-${organiser.id}`);
-    setError("");
-
-    try {
-      await setDoc(doc(db, "users", organiser.userId), {
-        subscription: {
-          tier: "free",
-          status: null,
-          model: null,
-          grantedByAdmin: false,
-          grantedByAdminAt: null,
-          grantedByAdminBy: null,
-          currentPeriodEnd: null,
-          stripeCustomerId: null,
-          stripeSubscriptionId: null,
-        },
-        updatedAt: serverTimestamp(),
-      }, { merge: true });
-      await loadOrganisers();
-    } catch (revokeError) {
-      setError(revokeError instanceof Error ? revokeError.message : "Failed to revoke Pro.");
-    } finally {
-      setBusyKey(null);
-    }
-  }
-
   if (loading) {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
@@ -459,7 +403,6 @@ export default function AdminOrganisersPage() {
     const isEditing = editingId === organiser.id;
     const isSaving = busyKey === `edit-${organiser.id}`;
     const canEditEmail = !organiser.userId;
-    const organiserIsPro = isPro({ role: "organiser", subscription: organiser.subscription ?? null });
 
     return (
       <div key={organiser.id} className="rounded-2xl border border-zinc-200 p-4">
@@ -525,9 +468,6 @@ export default function AdminOrganisersPage() {
               <div className="font-medium text-zinc-900">{organiser.displayName}</div>
               <div className="text-sm text-zinc-500">{organiser.email}</div>
               <div className="mt-1 text-xs text-zinc-500">Status: {organiser.status}{organiser.userId ? ` • linked: ${organiser.userId}` : " • not registered yet"}</div>
-              {organiser.userId ? (
-                <div className="mt-1 text-xs text-zinc-500">Pro: {getSubscriptionLabel(organiser.subscription)}</div>
-              ) : null}
             </div>
             <div className="flex flex-wrap gap-2">
               <button
@@ -545,27 +485,6 @@ export default function AdminOrganisersPage() {
               >
                 Remove organiser
               </button>
-              {organiser.userId ? (
-                organiserIsPro ? (
-                  <button
-                    type="button"
-                    onClick={() => void handleRevokePro(organiser)}
-                    disabled={busyKey === `revoke-pro-${organiser.id}`}
-                    className="rounded-full border border-amber-300 px-4 py-2 text-xs font-medium text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {busyKey === `revoke-pro-${organiser.id}` ? "Revoking..." : "Revoke Pro"}
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => void handleGrantPro(organiser)}
-                    disabled={busyKey === `grant-pro-${organiser.id}`}
-                    className="rounded-full border border-emerald-300 px-4 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {busyKey === `grant-pro-${organiser.id}` ? "Granting..." : "Grant Pro"}
-                  </button>
-                )
-              ) : null}
             </div>
           </div>
         )}
@@ -583,9 +502,6 @@ export default function AdminOrganisersPage() {
             <div className="font-medium text-zinc-900">{organiser.displayName}</div>
             <div className="text-sm text-zinc-500">{organiser.email}</div>
             <div className="mt-1 text-xs text-zinc-500">Status: inactive{organiser.userId ? ` • linked: ${organiser.userId}` : " • not registered yet"}</div>
-            {organiser.userId ? (
-              <div className="mt-1 text-xs text-zinc-500">Pro: {getSubscriptionLabel(organiser.subscription)}</div>
-            ) : null}
           </div>
           <button
             type="button"

@@ -45,12 +45,11 @@ export function isPro(user?: SubscriptionUser | null, now = new Date()) {
 export function hasFeature(
   user: SubscriptionUser | null | undefined,
   featureKey: PremiumFeatureKey,
-  now = new Date(),
 ) {
   if (!["inAppPayments", "accounting", "pushNotifications"].includes(featureKey)) {
     return false;
   }
-  return isPro(user, now);
+  return user?.role === "admin" || user?.role === "organiser" || user?.role === "player";
 }
 
 export function getSubscriptionLabel(subscription?: UserSubscription | null) {
@@ -63,7 +62,6 @@ export function getSubscriptionLabel(subscription?: UserSubscription | null) {
 }
 
 export function subscriptionBannerState(user?: SubscriptionUser | null) {
-  if (!user || user.role !== "organiser") return "hidden";
-  if (isPro(user)) return "active";
-  return "locked";
+  if (!user) return "hidden";
+  return "hidden";
 }

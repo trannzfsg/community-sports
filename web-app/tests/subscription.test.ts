@@ -38,6 +38,6 @@ test("subscription labels and banner states are stable", () => {
   assert.equal(getSubscriptionLabel({ tier: "pro", status: "past_due" }), "Pro payment due");
   assert.equal(getSubscriptionLabel(null), "Free");
   assert.equal(subscriptionBannerState({ role: "player" }), "hidden");
-  assert.equal(subscriptionBannerState({ role: "organiser", subscription: { tier: "free" } }), "locked");
-  assert.equal(subscriptionBannerState({ role: "organiser", subscription: { tier: "pro", status: "active" } }), "active");
+  assert.equal(subscriptionBannerState({ role: "organiser", subscription: { tier: "free" } }), "hidden");
+  assert.equal(subscriptionBannerState({ role: "organiser", subscription: { tier: "pro", status: "active" } }), "hidden");
 });

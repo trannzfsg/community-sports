@@ -25,12 +25,12 @@ test("only admin can access admin-only areas", () => {
   assert.equal(canAccessAdminArea("player"), false);
 });
 
-test("premium feature gates allow admin and active pro organisers only", () => {
+test("premium feature gates are currently open to signed-in roles", () => {
   assert.equal(canUseInAppPayments({ role: "admin" }), true);
-  assert.equal(canUseAccounting({ role: "organiser", subscription: { tier: "free", status: null } }), false);
-  assert.equal(canUsePushNotifications({ role: "player", subscription: { tier: "pro", status: "active" } }), false);
+  assert.equal(canUseAccounting({ role: "organiser", subscription: { tier: "free", status: null } }), true);
+  assert.equal(canUsePushNotifications({ role: "player", subscription: { tier: "free", status: null } }), true);
   assert.equal(canUseInAppPayments({ role: "organiser", subscription: { tier: "pro", status: "active" } }), true);
-  assert.equal(canUseAccounting({ role: "organiser", subscription: { tier: "pro", grantedByAdmin: true } }), true);
+  assert.equal(canUseAccounting(null), false);
 });
 
 test("series edit permission: admin any series, organiser only own series", () => {
