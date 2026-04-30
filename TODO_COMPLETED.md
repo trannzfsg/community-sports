@@ -1,5 +1,11 @@
 # To-Do List - Completed tasks
 
+- [x] Treat zero casual price events as free and auto paid/received.
+  - [x] Auto-mark newly registered free-event players as paid and received.
+  - [x] Backfill registered players when an event price is changed to zero.
+  - [x] Disable/avoid paid and received undo controls for free registered players.
+  - [x] Verified with lint, tests, build, and browser dashboard load.
+
 - [x] Update event details payment confirmation wording.
   - [x] Changed registration detail text to `Confirmation: Payment received` and `Confirmation: Not received`.
   - [x] Changed organiser payment buttons to `Received` and `Undo received`.
