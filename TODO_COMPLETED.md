@@ -1,5 +1,13 @@
 # To-Do List - Completed tasks
 
+- [x] Allow all user types to add comments to feedback items.
+  - [x] Added `siteFeedbackComments` helpers and Firestore rules.
+  - [x] Added collapsed comment panels with visible counts on every feedback item.
+  - [x] Kept comment posting active-only while allowing completed/cancelled comments to be expanded for reading.
+  - [x] Kept comments append-only with no edit/delete UI.
+  - [x] Updated admin feedback deletion to clean linked comments and votes.
+  - [x] Verified with lint, tests, build, Firestore rules deploy, and live browser create/comment/delete cleanup.
+
 - [x] Disable voting on completed and cancelled feedback.
   - [x] Kept upvote/downvote controls editable only for active feedback.
   - [x] Added a read-only voting closed marker for completed and cancelled items.

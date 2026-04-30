@@ -136,6 +136,15 @@ service cloud.firestore {
       );
     }
 
+    function feedbackCommentPartitionFromData(data) {
+      return data.get(
+        'dataPartition',
+        data.feedbackId is string && exists(/databases/$(database)/documents/siteFeedback/$(data.feedbackId))
+          ? get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.dataPartition
+          : null
+      );
+    }
+
     function emailPartitionMatches(partition, email) {
       return email is string && partition == partitionForEmail(email);
     }
@@ -239,7 +248,23 @@ service cloud.firestore {
         && feedbackVotePartitionFromData(data) == get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.dataPartition;
     }
 
+    function feedbackCommentDataMatchesPartition(data) {
+      return data.feedbackId is string
+        && exists(/databases/$(database)/documents/siteFeedback/$(data.feedbackId))
+        && data.authorId is string
+        && exists(/databases/$(database)/documents/users/$(data.authorId))
+        && feedbackCommentPartitionFromData(data) == requestPartition()
+        && feedbackCommentPartitionFromData(data) == partitionForUserId(data.authorId)
+        && feedbackCommentPartitionFromData(data) == get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.dataPartition;
+    }
+
     function feedbackVoteTargetsActiveFeedback(data) {
+      return data.feedbackId is string
+        && exists(/databases/$(database)/documents/siteFeedback/$(data.feedbackId))
+        && get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.status == "active";
+    }
+
+    function feedbackCommentTargetsActiveFeedback(data) {
       return data.feedbackId is string
         && exists(/databases/$(database)/documents/siteFeedback/$(data.feedbackId))
         && get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.status == "active";
@@ -860,8 +885,28 @@ service cloud.firestore {
           && feedbackVoteTargetsActiveFeedback(resource.data))
         || (isAdmin()
           && partitionMatchesRequest(feedbackVotePartitionFromData(resource.data))
-          && feedbackVoteDataMatchesPartition(resource.data)
-          && feedbackVoteTargetsActiveFeedback(resource.data));
+          && feedbackVoteDataMatchesPartition(resource.data));
+    }
+
+    match /siteFeedbackComments/{commentId} {
+      allow read: if isSignedIn()
+        && resource.data.dataPartition == requestPartition();
+
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.authorEmail == signedInEmail()
+        && request.resource.data.authorRole == currentUserRole()
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && partitionMatchesRequest(feedbackCommentPartitionFromData(request.resource.data))
+        && feedbackCommentDataMatchesPartition(request.resource.data)
+        && feedbackCommentTargetsActiveFeedback(request.resource.data);
+
+      allow update: if false;
+
+      allow delete: if isAdmin()
+        && partitionMatchesRequest(feedbackCommentPartitionFromData(resource.data))
+        && feedbackCommentDataMatchesPartition(resource.data);
     }
 
     match /{document=**} {
