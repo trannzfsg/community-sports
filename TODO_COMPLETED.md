@@ -1,5 +1,10 @@
 # To-Do List - Completed tasks
 
+- [x] Disable voting on completed and cancelled feedback.
+  - [x] Kept upvote/downvote controls editable only for active feedback.
+  - [x] Added a read-only voting closed marker for completed and cancelled items.
+  - [x] Updated Firestore rules to reject vote changes after feedback leaves active status.
+
 - [x] Rename feedback labels to Feedback / Roadmap.
   - [x] Updated navigation labels for all roles.
   - [x] Updated the feedback page title/header copy.
