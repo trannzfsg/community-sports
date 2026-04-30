@@ -17,7 +17,7 @@ function getConfirmationSummaryLabel(registration: RegistrationItem) {
 }
 
 function getConfirmationStatusLabel(registration: RegistrationItem) {
-  return registration.organiserPaid ? "Confirmed" : "Not confirmed";
+  return registration.organiserPaid ? "Payment received" : "Not received";
 }
 
 function getRegistrationSourceLabel(registration: RegistrationItem) {

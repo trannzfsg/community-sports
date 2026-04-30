@@ -1,5 +1,10 @@
 # To-Do List - Completed tasks
 
+- [x] Update event details payment confirmation wording.
+  - [x] Changed registration detail text to `Confirmation: Payment received` and `Confirmation: Not received`.
+  - [x] Changed organiser payment buttons to `Received` and `Undo received`.
+  - [x] Verified with lint, tests, build, and browser dashboard load.
+
 - [x] Update feedback ordering options.
   - [x] Removed author ordering from all feedback sections.
   - [x] Kept remaining date, upvote, downvote, and net vote ordering descending.
