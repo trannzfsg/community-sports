@@ -10,9 +10,11 @@ import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import type { AppRole } from "@/lib/roles";
 import {
   attachFeedbackVotes,
+  createFeedbackComment,
   createFeedback,
   deleteFeedback,
   deleteFeedbackVote,
+  getFeedbackComments,
   getFeedback,
   getFeedbackSectionDate,
   getFeedbackVotes,
@@ -45,7 +47,7 @@ const SECTION_DATE_LABELS: Record<FeedbackStatus, string> = {
   cancelled: "Cancelled",
 };
 
-function formatDate(value: ReturnType<typeof getFeedbackSectionDate>) {
+function formatDate(value: ReturnType<typeof getFeedbackSectionDate> | undefined) {
   if (!value) return "Not dated";
   return new Intl.DateTimeFormat("en-AU", {
     day: "2-digit",
@@ -62,6 +64,8 @@ export default function FeedbackPage() {
   const [error, setError] = useState("");
   const [feedbackItems, setFeedbackItems] = useState<FeedbackWithVotes[]>([]);
   const [feedbackBody, setFeedbackBody] = useState("");
+  const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
+  const [expandedComments, setExpandedComments] = useState<Set<string>>(() => new Set());
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [sorts, setSorts] = useState<Record<FeedbackStatus, FeedbackSectionSort>>({
     active: "date",
@@ -71,11 +75,12 @@ export default function FeedbackPage() {
 
   async function loadFeedback(currentUser: User, currentProfile: UserProfile) {
     const dataPartition = currentProfile.dataPartition || "live";
-    const [items, votes] = await Promise.all([
+    const [items, votes, comments] = await Promise.all([
       getFeedback(db, dataPartition),
       getFeedbackVotes(db, dataPartition),
+      getFeedbackComments(db, dataPartition),
     ]);
-    setFeedbackItems(attachFeedbackVotes(items, votes, currentUser.uid));
+    setFeedbackItems(attachFeedbackVotes(items, votes, currentUser.uid, comments));
   }
 
   useEffect(() => {
@@ -168,6 +173,44 @@ export default function FeedbackPage() {
     }
   }
 
+  async function handleCreateComment(feedback: FeedbackWithVotes) {
+    if (!user || !profile || feedback.status !== "active") return;
+    const body = commentDrafts[feedback.id]?.trim();
+    if (!body) return;
+    setBusyKey(`comment-${feedback.id}`);
+    setError("");
+    try {
+      await createFeedbackComment(db, {
+        feedbackId: feedback.id,
+        body,
+        authorId: user.uid,
+        authorName: profile.displayName || user.email || "User",
+        authorEmail: profile.email || user.email || "",
+        authorRole: profile.role,
+        dataPartition: profile.dataPartition || "live",
+      });
+      setCommentDrafts((current) => ({ ...current, [feedback.id]: "" }));
+      setExpandedComments((current) => new Set(current).add(feedback.id));
+      await loadFeedback(user, profile);
+    } catch (commentError) {
+      setError(commentError instanceof Error ? commentError.message : "Failed to add comment.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function toggleComments(feedbackId: string) {
+    setExpandedComments((current) => {
+      const next = new Set(current);
+      if (next.has(feedbackId)) {
+        next.delete(feedbackId);
+      } else {
+        next.add(feedbackId);
+      }
+      return next;
+    });
+  }
+
   async function handleStatus(feedbackId: string, status: Exclude<FeedbackStatus, "active">) {
     if (!user || !profile || profile.role !== "admin") return;
     setBusyKey(`${status}-${feedbackId}`);
@@ -190,7 +233,7 @@ export default function FeedbackPage() {
     setBusyKey(`delete-${feedbackId}`);
     setError("");
     try {
-      await deleteFeedback(db, feedbackId);
+      await deleteFeedback(db, feedbackId, profile.dataPartition || "live");
       await loadFeedback(user, profile);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "Failed to delete feedback.");
@@ -283,6 +326,14 @@ export default function FeedbackPage() {
                     ) : null}
                     <button
                       type="button"
+                      onClick={() => toggleComments(item.id)}
+                      className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-100"
+                      aria-expanded={expandedComments.has(item.id)}
+                    >
+                      {expandedComments.has(item.id) ? "Hide" : "Show"} comments ({item.commentCount})
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => void handleVote(item, 1)}
                       disabled={status !== "active" || busyKey === `vote-${item.id}-1`}
                       className={`rounded-full border px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
@@ -337,6 +388,53 @@ export default function FeedbackPage() {
                     ) : null}
                   </div>
                 </div>
+                {expandedComments.has(item.id) ? (
+                  <div className="mt-4 border-t border-zinc-100 pt-4" data-testid={`feedback-comments-${item.id}`}>
+                    {item.comments.length ? (
+                      <div className="space-y-3">
+                        {item.comments.map((comment) => (
+                          <div key={comment.id} className="rounded-2xl bg-zinc-50 px-4 py-3">
+                            <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-800">{comment.body}</p>
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-zinc-500">
+                              <span>{comment.authorName}</span>
+                              <span>{comment.authorRole}</span>
+                              <span>{formatDate(comment.createdAt)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-4 text-sm text-zinc-500">
+                        No comments yet.
+                      </div>
+                    )}
+
+                    {status === "active" ? (
+                      <div className="mt-4 space-y-3">
+                        <textarea
+                          value={commentDrafts[item.id] ?? ""}
+                          onChange={(event) => setCommentDrafts((current) => ({
+                            ...current,
+                            [item.id]: event.target.value,
+                          }))}
+                          placeholder="Add a comment."
+                          rows={3}
+                          className="min-h-24 w-full rounded-2xl border border-zinc-300 px-4 py-3 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateComment(item)}
+                          disabled={!commentDrafts[item.id]?.trim() || busyKey === `comment-${item.id}`}
+                          className="rounded-full bg-zinc-900 px-4 py-2 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {busyKey === `comment-${item.id}` ? "Adding..." : "Add comment"}
+                        </button>
+                      </div>
+                    ) : (
+                      <p className="mt-4 text-sm text-zinc-500">Comments are closed for this item.</p>
+                    )}
+                  </div>
+                ) : null}
               </article>
             )) : (
               <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50 p-5 text-sm text-zinc-500">

@@ -8,6 +8,7 @@ import {
   setDoc,
   updateDoc,
   where,
+  writeBatch,
   type Firestore,
   type Timestamp,
 } from "firebase/firestore";
@@ -42,11 +43,25 @@ export type FeedbackVote = {
   updatedAt?: Timestamp | null;
 };
 
+export type FeedbackComment = {
+  id: string;
+  feedbackId: string;
+  body: string;
+  authorId: string;
+  authorName: string;
+  authorEmail: string;
+  authorRole: FeedbackItem["authorRole"];
+  dataPartition: DataPartition;
+  createdAt?: Timestamp | null;
+};
+
 export type FeedbackWithVotes = FeedbackItem & {
   upvotes: number;
   downvotes: number;
   netVotes: number;
   currentUserVote: FeedbackVoteValue | null;
+  comments: FeedbackComment[];
+  commentCount: number;
 };
 
 export function buildFeedbackVoteId(feedbackId: string, userId: string) {
@@ -74,9 +89,11 @@ export function attachFeedbackVotes(
   feedbackItems: FeedbackItem[],
   votes: FeedbackVote[],
   currentUserId: string,
+  comments: FeedbackComment[] = [],
 ): FeedbackWithVotes[] {
   return feedbackItems.map((feedback) => {
     const feedbackVotes = votes.filter((vote) => vote.feedbackId === feedback.id);
+    const feedbackComments = sortFeedbackComments(comments.filter((comment) => comment.feedbackId === feedback.id));
     const upvotes = feedbackVotes.filter((vote) => vote.value === 1).length;
     const downvotes = feedbackVotes.filter((vote) => vote.value === -1).length;
     const currentUserVote = feedbackVotes.find((vote) => vote.userId === currentUserId)?.value ?? null;
@@ -86,8 +103,14 @@ export function attachFeedbackVotes(
       downvotes,
       netVotes: upvotes - downvotes,
       currentUserVote,
+      comments: feedbackComments,
+      commentCount: feedbackComments.length,
     };
   });
+}
+
+export function sortFeedbackComments(comments: FeedbackComment[]) {
+  return [...comments].sort((a, b) => timestampMillis(a.createdAt) - timestampMillis(b.createdAt));
 }
 
 export function sortFeedbackSection(
@@ -154,6 +177,42 @@ export async function getFeedbackVotes(db: Firestore, dataPartition: DataPartiti
   }));
 }
 
+export async function getFeedbackComments(db: Firestore, dataPartition: DataPartition) {
+  const snapshot = await getDocs(
+    query(collection(db, "siteFeedbackComments"), where("dataPartition", "==", dataPartition)),
+  );
+  return sortFeedbackComments(snapshot.docs.map((commentDoc) => ({
+    id: commentDoc.id,
+    ...(commentDoc.data() as Omit<FeedbackComment, "id">),
+  })));
+}
+
+export async function createFeedbackComment(
+  db: Firestore,
+  input: {
+    feedbackId: string;
+    body: string;
+    authorId: string;
+    authorName: string;
+    authorEmail: string;
+    authorRole: FeedbackItem["authorRole"];
+    dataPartition: DataPartition;
+  },
+) {
+  const commentRef = doc(collection(db, "siteFeedbackComments"));
+  await setDoc(commentRef, {
+    feedbackId: input.feedbackId,
+    body: input.body.trim(),
+    authorId: input.authorId,
+    authorName: input.authorName,
+    authorEmail: input.authorEmail,
+    authorRole: input.authorRole,
+    dataPartition: input.dataPartition,
+    createdAt: serverTimestamp(),
+  });
+  return commentRef.id;
+}
+
 export async function setFeedbackVote(
   db: Firestore,
   input: {
@@ -180,8 +239,16 @@ export async function deleteFeedbackVote(
   await deleteDoc(doc(db, "siteFeedbackVotes", buildFeedbackVoteId(feedbackId, userId)));
 }
 
-export async function deleteFeedback(db: Firestore, feedbackId: string) {
-  await deleteDoc(doc(db, "siteFeedback", feedbackId));
+export async function deleteFeedback(db: Firestore, feedbackId: string, dataPartition: DataPartition) {
+  const [voteSnapshot, commentSnapshot] = await Promise.all([
+    getDocs(query(collection(db, "siteFeedbackVotes"), where("dataPartition", "==", dataPartition), where("feedbackId", "==", feedbackId))),
+    getDocs(query(collection(db, "siteFeedbackComments"), where("dataPartition", "==", dataPartition), where("feedbackId", "==", feedbackId))),
+  ]);
+  const batch = writeBatch(db);
+  voteSnapshot.docs.forEach((voteDoc) => batch.delete(voteDoc.ref));
+  commentSnapshot.docs.forEach((commentDoc) => batch.delete(commentDoc.ref));
+  batch.delete(doc(db, "siteFeedback", feedbackId));
+  await batch.commit();
 }
 
 export async function updateFeedbackStatus(

@@ -4,7 +4,9 @@ import {
   attachFeedbackVotes,
   buildFeedbackVoteId,
   getToggledFeedbackVoteValue,
+  sortFeedbackComments,
   sortFeedbackSection,
+  type FeedbackComment,
   type FeedbackItem,
   type FeedbackVote,
 } from "../src/lib/feedback.ts";
@@ -34,12 +36,38 @@ test("attachFeedbackVotes counts votes and current user vote", () => {
     { id: "v2", feedbackId: "feedback-1", userId: "user-2", value: -1, dataPartition: "test" },
     { id: "v3", feedbackId: "feedback-1", userId: "user-3", value: 1, dataPartition: "test" },
   ];
+  const comments: FeedbackComment[] = [
+    {
+      id: "comment-2",
+      feedbackId: "feedback-1",
+      body: "Second",
+      authorId: "user-2",
+      authorName: "User 2",
+      authorEmail: "user2@example.com",
+      authorRole: "organiser",
+      dataPartition: "test",
+      createdAt: timestamp(20),
+    },
+    {
+      id: "comment-1",
+      feedbackId: "feedback-1",
+      body: "First",
+      authorId: "user-1",
+      authorName: "User 1",
+      authorEmail: "user1@example.com",
+      authorRole: "player",
+      dataPartition: "test",
+      createdAt: timestamp(10),
+    },
+  ];
 
-  const [item] = attachFeedbackVotes(feedback, votes, "user-2");
+  const [item] = attachFeedbackVotes(feedback, votes, "user-2", comments);
   assert.equal(item.upvotes, 2);
   assert.equal(item.downvotes, 1);
   assert.equal(item.netVotes, 1);
   assert.equal(item.currentUserVote, -1);
+  assert.equal(item.commentCount, 2);
+  assert.deepEqual(item.comments.map((comment) => comment.id), ["comment-1", "comment-2"]);
 });
 
 test("getToggledFeedbackVoteValue clears repeated votes", () => {
@@ -95,4 +123,33 @@ test("sortFeedbackSection sorts all supported orderings descending", () => {
   assert.deepEqual(sortFeedbackSection(active, "upvotes").map((item) => item.id), ["popular", "new", "old"]);
   assert.deepEqual(sortFeedbackSection(active, "downvotes").map((item) => item.id), ["old", "new", "popular"]);
   assert.deepEqual(sortFeedbackSection(active, "netVotes").map((item) => item.id), ["popular", "new", "old"]);
+});
+
+test("sortFeedbackComments sorts oldest first", () => {
+  const comments: FeedbackComment[] = [
+    {
+      id: "new",
+      feedbackId: "feedback-1",
+      body: "New",
+      authorId: "user-1",
+      authorName: "User",
+      authorEmail: "user@example.com",
+      authorRole: "player",
+      dataPartition: "test",
+      createdAt: timestamp(200),
+    },
+    {
+      id: "old",
+      feedbackId: "feedback-1",
+      body: "Old",
+      authorId: "user-1",
+      authorName: "User",
+      authorEmail: "user@example.com",
+      authorRole: "player",
+      dataPartition: "test",
+      createdAt: timestamp(100),
+    },
+  ];
+
+  assert.deepEqual(sortFeedbackComments(comments).map((comment) => comment.id), ["old", "new"]);
 });
