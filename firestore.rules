@@ -830,7 +830,9 @@ service cloud.firestore {
         && request.resource.data.body == resource.data.body
         && request.resource.data.status in ["active", "completed", "cancelled"];
 
-      allow delete: if false;
+      allow delete: if isAdmin()
+        && partitionMatchesRequest(feedbackPartitionFromData(resource.data))
+        && feedbackDataMatchesPartition(resource.data);
     }
 
     match /siteFeedbackVotes/{voteId} {
@@ -844,7 +846,13 @@ service cloud.firestore {
         && partitionMatchesRequest(feedbackVotePartitionFromData(request.resource.data))
         && feedbackVoteDataMatchesPartition(request.resource.data);
 
-      allow delete: if false;
+      allow delete: if (isSignedIn()
+          && resource.data.userId == request.auth.uid
+          && partitionMatchesRequest(feedbackVotePartitionFromData(resource.data))
+          && feedbackVoteDataMatchesPartition(resource.data))
+        || (isAdmin()
+          && partitionMatchesRequest(feedbackVotePartitionFromData(resource.data))
+          && feedbackVoteDataMatchesPartition(resource.data));
     }
 
     match /{document=**} {

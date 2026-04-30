@@ -1,5 +1,11 @@
 # To-Do List - Completed tasks
 
+- [x] Update feedback voting and admin deletion.
+  - [x] Added vote toggle-off support by deleting the user's vote doc when they click the same vote again.
+  - [x] Added admin-only feedback deletion with a confirmation prompt.
+  - [x] Updated Firestore rules for feedback and vote deletes.
+  - [x] Verified with lint, tests, build, rules dry-run, deployed rules, and live browser page load.
+
 - [x] Add organiser approval details and site feedback workflow.
   - [x] Added player approval request details and organiser quick series summaries.
   - [x] Show request details and email/fallback in organiser approval review.

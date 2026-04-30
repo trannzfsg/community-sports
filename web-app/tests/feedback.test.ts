@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   attachFeedbackVotes,
   buildFeedbackVoteId,
+  getToggledFeedbackVoteValue,
   sortFeedbackSection,
   type FeedbackItem,
   type FeedbackVote,
@@ -39,6 +40,13 @@ test("attachFeedbackVotes counts votes and current user vote", () => {
   assert.equal(item.downvotes, 1);
   assert.equal(item.netVotes, 1);
   assert.equal(item.currentUserVote, -1);
+});
+
+test("getToggledFeedbackVoteValue clears repeated votes", () => {
+  assert.equal(getToggledFeedbackVoteValue(null, 1), 1);
+  assert.equal(getToggledFeedbackVoteValue(-1, 1), 1);
+  assert.equal(getToggledFeedbackVoteValue(1, 1), null);
+  assert.equal(getToggledFeedbackVoteValue(-1, -1), null);
 });
 
 test("sortFeedbackSection uses the section date for date sorting", () => {

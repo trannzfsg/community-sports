@@ -11,9 +11,12 @@ import type { AppRole } from "@/lib/roles";
 import {
   attachFeedbackVotes,
   createFeedback,
+  deleteFeedback,
+  deleteFeedbackVote,
   getFeedback,
   getFeedbackSectionDate,
   getFeedbackVotes,
+  getToggledFeedbackVoteValue,
   setFeedbackVote,
   sortFeedbackSection,
   updateFeedbackStatus,
@@ -140,17 +143,22 @@ export default function FeedbackPage() {
     }
   }
 
-  async function handleVote(feedbackId: string, value: FeedbackVoteValue) {
+  async function handleVote(feedback: FeedbackWithVotes, value: FeedbackVoteValue) {
     if (!user || !profile) return;
-    setBusyKey(`vote-${feedbackId}-${value}`);
+    setBusyKey(`vote-${feedback.id}-${value}`);
     setError("");
     try {
-      await setFeedbackVote(db, {
-        feedbackId,
-        userId: user.uid,
-        value,
-        dataPartition: profile.dataPartition || "live",
-      });
+      const nextVote = getToggledFeedbackVoteValue(feedback.currentUserVote, value);
+      if (nextVote == null) {
+        await deleteFeedbackVote(db, feedback.id, user.uid);
+      } else {
+        await setFeedbackVote(db, {
+          feedbackId: feedback.id,
+          userId: user.uid,
+          value: nextVote,
+          dataPartition: profile.dataPartition || "live",
+        });
+      }
       await loadFeedback(user, profile);
     } catch (voteError) {
       setError(voteError instanceof Error ? voteError.message : "Failed to save vote.");
@@ -168,6 +176,23 @@ export default function FeedbackPage() {
       await loadFeedback(user, profile);
     } catch (statusError) {
       setError(statusError instanceof Error ? statusError.message : "Failed to update feedback.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  async function handleDeleteFeedback(feedbackId: string) {
+    if (!user || !profile || profile.role !== "admin") return;
+    const confirmed = confirm("Delete this feedback so no one can view it again?");
+    if (!confirmed) return;
+
+    setBusyKey(`delete-${feedbackId}`);
+    setError("");
+    try {
+      await deleteFeedback(db, feedbackId);
+      await loadFeedback(user, profile);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete feedback.");
     } finally {
       setBusyKey(null);
     }
@@ -253,7 +278,7 @@ export default function FeedbackPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => void handleVote(item.id, 1)}
+                      onClick={() => void handleVote(item, 1)}
                       disabled={busyKey === `vote-${item.id}-1`}
                       className={`rounded-full border px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
                         item.currentUserVote === 1
@@ -265,7 +290,7 @@ export default function FeedbackPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void handleVote(item.id, -1)}
+                      onClick={() => void handleVote(item, -1)}
                       disabled={busyKey === `vote-${item.id}--1`}
                       className={`rounded-full border px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
                         item.currentUserVote === -1
@@ -294,6 +319,16 @@ export default function FeedbackPage() {
                           Cancel
                         </button>
                       </>
+                    ) : null}
+                    {profile?.role === "admin" ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteFeedback(item.id)}
+                        disabled={busyKey === `delete-${item.id}`}
+                        className="rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Delete
+                      </button>
                     ) : null}
                   </div>
                 </div>

@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDocs,
   query,
@@ -50,6 +51,13 @@ export type FeedbackWithVotes = FeedbackItem & {
 
 export function buildFeedbackVoteId(feedbackId: string, userId: string) {
   return `${feedbackId}__${userId}`;
+}
+
+export function getToggledFeedbackVoteValue(
+  currentVote: FeedbackVoteValue | null,
+  nextVote: FeedbackVoteValue,
+) {
+  return currentVote === nextVote ? null : nextVote;
 }
 
 export function getFeedbackSectionDate(feedback: FeedbackItem) {
@@ -165,6 +173,18 @@ export async function setFeedbackVote(
     dataPartition: input.dataPartition,
     updatedAt: serverTimestamp(),
   }, { merge: true });
+}
+
+export async function deleteFeedbackVote(
+  db: Firestore,
+  feedbackId: string,
+  userId: string,
+) {
+  await deleteDoc(doc(db, "siteFeedbackVotes", buildFeedbackVoteId(feedbackId, userId)));
+}
+
+export async function deleteFeedback(db: Firestore, feedbackId: string) {
+  await deleteDoc(doc(db, "siteFeedback", feedbackId));
 }
 
 export async function updateFeedbackStatus(
