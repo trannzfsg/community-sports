@@ -49,7 +49,7 @@ test("getToggledFeedbackVoteValue clears repeated votes", () => {
   assert.equal(getToggledFeedbackVoteValue(-1, -1), null);
 });
 
-test("sortFeedbackSection uses the section date for date sorting", () => {
+test("sortFeedbackSection sorts all supported orderings descending", () => {
   const active = attachFeedbackVotes([
     {
       id: "old",
@@ -73,8 +73,26 @@ test("sortFeedbackSection uses the section date for date sorting", () => {
       status: "active",
       createdAt: timestamp(200),
     },
-  ], [], "user");
+    {
+      id: "popular",
+      body: "Popular",
+      authorId: "a",
+      authorName: "C",
+      authorEmail: "c@example.com",
+      authorRole: "player",
+      dataPartition: "test",
+      status: "active",
+      createdAt: timestamp(150),
+    },
+  ], [
+    { id: "v1", feedbackId: "popular", userId: "u1", value: 1, dataPartition: "test" },
+    { id: "v2", feedbackId: "popular", userId: "u2", value: 1, dataPartition: "test" },
+    { id: "v3", feedbackId: "old", userId: "u3", value: -1, dataPartition: "test" },
+    { id: "v4", feedbackId: "old", userId: "u4", value: -1, dataPartition: "test" },
+  ], "user");
 
-  assert.deepEqual(sortFeedbackSection(active, "date").map((item) => item.id), ["new", "old"]);
-  assert.deepEqual(sortFeedbackSection(active, "author").map((item) => item.id), ["new", "old"]);
+  assert.deepEqual(sortFeedbackSection(active, "date").map((item) => item.id), ["new", "popular", "old"]);
+  assert.deepEqual(sortFeedbackSection(active, "upvotes").map((item) => item.id), ["popular", "new", "old"]);
+  assert.deepEqual(sortFeedbackSection(active, "downvotes").map((item) => item.id), ["old", "new", "popular"]);
+  assert.deepEqual(sortFeedbackSection(active, "netVotes").map((item) => item.id), ["popular", "new", "old"]);
 });

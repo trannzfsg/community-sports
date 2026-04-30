@@ -1,5 +1,10 @@
 # To-Do List - Completed tasks
 
+- [x] Update feedback ordering options.
+  - [x] Removed author ordering from all feedback sections.
+  - [x] Kept remaining date, upvote, downvote, and net vote ordering descending.
+  - [x] Updated feedback sorting tests and verified the dropdown options in browser.
+
 - [x] Update feedback voting and admin deletion.
   - [x] Added vote toggle-off support by deleting the user's vote doc when they click the same vote again.
   - [x] Added admin-only feedback deletion with a confirmation prompt.

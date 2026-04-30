@@ -16,7 +16,7 @@ type DataPartition = "test" | "live";
 
 export type FeedbackStatus = "active" | "completed" | "cancelled";
 export type FeedbackVoteValue = 1 | -1;
-export type FeedbackSectionSort = "date" | "upvotes" | "downvotes" | "netVotes" | "author";
+export type FeedbackSectionSort = "date" | "upvotes" | "downvotes" | "netVotes";
 
 export type FeedbackItem = {
   id: string;
@@ -103,9 +103,6 @@ export function sortFeedbackSection(
     }
     if (sortBy === "netVotes") {
       return b.netVotes - a.netVotes || timestampMillis(getFeedbackSectionDate(b)) - timestampMillis(getFeedbackSectionDate(a));
-    }
-    if (sortBy === "author") {
-      return a.authorName.localeCompare(b.authorName) || timestampMillis(getFeedbackSectionDate(b)) - timestampMillis(getFeedbackSectionDate(a));
     }
     return timestampMillis(getFeedbackSectionDate(b)) - timestampMillis(getFeedbackSectionDate(a));
   });

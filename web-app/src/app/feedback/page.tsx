@@ -258,7 +258,6 @@ export default function FeedbackPage() {
                 <option value="upvotes">Upvotes</option>
                 <option value="downvotes">Downvotes</option>
                 <option value="netVotes">Net votes</option>
-                <option value="author">Author</option>
               </select>
             </label>
           </div>
