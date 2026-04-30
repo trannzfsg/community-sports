@@ -1,5 +1,12 @@
 # To-Do List - Completed tasks
 
+- [x] Add optional Stripe Connect onboarding for organiser online payments.
+  - [x] Added Connect account status model and Firebase Functions endpoints.
+  - [x] Added organiser payment setup page without blocking organiser onboarding.
+  - [x] Added organiser onboarding instructions for Stripe Connect setup without forcing existing organisers back through onboarding.
+  - [x] Protected Connect status from client edits in Firestore rules.
+  - [x] Verified with lint, tests, builds, Firebase deploys, and live browser checks.
+
 - [x] Hide organiser Pro subscription for now and make feature gates broadly available.
   - [x] Removed visible Pro subscription navigation/admin controls from current workflows.
   - [x] Redirected the hidden organiser subscription route back to dashboard.

@@ -87,7 +87,17 @@ export const ONBOARDING_CONTENT: Record<OnboardingRole, OnboardingContent> = {
         points: [
           "You can add approved players directly to an event, and players can also self-register when registration is open.",
           "Players submit payment references, then you confirm whether payment was actually received.",
+          "Online payments are optional. Set up Stripe Connect from Payments only when you want players to pay through the app.",
+          "Stripe setup does not block organiser onboarding, player approvals, event creation, or manual payment tracking.",
           "Use the event lifecycle controls to complete or cancel an event, then create the next one when you are ready.",
+        ],
+      },
+      {
+        title: "Stripe Connect setup",
+        points: [
+          "Open Payments, then choose Set up Stripe Connect to continue on Stripe's secure onboarding page.",
+          "Stripe asks for payout and identity details directly, then returns you to Community Sports.",
+          "When the Payments page shows Ready for online payments, online checkout can be enabled for paid series in future payment workflows.",
         ],
       },
       {

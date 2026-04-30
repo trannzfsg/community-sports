@@ -207,6 +207,21 @@ type StripeCustomer = {
   id: string;
 };
 
+type StripeConnectAccount = {
+  id: string;
+  charges_enabled?: boolean;
+  payouts_enabled?: boolean;
+  details_submitted?: boolean;
+  requirements?: {
+    currently_due?: string[];
+    disabled_reason?: string | null;
+  };
+};
+
+type StripeConnectAccountLink = {
+  url?: string;
+};
+
 type StripeSubscription = {
   id: string;
   customer?: string;
@@ -220,6 +235,65 @@ type StripeEvent = {
     object?: StripeSubscription;
   };
 };
+
+/**
+ * Calls a Stripe GET endpoint.
+ * @param {string} path
+ */
+async function stripeGetRequest<T>(path: string): Promise<T> {
+  const response = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method: "GET",
+    headers: {
+      "Authorization": `Bearer ${requireStripeSecret("STRIPE_SECRET_KEY")}`,
+      "Stripe-Version": STRIPE_API_VERSION,
+    },
+  });
+  const payload = await response.json().catch(() => null) as
+    | (T & {error?: {message?: string}})
+    | null;
+
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || "Stripe request failed.");
+  }
+  if (!payload) {
+    throw new Error("Stripe returned an empty response.");
+  }
+  return payload;
+}
+
+/**
+ * Maps a Stripe connected account to the stored user status shape.
+ * @param {StripeConnectAccount} account
+ * @return {Record<string, unknown>}
+ */
+function buildStripeConnectStatus(account: StripeConnectAccount) {
+  return {
+    accountId: account.id,
+    chargesEnabled: account.charges_enabled === true,
+    payoutsEnabled: account.payouts_enabled === true,
+    detailsSubmitted: account.details_submitted === true,
+    disabledReason: account.requirements?.disabled_reason ?? null,
+    currentlyDue: account.requirements?.currently_due ?? [],
+    updatedAt: FieldValue.serverTimestamp(),
+  };
+}
+
+/**
+ * Writes the latest Stripe connected account status to a user profile.
+ * @param {string} uid
+ * @param {StripeConnectAccount} account
+ */
+async function updateUserStripeConnectStatus(
+  uid: string,
+  account: StripeConnectAccount,
+) {
+  const stripeConnect = buildStripeConnectStatus(account);
+  await firestore.doc(`users/${uid}`).set({
+    stripeConnect,
+    updatedAt: FieldValue.serverTimestamp(),
+  }, {merge: true});
+  return stripeConnect;
+}
 
 /**
  * Verifies the Bearer token and returns the decoded user identity.
@@ -1058,6 +1132,171 @@ export const sendNotificationTest = onRequest(async (request, response) => {
     });
     response.status(500).json({
       error: "Failed to queue the test notification.",
+    });
+  }
+});
+
+export const createConnectAccountLink = onRequest(async (
+  request,
+  response,
+) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const returnUrl = typeof request.body?.returnUrl === "string" ?
+      request.body.returnUrl :
+      "";
+    if (!returnUrl) {
+      response.status(400).json({error: "Return URL is required."});
+      return;
+    }
+    if (!returnUrlIsAllowed(returnUrl)) {
+      response.status(400).json({error: "Return URL is not allowed."});
+      return;
+    }
+
+    const userRef = firestore.doc(`users/${uid}`);
+    const userSnapshot = await userRef.get();
+    const userData = userSnapshot.data() || {};
+    if (!userSnapshot.exists || userData.role !== "organiser") {
+      response.status(403).json({
+        error: "Only organisers can set up Stripe Connect.",
+      });
+      return;
+    }
+
+    let accountId = typeof userData.stripeConnect?.accountId === "string" ?
+      userData.stripeConnect.accountId :
+      "";
+    if (!accountId) {
+      const email = typeof userData.email === "string" ?
+        normalizeEmail(userData.email) :
+        typeof decodedToken.email === "string" ?
+          normalizeEmail(decodedToken.email) :
+          "";
+      const accountBody = new URLSearchParams({
+        type: "express",
+        country: "AU",
+      });
+      if (email) {
+        accountBody.set("email", email);
+      }
+      accountBody.set("capabilities[card_payments][requested]", "true");
+      accountBody.set("capabilities[transfers][requested]", "true");
+      accountBody.set("metadata[communitySportsUserId]", uid);
+      accountBody.set(
+        "metadata[dataPartition]",
+        String(userData.dataPartition || getDataPartitionForEmail(email)),
+      );
+
+      const account = await stripeRequest<StripeConnectAccount>(
+        "accounts",
+        accountBody,
+      );
+      accountId = account.id;
+      await updateUserStripeConnectStatus(uid, account);
+    }
+
+    const refreshUrl = `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}` +
+      "stripeConnect=refresh";
+    const linkBody = new URLSearchParams({
+      account: accountId,
+      refresh_url: refreshUrl,
+      return_url: returnUrl,
+      type: "account_onboarding",
+    });
+    const accountLink = await stripeRequest<StripeConnectAccountLink>(
+      "account_links",
+      linkBody,
+    );
+
+    if (!accountLink.url) {
+      response.status(502).json({
+        error: "Stripe did not return an onboarding URL.",
+      });
+      return;
+    }
+
+    response.status(200).json({url: accountLink.url});
+  } catch (error) {
+    logger.error("Failed to create Stripe Connect account link", error);
+    response.status(500).json({
+      error: error instanceof Error ?
+        error.message :
+        "Failed to start Stripe Connect setup.",
+    });
+  }
+});
+
+export const refreshConnectAccountStatus = onRequest(async (
+  request,
+  response,
+) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const returnUrl = typeof request.body?.returnUrl === "string" ?
+      request.body.returnUrl :
+      "";
+    if (returnUrl && !returnUrlIsAllowed(returnUrl)) {
+      response.status(400).json({error: "Return URL is not allowed."});
+      return;
+    }
+
+    const userRef = firestore.doc(`users/${uid}`);
+    const userSnapshot = await userRef.get();
+    const userData = userSnapshot.data() || {};
+    if (!userSnapshot.exists || userData.role !== "organiser") {
+      response.status(403).json({
+        error: "Only organisers can refresh Stripe Connect status.",
+      });
+      return;
+    }
+
+    const accountId = typeof userData.stripeConnect?.accountId === "string" ?
+      userData.stripeConnect.accountId :
+      "";
+    if (!accountId) {
+      response.status(400).json({error: "Stripe Connect is not set up yet."});
+      return;
+    }
+
+    const account = await stripeGetRequest<StripeConnectAccount>(
+      `accounts/${accountId}`,
+    );
+    const stripeConnect = await updateUserStripeConnectStatus(uid, account);
+
+    response.status(200).json({stripeConnect});
+  } catch (error) {
+    logger.error("Failed to refresh Stripe Connect account status", error);
+    response.status(500).json({
+      error: error instanceof Error ?
+        error.message :
+        "Failed to refresh Stripe Connect status.",
     });
   }
 });

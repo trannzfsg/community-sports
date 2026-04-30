@@ -14,6 +14,10 @@ test("player and organiser onboarding content expose versioned guides", () => {
   assert.equal(typeof organiser?.version, "string");
   assert.equal((player?.sections.length || 0) > 0, true);
   assert.equal((organiser?.sections.length || 0) > 0, true);
+  assert.equal(
+    organiser?.sections.some((section) => section.title === "Stripe Connect setup"),
+    true,
+  );
 });
 
 test("admin does not require onboarding", () => {

@@ -10,6 +10,7 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import type { UserSubscription } from "@/lib/subscription";
+import type { StripeConnectStatus } from "@/lib/stripe-connect";
 
 type DataPartition = "test" | "live";
 
@@ -26,6 +27,7 @@ export type UserRecord = {
   dataPartition?: DataPartition;
   isPending?: boolean;
   subscription?: UserSubscription | null;
+  stripeConnect?: StripeConnectStatus | null;
 };
 
 function isRegisteredUserRecord(user: UserRecord) {

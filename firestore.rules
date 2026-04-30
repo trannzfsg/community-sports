@@ -498,6 +498,7 @@ service cloud.firestore {
         || (isOwner(userId)
           && request.resource.data.get('isPending', false) != true
           && request.resource.data.get('subscription', null) == resource.data.get('subscription', null)
+          && request.resource.data.get('stripeConnect', null) == resource.data.get('stripeConnect', null)
           && request.resource.data.email == resource.data.email
           && request.resource.data.role == resource.data.role
           && partitionMatchesRequest(userPartitionFromData(resource.data))
@@ -506,6 +507,7 @@ service cloud.firestore {
         || (isOwner(userId)
           && request.resource.data.get('isPending', false) != true
           && request.resource.data.get('subscription', null) == resource.data.get('subscription', null)
+          && request.resource.data.get('stripeConnect', null) == resource.data.get('stripeConnect', null)
           && request.resource.data.email == signedInEmail()
           && request.resource.data.role == resource.data.role
           && partitionMatchesRequest(userPartitionFromData(request.resource.data))
@@ -513,6 +515,7 @@ service cloud.firestore {
         || (isOwner(userId)
           && request.resource.data.get('isPending', false) != true
           && request.resource.data.get('subscription', null) == resource.data.get('subscription', null)
+          && request.resource.data.get('stripeConnect', null) == resource.data.get('stripeConnect', null)
           && hasPendingUserForSignedInEmail()
           && request.resource.data.role == allowedSelfRegistrationRole()
           && request.resource.data.status == allowedSelfRegistrationStatus()
