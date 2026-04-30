@@ -1,5 +1,6 @@
 import type { AppRole } from "@/lib/roles";
 import type { RegistrationItem } from "@/lib/session-series";
+import { hasFeature, type PremiumFeatureKey, type SubscriptionUser } from "./subscription.ts";
 
 export function canManageSessions(role?: AppRole | null) {
   return role === "admin" || role === "organiser";
@@ -7,6 +8,25 @@ export function canManageSessions(role?: AppRole | null) {
 
 export function canAccessAdminArea(role?: AppRole | null) {
   return role === "admin";
+}
+
+export function canUsePremiumFeature(
+  user: SubscriptionUser | null | undefined,
+  featureKey: PremiumFeatureKey,
+) {
+  return hasFeature(user, featureKey);
+}
+
+export function canUseInAppPayments(user: SubscriptionUser | null | undefined) {
+  return canUsePremiumFeature(user, "inAppPayments");
+}
+
+export function canUseAccounting(user: SubscriptionUser | null | undefined) {
+  return canUsePremiumFeature(user, "accounting");
+}
+
+export function canUsePushNotifications(user: SubscriptionUser | null | undefined) {
+  return canUsePremiumFeature(user, "pushNotifications");
 }
 
 export function canEditSeries(

@@ -4,6 +4,9 @@ import {
   canAccessAdminArea,
   canEditSeries,
   canManageSessions,
+  canUseAccounting,
+  canUseInAppPayments,
+  canUsePushNotifications,
   getManagerEventState,
   getPlayerEventState,
   getPlayerRegisterButtonLabel,
@@ -20,6 +23,14 @@ test("only admin can access admin-only areas", () => {
   assert.equal(canAccessAdminArea("admin"), true);
   assert.equal(canAccessAdminArea("organiser"), false);
   assert.equal(canAccessAdminArea("player"), false);
+});
+
+test("premium feature gates allow admin and active pro organisers only", () => {
+  assert.equal(canUseInAppPayments({ role: "admin" }), true);
+  assert.equal(canUseAccounting({ role: "organiser", subscription: { tier: "free", status: null } }), false);
+  assert.equal(canUsePushNotifications({ role: "player", subscription: { tier: "pro", status: "active" } }), false);
+  assert.equal(canUseInAppPayments({ role: "organiser", subscription: { tier: "pro", status: "active" } }), true);
+  assert.equal(canUseAccounting({ role: "organiser", subscription: { tier: "pro", grantedByAdmin: true } }), true);
 });
 
 test("series edit permission: admin any series, organiser only own series", () => {
