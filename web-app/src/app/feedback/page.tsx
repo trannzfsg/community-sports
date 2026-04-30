@@ -202,7 +202,7 @@ export default function FeedbackPage() {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
         <div className="mx-auto max-w-4xl rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
-          Loading feedback...
+          Loading feedback / roadmap...
         </div>
       </main>
     );
@@ -211,8 +211,8 @@ export default function FeedbackPage() {
   return (
     <AppShell role={profile?.role ?? "player"} contentClassName="max-w-5xl">
       <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="feedback-page">
-        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Feedback</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Site feedback</h1>
+        <p className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Feedback / Roadmap</p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">Feedback / Roadmap</h1>
         <div className="mt-5 space-y-3">
           <textarea
             value={feedbackBody}
