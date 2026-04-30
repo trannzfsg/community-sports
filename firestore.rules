@@ -123,6 +123,19 @@ service cloud.firestore {
       );
     }
 
+    function feedbackPartitionFromData(data) {
+      return data.get('dataPartition', null);
+    }
+
+    function feedbackVotePartitionFromData(data) {
+      return data.get(
+        'dataPartition',
+        data.feedbackId is string && exists(/databases/$(database)/documents/siteFeedback/$(data.feedbackId))
+          ? get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.dataPartition
+          : null
+      );
+    }
+
     function emailPartitionMatches(partition, email) {
       return email is string && partition == partitionForEmail(email);
     }
@@ -210,6 +223,20 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/sessions/$(data.seriesId)).data.organiserId == data.organiserId
         && seriesMembershipPartitionFromData(data) == sessionPartitionById(data.seriesId)
         && emailPartitionMatches(seriesMembershipPartitionFromData(data), data.playerEmail);
+    }
+
+    function feedbackDataMatchesPartition(data) {
+      return feedbackPartitionFromData(data) == requestPartition()
+        && data.authorId is string
+        && exists(/databases/$(database)/documents/users/$(data.authorId))
+        && feedbackPartitionFromData(data) == partitionForUserId(data.authorId);
+    }
+
+    function feedbackVoteDataMatchesPartition(data) {
+      return data.feedbackId is string
+        && exists(/databases/$(database)/documents/siteFeedback/$(data.feedbackId))
+        && feedbackVotePartitionFromData(data) == requestPartition()
+        && feedbackVotePartitionFromData(data) == get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.dataPartition;
     }
 
     function partitionMatchesRequest(partition) {
@@ -557,7 +584,10 @@ service cloud.firestore {
       allow read: if (isAdmin() && resource.data.dataPartition == requestPartition())
         || (isPlayer()
           && resource.data.dataPartition == requestPartition()
-          && signedInPlayerApprovedForOrganiser(resource.data.organiserId))
+          && (
+            signedInPlayerApprovedForOrganiser(resource.data.organiserId)
+            || resource.data.get('status', 'active') != 'inactive'
+          ))
         || (isOrganiser() && resource.data.dataPartition == requestPartition() && seriesOwnedByCurrentOrganiser());
       allow create: if ((isAdmin() || (isOrganiser() && newSeriesOwnedByCurrentOrganiser()))
         && partitionMatchesRequest(sessionPartitionFromData(request.resource.data))
@@ -773,6 +803,48 @@ service cloud.firestore {
           && request.resource.data.status == "pending");
 
       allow delete: if (isAdmin() && partitionMatchesRequest(approvalPartitionFromData(resource.data)));
+    }
+
+    match /siteFeedback/{feedbackId} {
+      allow read: if isSignedIn()
+        && resource.data.dataPartition == requestPartition();
+
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.authorEmail == signedInEmail()
+        && request.resource.data.authorRole == currentUserRole()
+        && request.resource.data.status == "active"
+        && request.resource.data.body is string
+        && request.resource.data.body.size() > 0
+        && partitionMatchesRequest(feedbackPartitionFromData(request.resource.data))
+        && feedbackDataMatchesPartition(request.resource.data);
+
+      allow update: if isAdmin()
+        && partitionMatchesRequest(feedbackPartitionFromData(resource.data))
+        && partitionMatchesRequest(feedbackPartitionFromData(request.resource.data))
+        && feedbackDataMatchesPartition(resource.data)
+        && feedbackDataMatchesPartition(request.resource.data)
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.authorEmail == resource.data.authorEmail
+        && request.resource.data.authorRole == resource.data.authorRole
+        && request.resource.data.body == resource.data.body
+        && request.resource.data.status in ["active", "completed", "cancelled"];
+
+      allow delete: if false;
+    }
+
+    match /siteFeedbackVotes/{voteId} {
+      allow read: if isSignedIn()
+        && resource.data.dataPartition == requestPartition();
+
+      allow create, update: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.value in [1, -1]
+        && voteId == request.resource.data.feedbackId + "__" + request.auth.uid
+        && partitionMatchesRequest(feedbackVotePartitionFromData(request.resource.data))
+        && feedbackVoteDataMatchesPartition(request.resource.data);
+
+      allow delete: if false;
     }
 
     match /{document=**} {

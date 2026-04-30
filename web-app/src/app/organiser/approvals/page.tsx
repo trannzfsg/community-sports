@@ -144,7 +144,12 @@ export default function OrganiserApprovalsPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="font-medium text-zinc-900">{approval.playerName}</div>
-                  <div className="text-sm text-zinc-500">{approval.playerEmail}</div>
+                  <div className="text-sm text-zinc-500">{approval.playerEmail || "No email provided"}</div>
+                  {approval.requestDetails ? (
+                    <div className="mt-3 rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                      {approval.requestDetails}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -187,7 +192,12 @@ export default function OrganiserApprovalsPage() {
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <div className="font-medium text-zinc-900">{approval.playerName}</div>
-                  <div className="text-sm text-zinc-500">{approval.playerEmail}</div>
+                  <div className="text-sm text-zinc-500">{approval.playerEmail || "No email provided"}</div>
+                  {approval.requestDetails ? (
+                    <div className="mt-3 rounded-2xl bg-zinc-50 px-4 py-3 text-sm text-zinc-700">
+                      {approval.requestDetails}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   <span

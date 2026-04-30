@@ -21,6 +21,7 @@ export type OrganiserApprovalRecord = {
   playerId: string;
   playerName: string;
   playerEmail: string;
+  requestDetails?: string;
   dataPartition: DataPartition;
   status: OrganiserApprovalStatus;
 };
@@ -37,6 +38,7 @@ export async function requestOrganiserApproval(
     playerId: string;
     playerName: string;
     playerEmail: string;
+    requestDetails?: string;
     dataPartition: DataPartition;
   },
 ) {
@@ -47,6 +49,7 @@ export async function requestOrganiserApproval(
     playerId: input.playerId,
     playerName: input.playerName,
     playerEmail: input.playerEmail,
+    requestDetails: input.requestDetails || "",
     dataPartition: input.dataPartition,
     status: "pending",
     updatedAt: serverTimestamp(),

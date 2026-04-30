@@ -75,6 +75,16 @@ type OrganiserOption = {
   id: string;
   displayName: string;
   email: string;
+  summaries: OrganiserSeriesSummary[];
+};
+
+type OrganiserSeriesSummary = {
+  id: string;
+  typeOfSport: string;
+  dayOfWeek: string;
+  startAt: string;
+  endAt: string;
+  location: string;
 };
 
 type EventEditDraft = {
@@ -155,6 +165,7 @@ export default function DashboardPage() {
   const [eventEditDrafts, setEventEditDrafts] = useState<Record<string, EventEditDraft>>({});
   const [openActionsSeriesId, setOpenActionsSeriesId] = useState<string | null>(null);
   const [actionAlert, setActionAlert] = useState<ActionAlert | null>(null);
+  const [approvalDetailsInputs, setApprovalDetailsInputs] = useState<Record<string, string>>({});
 
   function splitIntoChunks<T>(items: T[], size: number) {
     const chunks: T[][] = [];
@@ -259,16 +270,44 @@ export default function DashboardPage() {
             ...(sessionDoc.data() as Omit<SessionSeries, "id">),
           })).sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek));
         } else if (profileData.role === "player") {
-          const [approvals, organisers] = await Promise.all([
+          const [approvals, organisers, allSeriesSnapshot] = await Promise.all([
             getPlayerOrganiserApprovals(db, currentUser.uid, dataPartition),
             getUsersByRole(db, "organiser", dataPartition),
+            getDocs(query(collection(db, "sessions"), where("dataPartition", "==", dataPartition))),
           ]);
+          const summariesByOrganiser = new Map<string, OrganiserSeriesSummary[]>();
+          allSeriesSnapshot.docs
+            .map((sessionDoc) => ({
+              id: sessionDoc.id,
+              ...(sessionDoc.data() as Omit<SessionSeries, "id">),
+            }))
+            .filter((series) => series.status !== "inactive")
+            .forEach((series) => {
+              const summary: OrganiserSeriesSummary = {
+                id: series.id,
+                typeOfSport: series.typeOfSport,
+                dayOfWeek: series.dayOfWeek,
+                startAt: series.startAt,
+                endAt: series.endAt,
+                location: series.location,
+              };
+              summariesByOrganiser.set(series.organiserId, [
+                ...(summariesByOrganiser.get(series.organiserId) ?? []),
+                summary,
+              ]);
+            });
+
           setPlayerOrganiserApprovals(approvals.sort((a, b) => a.organiserName.localeCompare(b.organiserName)));
           setAvailableOrganisers(organisers.map((organiser) => ({
             id: organiser.id,
             displayName: organiser.displayName || organiser.email || "Organiser",
             email: organiser.email || "",
+            summaries: (summariesByOrganiser.get(organiser.id) ?? [])
+              .sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek) || a.startAt.localeCompare(b.startAt)),
           })).sort((a, b) => a.displayName.localeCompare(b.displayName)));
+          setApprovalDetailsInputs(Object.fromEntries(
+            approvals.map((approval) => [approval.organiserId, approval.requestDetails || ""]),
+          ));
 
           approvedOrganiserIds = new Set(
             approvals
@@ -785,12 +824,14 @@ export default function DashboardPage() {
     if (!user || !profile) return;
     setBusyKey(`request-approval-${organiser.id}`);
     try {
+      const requestDetails = (approvalDetailsInputs[organiser.id] || "").trim();
       await requestOrganiserApproval(db, {
         organiserId: organiser.id,
         organiserName: organiser.displayName,
         playerId: user.uid,
         playerName: profile.displayName || user.email || "Player",
         playerEmail: user.email || "",
+        requestDetails,
         dataPartition: profile.dataPartition || "live",
       });
 
@@ -948,19 +989,42 @@ export default function DashboardPage() {
                         <div className="mt-1 text-xs text-zinc-500">
                           Status: {isApproved ? "approved" : isPending ? "pending" : isRejected ? "rejected" : "not requested"}
                         </div>
+                        <div className="mt-3 space-y-1 text-xs text-zinc-600">
+                          {organiser.summaries.length ? organiser.summaries.map((summary) => (
+                            <div key={summary.id} className="rounded-xl bg-zinc-50 px-3 py-2">
+                              <span className="font-medium text-zinc-800">{summary.typeOfSport}</span>
+                              {" "}{summary.dayOfWeek} {summary.startAt}-{summary.endAt} at {summary.location}
+                            </div>
+                          )) : (
+                            <div className="rounded-xl bg-zinc-50 px-3 py-2">No active event series listed yet.</div>
+                          )}
+                        </div>
                       </div>
                       {isApproved ? (
                         <span className="rounded-full bg-emerald-100 px-4 py-2 text-xs font-medium text-emerald-700">Approved</span>
                       ) : (
-                        <button
-                          type="button"
-                          onClick={() => void handleRequestOrganiserApproval(organiser)}
-                          disabled={isPending || isRequesting}
-                          data-testid={`request-organiser-approval-${organiser.id}`}
-                          className="rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {isPending ? "Requested" : isRequesting ? "Requesting..." : "Request approval"}
-                        </button>
+                        <div className="flex w-full flex-col gap-2 sm:max-w-sm">
+                          <textarea
+                            value={approvalDetailsInputs[organiser.id] ?? approval?.requestDetails ?? ""}
+                            onChange={(event) => setApprovalDetailsInputs((current) => ({
+                              ...current,
+                              [organiser.id]: event.target.value,
+                            }))}
+                            disabled={isPending || isRequesting}
+                            placeholder="Add helpful details, such as who referred you, your history with the sport, and whether you would like to play casually or as a member."
+                            rows={4}
+                            className="min-h-24 w-full rounded-2xl border border-zinc-300 px-3 py-2 text-sm outline-none transition placeholder:text-zinc-400 focus:border-zinc-500 disabled:cursor-not-allowed disabled:bg-zinc-50 disabled:text-zinc-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void handleRequestOrganiserApproval(organiser)}
+                            disabled={isPending || isRequesting}
+                            data-testid={`request-organiser-approval-${organiser.id}`}
+                            className="self-start rounded-full border border-zinc-300 px-4 py-2 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isPending ? "Requested" : isRequesting ? "Requesting..." : "Request approval"}
+                          </button>
+                        </div>
                       )}
                     </div>
                   </div>

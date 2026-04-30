@@ -1,5 +1,13 @@
 # To-Do List - Completed tasks
 
+- [x] Add organiser approval details and site feedback workflow.
+  - [x] Added player approval request details and organiser quick series summaries.
+  - [x] Show request details and email/fallback in organiser approval review.
+  - [x] Added Feedback navigation for all roles.
+  - [x] Added feedback creation, shared reading, up/down voting, section-specific sorting, and admin completion/cancellation actions.
+  - [x] Added Firestore rules for active session summaries, feedback, and votes.
+  - [x] Verified with lint, tests, build, rules dry-run, deployed rules, and live browser checks.
+
 - [x] Remove player contact organiser cancel buttons.
   - [x] Found the player registration and details button locations.
   - [x] Removed the blocked-cancellation contact organiser button from the registration action area.
