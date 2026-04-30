@@ -239,6 +239,12 @@ service cloud.firestore {
         && feedbackVotePartitionFromData(data) == get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.dataPartition;
     }
 
+    function feedbackVoteTargetsActiveFeedback(data) {
+      return data.feedbackId is string
+        && exists(/databases/$(database)/documents/siteFeedback/$(data.feedbackId))
+        && get(/databases/$(database)/documents/siteFeedback/$(data.feedbackId)).data.status == "active";
+    }
+
     function partitionMatchesRequest(partition) {
       return partition != null && partition == requestPartition();
     }
@@ -844,15 +850,18 @@ service cloud.firestore {
         && request.resource.data.value in [1, -1]
         && voteId == request.resource.data.feedbackId + "__" + request.auth.uid
         && partitionMatchesRequest(feedbackVotePartitionFromData(request.resource.data))
-        && feedbackVoteDataMatchesPartition(request.resource.data);
+        && feedbackVoteDataMatchesPartition(request.resource.data)
+        && feedbackVoteTargetsActiveFeedback(request.resource.data);
 
       allow delete: if (isSignedIn()
           && resource.data.userId == request.auth.uid
           && partitionMatchesRequest(feedbackVotePartitionFromData(resource.data))
-          && feedbackVoteDataMatchesPartition(resource.data))
+          && feedbackVoteDataMatchesPartition(resource.data)
+          && feedbackVoteTargetsActiveFeedback(resource.data))
         || (isAdmin()
           && partitionMatchesRequest(feedbackVotePartitionFromData(resource.data))
-          && feedbackVoteDataMatchesPartition(resource.data));
+          && feedbackVoteDataMatchesPartition(resource.data)
+          && feedbackVoteTargetsActiveFeedback(resource.data));
     }
 
     match /{document=**} {

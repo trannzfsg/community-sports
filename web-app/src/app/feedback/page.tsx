@@ -145,6 +145,7 @@ export default function FeedbackPage() {
 
   async function handleVote(feedback: FeedbackWithVotes, value: FeedbackVoteValue) {
     if (!user || !profile) return;
+    if (feedback.status !== "active") return;
     setBusyKey(`vote-${feedback.id}-${value}`);
     setError("");
     try {
@@ -275,10 +276,15 @@ export default function FeedbackPage() {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {status !== "active" ? (
+                      <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium text-zinc-500">
+                        Voting closed
+                      </span>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void handleVote(item, 1)}
-                      disabled={busyKey === `vote-${item.id}-1`}
+                      disabled={status !== "active" || busyKey === `vote-${item.id}-1`}
                       className={`rounded-full border px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
                         item.currentUserVote === 1
                           ? "border-emerald-300 bg-emerald-50 text-emerald-700"
@@ -290,7 +296,7 @@ export default function FeedbackPage() {
                     <button
                       type="button"
                       onClick={() => void handleVote(item, -1)}
-                      disabled={busyKey === `vote-${item.id}--1`}
+                      disabled={status !== "active" || busyKey === `vote-${item.id}--1`}
                       className={`rounded-full border px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-60 ${
                         item.currentUserVote === -1
                           ? "border-red-300 bg-red-50 text-red-700"
