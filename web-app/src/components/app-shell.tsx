@@ -41,7 +41,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
       { href: "/sessions/new", label: "New event series", shortLabel: "Ne" },
       { href: "/admin/organisers", label: "Organisers", shortLabel: "Or" },
       { href: "/admin/players", label: "Players", shortLabel: "Pl" },
-      { href: "/feedback", label: "Feedback", shortLabel: "Fe" },
+      { href: "/feedback", label: "Feedback / Roadmap", shortLabel: "FR" },
       { href: "/profile", label: "Profile", shortLabel: "Pr" },
     ];
   }
@@ -53,7 +53,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
       { href: "/organiser/approvals", label: "Approvals", shortLabel: "Ap" },
       { href: "/organiser/players", label: "Players", shortLabel: "Pl" },
       { href: "/onboarding", label: "Onboarding", shortLabel: "On" },
-      { href: "/feedback", label: "Feedback", shortLabel: "Fe" },
+      { href: "/feedback", label: "Feedback / Roadmap", shortLabel: "FR" },
       { href: "/profile", label: "Profile", shortLabel: "Pr" },
     ];
   }
@@ -61,7 +61,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
   return [
     { href: "/dashboard", label: "Dashboard", shortLabel: "Da", matchPrefixes: ["/dashboard", "/sessions/view"] },
     { href: "/onboarding", label: "Onboarding", shortLabel: "On" },
-    { href: "/feedback", label: "Feedback", shortLabel: "Fe" },
+    { href: "/feedback", label: "Feedback / Roadmap", shortLabel: "FR" },
     { href: "/profile", label: "Profile", shortLabel: "Pr" },
   ];
 }

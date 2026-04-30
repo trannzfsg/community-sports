@@ -1,5 +1,9 @@
 # To-Do List - Completed tasks
 
+- [x] Rename feedback labels to Feedback / Roadmap.
+  - [x] Updated navigation labels for all roles.
+  - [x] Updated the feedback page title/header copy.
+
 - [x] Treat zero casual price events as free and auto paid/received.
   - [x] Auto-mark newly registered free-event players as paid and received.
   - [x] Backfill registered players when an event price is changed to zero.
