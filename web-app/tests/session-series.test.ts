@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  applyFreeEventPaymentState,
   buildRegistrationId,
   getActiveEventBlockingNextEventCreation,
   getCancelledEventForDate,
@@ -9,6 +10,7 @@ import {
   getExistingNonCancelledEventForDate,
   getRegistrationCapacityState,
   getSessionEventOverrideValidationError,
+  isFreeCasualPrice,
   isCancellationPolicyActive,
   normalizeSessionEventOverrides,
   normalizeWaitingListCapacity,
@@ -173,6 +175,76 @@ test("event creation planning auto-registers active series members", () => {
         paymentReference: null,
       },
     ],
+  );
+});
+
+test("zero casual price auto marks registered entries as paid and received", () => {
+  assert.equal(isFreeCasualPrice(0), true);
+  assert.equal(isFreeCasualPrice(0.01), false);
+
+  const result = planEventRegistrations({
+    eventDate: "2026-05-05",
+    capacity: 1,
+    waitingListCapacity: 1,
+    defaultPriceCasual: 0,
+    activeMemberships: [
+      {
+        id: "membership-1",
+        playerId: "player-1",
+        playerName: "Member One",
+        playerEmail: "member1@example.com",
+        status: "active",
+        joinedOrder: 1,
+      },
+      {
+        id: "membership-2",
+        playerId: "player-2",
+        playerName: "Member Two",
+        playerEmail: "member2@example.com",
+        status: "active",
+        joinedOrder: 2,
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    result.plannedRegistrations.map((registration) => ({
+      status: registration.status,
+      playerPaid: registration.playerPaid,
+      organiserPaid: registration.organiserPaid,
+    })),
+    [
+      { status: "registered", playerPaid: true, organiserPaid: true },
+      { status: "waiting", playerPaid: false, organiserPaid: false },
+    ],
+  );
+});
+
+test("free event payment state applies only to registered players", () => {
+  const baseRegistration = {
+    id: "registration-1",
+    sessionEventId: "event-1",
+    sessionSeriesId: "series-1",
+    userId: "player-1",
+    playerName: "Player One",
+    playerEmail: "player1@example.com",
+    playerPaid: false,
+    organiserPaid: false,
+    status: "registered" as const,
+  };
+
+  assert.deepEqual(
+    applyFreeEventPaymentState(baseRegistration, { defaultPriceCasual: 0 }),
+    {
+      ...baseRegistration,
+      playerPaid: true,
+      organiserPaid: true,
+    },
+  );
+
+  assert.deepEqual(
+    applyFreeEventPaymentState({ ...baseRegistration, status: "waiting" }, { defaultPriceCasual: 0 }),
+    { ...baseRegistration, status: "waiting" },
   );
 });
 

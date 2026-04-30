@@ -229,6 +229,7 @@ export function planEventRegistrations(input: {
   eventDate: string;
   capacity: number;
   waitingListCapacity?: number;
+  defaultPriceCasual?: number;
   activeMemberships: Array<{
     id: string;
     playerId: string;
@@ -284,8 +285,12 @@ export function planEventRegistrations(input: {
 
     plannedRegistrations.push({
       ...entry,
-      playerPaid: entry.playerPaid ?? false,
-      organiserPaid: entry.organiserPaid ?? false,
+      playerPaid: nextStatus === "registered" && isFreeCasualPrice(input.defaultPriceCasual)
+        ? true
+        : entry.playerPaid ?? false,
+      organiserPaid: nextStatus === "registered" && isFreeCasualPrice(input.defaultPriceCasual)
+        ? true
+        : entry.organiserPaid ?? false,
       paymentReference: entry.paymentReference ?? null,
       status: nextStatus,
     });
@@ -434,6 +439,34 @@ export function buildRegistrationId(eventId: string, userId: string) {
   return `${eventId}__${encodeURIComponent(userId).replaceAll("%", "_")}`;
 }
 
+export function isFreeCasualPrice(defaultPriceCasual?: number | null) {
+  const price = Number(defaultPriceCasual);
+  return Number.isFinite(price) && price === 0;
+}
+
+export function isFreeEvent(eventItem: Pick<SessionEvent, "defaultPriceCasual">) {
+  return isFreeCasualPrice(eventItem.defaultPriceCasual);
+}
+
+export function applyFreeEventPaymentState<T extends Pick<RegistrationItem, "playerPaid" | "organiserPaid" | "status">>(
+  registration: T,
+  eventItem: Pick<SessionEvent, "defaultPriceCasual">,
+): T {
+  if (!isFreeEvent(eventItem) || registration.status === "waiting") {
+    return registration;
+  }
+
+  if (registration.playerPaid && registration.organiserPaid) {
+    return registration;
+  }
+
+  return {
+    ...registration,
+    playerPaid: true,
+    organiserPaid: true,
+  };
+}
+
 function buildPaymentId(registrationId: string) {
   return `payment__${registrationId}`;
 }
@@ -444,24 +477,65 @@ async function syncPaymentRecordForRegistration(
   eventItem: SessionEvent,
   registration: RegistrationItem,
 ) {
-  const effectivePaid = !!(registration.playerPaid || registration.organiserPaid);
+  const paidRegistration = applyFreeEventPaymentState(registration, eventItem);
+  const effectivePaid = !!(paidRegistration.playerPaid || paidRegistration.organiserPaid);
   await setDoc(doc(db, "payments", buildPaymentId(registration.id)), {
-    sessionSeriesId: registration.sessionSeriesId,
-    sessionEventId: registration.sessionEventId,
-    registrationId: registration.id,
+    sessionSeriesId: paidRegistration.sessionSeriesId,
+    sessionEventId: paidRegistration.sessionEventId,
+    registrationId: paidRegistration.id,
     organiserId: eventItem.organiserId || series.organiserId,
-    userId: registration.userId,
-    playerName: registration.playerName,
-    playerEmail: registration.playerEmail,
-    dataPartition: registration.dataPartition || series.dataPartition,
+    userId: paidRegistration.userId,
+    playerName: paidRegistration.playerName,
+    playerEmail: paidRegistration.playerEmail,
+    dataPartition: paidRegistration.dataPartition || series.dataPartition,
     amount: eventItem.defaultPriceCasual ?? series.defaultPriceCasual,
-    playerPaid: !!registration.playerPaid,
-    organiserPaid: !!registration.organiserPaid,
-    paymentReference: registration.paymentReference ?? null,
+    playerPaid: !!paidRegistration.playerPaid,
+    organiserPaid: !!paidRegistration.organiserPaid,
+    paymentReference: paidRegistration.paymentReference ?? null,
     effectivePaid,
     status: effectivePaid ? "paid" : "pending",
     updatedAt: serverTimestamp(),
   }, { merge: true });
+}
+
+export async function markFreeEventRegistrationsPaid(
+  db: Firestore,
+  series: SessionSeries,
+  eventItem: SessionEvent,
+) {
+  if (!isFreeEvent(eventItem)) {
+    return 0;
+  }
+
+  const dataPartition = eventItem.dataPartition || series.dataPartition;
+  const registrationsSnapshot = await getDocs(
+    dataPartition
+      ? query(collection(db, "registrations"), where("sessionEventId", "==", eventItem.id), where("dataPartition", "==", dataPartition))
+      : query(collection(db, "registrations"), where("sessionEventId", "==", eventItem.id)),
+  );
+
+  let updatedCount = 0;
+  for (const registrationDoc of registrationsSnapshot.docs) {
+    const registration = {
+      id: registrationDoc.id,
+      ...(registrationDoc.data() as Omit<RegistrationItem, "id">),
+    };
+    const paidRegistration = applyFreeEventPaymentState(registration, eventItem);
+
+    if (paidRegistration === registration) {
+      await syncPaymentRecordForRegistration(db, series, eventItem, registration);
+      continue;
+    }
+
+    await setDoc(registrationDoc.ref, {
+      playerPaid: true,
+      organiserPaid: true,
+    }, { merge: true });
+    await syncPaymentRecordForRegistration(db, series, eventItem, paidRegistration);
+    updatedCount += 1;
+  }
+
+  return updatedCount;
 }
 
 async function clearEventRegistrationsAndPayments(
@@ -659,9 +733,14 @@ export async function updateSessionEventOverrides(
   };
 
   if (priceChanged) {
-    for (const registration of input.registrations) {
-      await syncPaymentRecordForRegistration(db, input.series, updatedEvent, registration);
+    await markFreeEventRegistrationsPaid(db, input.series, updatedEvent);
+    if (!isFreeEvent(updatedEvent)) {
+      for (const registration of input.registrations) {
+        await syncPaymentRecordForRegistration(db, input.series, updatedEvent, registration);
+      }
     }
+  } else if (isFreeEvent(updatedEvent)) {
+    await markFreeEventRegistrationsPaid(db, input.series, updatedEvent);
   }
 
   return updatedEvent;
@@ -770,6 +849,7 @@ export async function createSessionEventForSeries(
     eventDate: resolvedEventDate,
     capacity: series.capacity,
     waitingListCapacity: normalizeWaitingListCapacity(series.waitingListCapacity),
+    defaultPriceCasual: series.defaultPriceCasual,
     activeMemberships: Array.from(membershipsById.entries())
       .map(([id, membership]) => ({
         id,

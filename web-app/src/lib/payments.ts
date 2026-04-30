@@ -9,7 +9,7 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
-import type { RegistrationItem, SessionEvent, SessionSeries } from "./session-series";
+import { applyFreeEventPaymentState, type RegistrationItem, type SessionEvent, type SessionSeries } from "./session-series";
 
 type DataPartition = "test" | "live";
 
@@ -57,20 +57,21 @@ export async function syncPaymentRecordForRegistration(
   eventItem: SessionEvent,
   registration: RegistrationItem,
 ) {
-  const effectivePaid = !!(registration.playerPaid || registration.organiserPaid);
+  const paidRegistration = applyFreeEventPaymentState(registration, eventItem);
+  const effectivePaid = !!(paidRegistration.playerPaid || paidRegistration.organiserPaid);
   return upsertPaymentRecord(db, {
-    sessionSeriesId: registration.sessionSeriesId,
-    sessionEventId: registration.sessionEventId,
-    registrationId: registration.id,
+    sessionSeriesId: paidRegistration.sessionSeriesId,
+    sessionEventId: paidRegistration.sessionEventId,
+    registrationId: paidRegistration.id,
     organiserId: eventItem.organiserId || series.organiserId,
-    userId: registration.userId,
-    playerName: registration.playerName,
-    playerEmail: registration.playerEmail,
-    dataPartition: registration.dataPartition || getDataPartitionForEmail(registration.playerEmail),
+    userId: paidRegistration.userId,
+    playerName: paidRegistration.playerName,
+    playerEmail: paidRegistration.playerEmail,
+    dataPartition: paidRegistration.dataPartition || getDataPartitionForEmail(paidRegistration.playerEmail),
     amount: eventItem.defaultPriceCasual ?? series.defaultPriceCasual,
-    playerPaid: !!registration.playerPaid,
-    organiserPaid: !!registration.organiserPaid,
-    paymentReference: registration.paymentReference ?? null,
+    playerPaid: !!paidRegistration.playerPaid,
+    organiserPaid: !!paidRegistration.organiserPaid,
+    paymentReference: paidRegistration.paymentReference ?? null,
     effectivePaid,
     status: effectivePaid ? "paid" : "pending",
   });

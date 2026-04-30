@@ -47,13 +47,16 @@ import { getDashboardEventPresentation } from "@/lib/dashboard-event-state";
 import {
   buildRegistrationId,
   createSessionEventForSeries,
+  applyFreeEventPaymentState,
   getCancellationPolicyLabel,
   formatWaitingListCapacity,
   getWaitingListCapacityInputValue,
   getOrganiserCancellationPolicyWarning,
   getPlayerCancellationPolicyMessage,
   getRegistrationCapacityState,
+  isFreeEvent,
   isCancellationPolicyActive,
+  markFreeEventRegistrationsPaid,
   normalizeWaitingListCapacity,
   rebalanceEventRegistrations,
   updateSessionEventOverrides,
@@ -577,6 +580,8 @@ export default function DashboardPage() {
         return;
       }
 
+      const freeEventRegistration = isFreeEvent(eventItem)
+        && capacityState.nextRegistrationStatus === "registered";
       const registration: RegistrationItem = {
         id: registrationId,
         sessionEventId: eventItem.id,
@@ -585,8 +590,8 @@ export default function DashboardPage() {
         playerName: profile?.displayName || user.email || "Player",
         playerEmail: user.email || "",
         dataPartition: getDataPartitionForEmail(user.email || ""),
-        playerPaid: false,
-        organiserPaid: false,
+        playerPaid: freeEventRegistration,
+        organiserPaid: freeEventRegistration,
         status: capacityState.nextRegistrationStatus,
         source: "self",
         seriesMembershipId: null,
@@ -664,6 +669,7 @@ export default function DashboardPage() {
       await deleteDoc(doc(db, "registrations", registration.id));
       if (canManageSessions) {
         await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
+        await markFreeEventRegistrationsPaid(db, series, eventItem);
       }
       await refreshSeriesData(series.id, series.organiserId);
     } finally {
@@ -680,14 +686,15 @@ export default function DashboardPage() {
     setBusyKey(registration.sessionEventId);
     try {
       const trimmedRef = reference.trim();
-      const updatedRegistration = {
+      const updatedRegistration = applyFreeEventPaymentState({
         ...registration,
         paymentReference: trimmedRef || null,
         playerPaid: !!trimmedRef,
-      };
+      }, eventItem);
       await updateDoc(doc(db, "registrations", registration.id), {
         paymentReference: trimmedRef || null,
-        playerPaid: !!trimmedRef,
+        playerPaid: updatedRegistration.playerPaid,
+        organiserPaid: updatedRegistration.organiserPaid,
       });
       await syncPaymentRecordForRegistration(db, series, eventItem, updatedRegistration);
       setEditingReferenceId(null);
@@ -710,12 +717,13 @@ export default function DashboardPage() {
   ) {
     setBusyKey(registration.sessionEventId);
     try {
-      const updatedRegistration = {
+      const updatedRegistration = applyFreeEventPaymentState({
         ...registration,
         organiserPaid: nextValue,
-      };
+      }, eventItem);
       await updateDoc(doc(db, "registrations", registration.id), {
-        organiserPaid: nextValue,
+        playerPaid: updatedRegistration.playerPaid,
+        organiserPaid: updatedRegistration.organiserPaid,
       });
       await syncPaymentRecordForRegistration(db, series, eventItem, updatedRegistration);
       await refreshSeriesData(series.id, series.organiserId);
@@ -750,6 +758,8 @@ export default function DashboardPage() {
       return;
     }
 
+    const freeEventRegistration = isFreeEvent(eventItem)
+      && capacityState.nextRegistrationStatus === "registered";
     const registration: RegistrationItem = {
       id: buildRegistrationId(eventItem.id, playerKey),
       sessionEventId: eventItem.id,
@@ -758,8 +768,8 @@ export default function DashboardPage() {
       playerName: player.displayName,
       playerEmail: player.email,
       dataPartition: player.dataPartition || getDataPartitionForEmail(player.email),
-      playerPaid: false,
-      organiserPaid: false,
+      playerPaid: freeEventRegistration,
+      organiserPaid: freeEventRegistration,
       status: capacityState.nextRegistrationStatus,
       source: "organiser",
       seriesMembershipId: null,
@@ -796,6 +806,7 @@ export default function DashboardPage() {
     console.log("[addPlayerToEvent] rebalancing event", eventItem.id);
     try {
       await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
+      await markFreeEventRegistrationsPaid(db, series, eventItem);
     } catch (err: unknown) {
       const firebaseErr = err as { message?: string; code?: string };
       console.error("[addPlayerToEvent] FAILED rebalancing sessionEvents/" + eventItem.id, "code:", firebaseErr?.code, "message:", firebaseErr?.message);
@@ -1044,7 +1055,10 @@ export default function DashboardPage() {
               const events = eventsBySeries[series.id] ?? [];
               const dashboardEvents = events.filter((event) => (event.status || "active") === "active");
               const nextEvent = dashboardEvents.find((event) => event.eventDate === series.nextGameOn) ?? dashboardEvents.at(-1);
-              const registrations = nextEvent ? registrationsByEvent[nextEvent.id] ?? [] : [];
+              const eventIsFree = !!nextEvent && isFreeEvent(nextEvent);
+              const registrations = nextEvent
+                ? (registrationsByEvent[nextEvent.id] ?? []).map((registration) => applyFreeEventPaymentState(registration, nextEvent))
+                : [];
               const currentRegistration = nextEvent ? registrations.find((registration) => registration.userId === user?.uid) : undefined;
               const selfRemovalBlocked = !!nextEvent
                 && !!currentRegistration
@@ -1516,7 +1530,7 @@ export default function DashboardPage() {
                                     isOwnRegistration={isOwnRegistration}
                                     skillLevel={canManageSessions ? playerRecord?.skillLevel || "Not set" : null}
                                   >
-                                    {isOwnRegistration && !isWaiting && !canManageSessions ? (
+                                    {isOwnRegistration && !isWaiting && !canManageSessions && !eventIsFree ? (
                                       registration.paymentReference && editingReferenceId !== registration.id ? (
                                         <div className="flex flex-wrap items-center gap-2">
                                           <span>Ref: <span className="font-medium text-zinc-700">{registration.paymentReference}</span></span>
@@ -1539,7 +1553,7 @@ export default function DashboardPage() {
                                     ) : null}
                                     {canManageSessions || (isOwnRegistration && !selfRemovalBlocked) ? (
                                       <div className="flex flex-wrap items-center gap-2">
-                                        {canManageSessions && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{registration.organiserPaid ? "Undo received" : "Received"}</button> : null}
+                                        {canManageSessions && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id || eventIsFree} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{eventIsFree ? "Received" : registration.organiserPaid ? "Undo received" : "Received"}</button> : null}
                                         <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button>
                                       </div>
                                     ) : null}
