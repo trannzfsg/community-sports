@@ -9,6 +9,7 @@ import {
   where,
   type Firestore,
 } from "firebase/firestore";
+import type { UserSubscription } from "@/lib/subscription";
 
 type DataPartition = "test" | "live";
 
@@ -24,6 +25,7 @@ export type UserRecord = {
   status?: "active" | "inactive";
   dataPartition?: DataPartition;
   isPending?: boolean;
+  subscription?: UserSubscription | null;
 };
 
 function isRegisteredUserRecord(user: UserRecord) {

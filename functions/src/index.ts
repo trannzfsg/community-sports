@@ -5,6 +5,7 @@ import {getApps, initializeApp} from "firebase-admin/app";
 import {getAuth} from "firebase-admin/auth";
 import {FieldValue, getFirestore} from "firebase-admin/firestore";
 import type {Request, Response} from "express";
+import {createHmac, timingSafeEqual} from "node:crypto";
 import {EMAIL_NOTIFICATIONS_ENABLED} from "./feature-flags.js";
 
 setGlobalOptions({maxInstances: 10});
@@ -13,9 +14,14 @@ const adminApp = getApps().length ? getApps()[0] : initializeApp();
 const firestore = getFirestore(adminApp);
 const allowedOrigins = new Set([
   "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3100",
+  "http://localhost:3102",
   "https://community-sports-6584e.firebaseapp.com",
+  "https://community-sports-6584e.web.app",
   "https://sports.tranzha.com",
 ]);
+const STRIPE_API_VERSION = "2026-02-25.clover";
 
 /**
  * Applies CORS headers for the supported frontend origins.
@@ -73,6 +79,147 @@ function roleRank(role: unknown) {
 function getDataPartitionForEmail(email: string) {
   return normalizeEmail(email).endsWith("@example.com") ? "test" : "live";
 }
+
+/**
+ * Checks whether a Stripe return URL points back to a known frontend origin.
+ * @param {string} returnUrl
+ * @return {boolean}
+ */
+function returnUrlIsAllowed(returnUrl: string) {
+  try {
+    const parsed = new URL(returnUrl);
+    return allowedOrigins.has(parsed.origin);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Reads a required Stripe environment variable.
+ * @param {string} name
+ * @return {string}
+ */
+function requireStripeSecret(name: string) {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} is not configured.`);
+  }
+  return value;
+}
+
+/**
+ * Calls the Stripe REST API with form-encoded data.
+ * @param {string} path
+ * @param {URLSearchParams} body
+ */
+async function stripeRequest<T>(
+  path: string,
+  body: URLSearchParams,
+): Promise<T> {
+  const response = await fetch(`https://api.stripe.com/v1/${path}`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${requireStripeSecret("STRIPE_SECRET_KEY")}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Stripe-Version": STRIPE_API_VERSION,
+    },
+    body,
+  });
+  const payload = await response.json().catch(() => null) as
+    | (T & {error?: {message?: string}})
+    | null;
+
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || "Stripe request failed.");
+  }
+  if (!payload) {
+    throw new Error("Stripe returned an empty response.");
+  }
+  return payload;
+}
+
+/**
+ * Reads the raw request body used by Stripe webhook signature checks.
+ * @param {Request} request
+ * @return {Buffer}
+ */
+function getRawBody(request: Request) {
+  const candidate = (request as Request & {rawBody?: Buffer}).rawBody;
+  if (Buffer.isBuffer(candidate)) {
+    return candidate;
+  }
+  return Buffer.from(JSON.stringify(request.body || {}));
+}
+
+/**
+ * Verifies and parses a Stripe webhook event.
+ * @param {Request} request
+ * @return {StripeEvent}
+ */
+function verifyStripeSignature(request: Request) {
+  const webhookSecret = requireStripeSecret("STRIPE_BILLING_WEBHOOK_SECRET");
+  const signatureHeader = request.headers["stripe-signature"];
+  if (typeof signatureHeader !== "string") {
+    throw new Error("Missing Stripe signature.");
+  }
+
+  const timestamp = signatureHeader.match(/(?:^|,)t=([^,]+)/)?.[1];
+  const signatures = signatureHeader
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.startsWith("v1="))
+    .map((part) => part.slice(3));
+  if (!timestamp || signatures.length === 0) {
+    throw new Error("Invalid Stripe signature.");
+  }
+
+  const payload = getRawBody(request);
+  const signedPayload = Buffer.concat([
+    Buffer.from(`${timestamp}.`),
+    payload,
+  ]);
+  const expected = createHmac("sha256", webhookSecret)
+    .update(signedPayload)
+    .digest("hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+
+  const matches = signatures.some((signature) => {
+    const signatureBuffer = Buffer.from(signature, "hex");
+    return signatureBuffer.length === expectedBuffer.length &&
+      timingSafeEqual(signatureBuffer, expectedBuffer);
+  });
+  if (!matches) {
+    throw new Error("Stripe signature verification failed.");
+  }
+
+  return JSON.parse(payload.toString("utf8")) as StripeEvent;
+}
+
+type StripeCheckoutSession = {
+  url?: string;
+};
+
+type StripePortalSession = {
+  url?: string;
+};
+
+type StripeCustomer = {
+  id: string;
+};
+
+type StripeSubscription = {
+  id: string;
+  customer?: string;
+  status?: string;
+  current_period_end?: number;
+};
+
+type StripeEvent = {
+  type?: string;
+  data?: {
+    object?: StripeSubscription;
+  };
+};
 
 /**
  * Verifies the Bearer token and returns the decoded user identity.
@@ -912,6 +1059,247 @@ export const sendNotificationTest = onRequest(async (request, response) => {
     response.status(500).json({
       error: "Failed to queue the test notification.",
     });
+  }
+});
+
+export const createBillingCheckoutSession = onRequest(async (
+  request,
+  response,
+) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const email = typeof decodedToken.email === "string" ?
+      normalizeEmail(decodedToken.email) :
+      "";
+    const returnUrl = typeof request.body?.returnUrl === "string" ?
+      request.body.returnUrl :
+      "";
+    if (!returnUrl) {
+      response.status(400).json({error: "Return URL is required."});
+      return;
+    }
+    if (!returnUrlIsAllowed(returnUrl)) {
+      response.status(400).json({error: "Return URL is not allowed."});
+      return;
+    }
+
+    const userRef = firestore.doc(`users/${uid}`);
+    const userSnapshot = await userRef.get();
+    const userData = userSnapshot.data() || {};
+    if (!userSnapshot.exists || userData.role !== "organiser") {
+      response.status(403).json({
+        error: "Only organisers can start a Pro subscription.",
+      });
+      return;
+    }
+
+    const existingCustomerId =
+      typeof userData.subscription?.stripeCustomerId === "string" ?
+        userData.subscription.stripeCustomerId :
+        "";
+    const createdCustomer = existingCustomerId ?
+      null :
+      await stripeRequest<StripeCustomer>(
+        "customers",
+        new URLSearchParams({
+          email,
+          "name": typeof userData.displayName === "string" ?
+            userData.displayName :
+            email,
+          "metadata[firebaseUid]": uid,
+          "metadata[dataPartition]": getDataPartitionForEmail(email),
+        }),
+      );
+    const customerId = existingCustomerId || createdCustomer?.id || "";
+
+    if (!existingCustomerId) {
+      await userRef.set({
+        subscription: {
+          tier: "free",
+          status: null,
+          model: "flat_monthly",
+          stripeCustomerId: customerId,
+          stripeSubscriptionId: null,
+          currentPeriodEnd: null,
+          grantedByAdmin: false,
+        },
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true});
+    }
+
+    const priceId = requireStripeSecret("STRIPE_PRO_PRICE_ID");
+    const session = await stripeRequest<StripeCheckoutSession>(
+      "checkout/sessions",
+      new URLSearchParams({
+        "mode": "subscription",
+        "customer": customerId,
+        "line_items[0][price]": priceId,
+        "line_items[0][quantity]": "1",
+        "success_url": returnUrl,
+        "cancel_url": returnUrl,
+        "metadata[firebaseUid]": uid,
+        "subscription_data[metadata][firebaseUid]": uid,
+      }),
+    );
+
+    if (!session.url) {
+      response.status(500).json({error: "Stripe did not return a URL."});
+      return;
+    }
+    response.status(200).json({url: session.url});
+  } catch (error) {
+    logger.error("Stripe checkout creation failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({
+      error: error instanceof Error ?
+        error.message :
+        "Unable to start billing.",
+    });
+  }
+});
+
+export const createBillingPortalSession = onRequest(async (
+  request,
+  response,
+) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const returnUrl = typeof request.body?.returnUrl === "string" ?
+      request.body.returnUrl :
+      "";
+    if (!returnUrl) {
+      response.status(400).json({error: "Return URL is required."});
+      return;
+    }
+    if (!returnUrlIsAllowed(returnUrl)) {
+      response.status(400).json({error: "Return URL is not allowed."});
+      return;
+    }
+
+    const userSnapshot = await firestore.doc(`users/${uid}`).get();
+    const userData = userSnapshot.data() || {};
+    const customerId =
+      typeof userData.subscription?.stripeCustomerId === "string" ?
+        userData.subscription.stripeCustomerId :
+        "";
+    if (!userSnapshot.exists || userData.role !== "organiser" || !customerId) {
+      response.status(400).json({
+        error: "No Stripe customer is linked to this organiser.",
+      });
+      return;
+    }
+
+    const session = await stripeRequest<StripePortalSession>(
+      "billing_portal/sessions",
+      new URLSearchParams({
+        customer: customerId,
+        return_url: returnUrl,
+      }),
+    );
+    if (!session.url) {
+      response.status(500).json({error: "Stripe did not return a URL."});
+      return;
+    }
+    response.status(200).json({url: session.url});
+  } catch (error) {
+    logger.error("Stripe portal creation failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    response.status(500).json({
+      error: error instanceof Error ?
+        error.message :
+        "Unable to open billing.",
+    });
+  }
+});
+
+/**
+ * Mirrors a Stripe subscription object onto the owning user profile.
+ * @param {StripeSubscription} subscription
+ */
+async function updateSubscriptionFromStripe(subscription: StripeSubscription) {
+  const customerId = typeof subscription.customer === "string" ?
+    subscription.customer :
+    "";
+  if (!customerId) return;
+
+  const userSnapshot = await firestore.collection("users")
+    .where("subscription.stripeCustomerId", "==", customerId)
+    .limit(1)
+    .get();
+  const userDoc = userSnapshot.docs[0];
+  if (!userDoc) return;
+
+  const status = subscription.status || null;
+  const isEnabled = status === "active" || status === "trialing" ||
+    status === "past_due" || status === "canceled";
+  await userDoc.ref.set({
+    subscription: {
+      tier: isEnabled ? "pro" : "free",
+      status,
+      model: "flat_monthly",
+      stripeCustomerId: customerId,
+      stripeSubscriptionId: subscription.id,
+      currentPeriodEnd: subscription.current_period_end ?
+        new Date(subscription.current_period_end * 1000) :
+        null,
+      grantedByAdmin: false,
+    },
+    updatedAt: FieldValue.serverTimestamp(),
+  }, {merge: true});
+}
+
+export const stripeBillingWebhook = onRequest(async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const event = verifyStripeSignature(request);
+    if (
+      event.type === "customer.subscription.created" ||
+      event.type === "customer.subscription.updated" ||
+      event.type === "customer.subscription.deleted"
+    ) {
+      const subscription = event.data?.object;
+      if (subscription?.id) {
+        await updateSubscriptionFromStripe(subscription);
+      }
+    }
+    response.status(200).json({received: true});
+  } catch (error) {
+    logger.error("Stripe billing webhook failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    response.status(400).json({error: "Invalid Stripe webhook."});
   }
 });
 

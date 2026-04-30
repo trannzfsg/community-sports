@@ -52,6 +52,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
       { href: "/sessions/new", label: "New event series", shortLabel: "Ne" },
       { href: "/organiser/approvals", label: "Approvals", shortLabel: "Ap" },
       { href: "/organiser/players", label: "Players", shortLabel: "Pl" },
+      { href: "/organiser/subscription", label: "Pro", shortLabel: "Pro" },
       { href: "/onboarding", label: "Onboarding", shortLabel: "On" },
       { href: "/feedback", label: "Feedback / Roadmap", shortLabel: "FR" },
       { href: "/profile", label: "Profile", shortLabel: "Pr" },
