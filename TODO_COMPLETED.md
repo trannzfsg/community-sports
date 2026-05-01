@@ -1,5 +1,11 @@
 # To-Do List - Completed tasks
 
+- [x] Add free-text skill level to event series and organiser approval summaries.
+  - [x] Added optional trimmed `skillLevel` storage for new and edited event series.
+  - [x] Displayed skill level after date/time/location on dashboard series summaries.
+  - [x] Included skill level in player-facing organiser approval series summaries.
+  - [x] Verified with lint, tests, build, and live browser checks.
+
 - [x] Add optional Stripe Connect onboarding for organiser online payments.
   - [x] Added Connect account status model and Firebase Functions endpoints.
   - [x] Added organiser payment setup page without blocking organiser onboarding.

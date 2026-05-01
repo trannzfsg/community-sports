@@ -94,6 +94,7 @@ type OrganiserSeriesSummary = {
   startAt: string;
   endAt: string;
   location: string;
+  skillLevel?: string | null;
 };
 
 type EventEditDraft = {
@@ -300,6 +301,7 @@ export default function DashboardPage() {
                 startAt: series.startAt,
                 endAt: series.endAt,
                 location: series.location,
+                skillLevel: series.skillLevel ?? null,
               };
               summariesByOrganiser.set(series.organiserId, [
                 ...(summariesByOrganiser.get(series.organiserId) ?? []),
@@ -1048,6 +1050,7 @@ export default function DashboardPage() {
                             <div key={summary.id} className="rounded-xl bg-zinc-50 px-3 py-2">
                               <span className="font-medium text-zinc-800">{summary.typeOfSport}</span>
                               {" "}{summary.dayOfWeek} {summary.startAt}-{summary.endAt} at {summary.location}
+                              {summary.skillLevel ? ` - Skill level: ${summary.skillLevel}` : ""}
                             </div>
                           )) : (
                             <div className="rounded-xl bg-zinc-50 px-3 py-2">No active event series listed yet.</div>
@@ -1213,6 +1216,7 @@ export default function DashboardPage() {
                     <div><dt className="text-zinc-500">Date</dt><dd>{nextEvent?.eventDate || getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn)}</dd></div>
                     <div><dt className="text-zinc-500">Time</dt><dd>{nextEvent ? `${nextEvent.startAt} - ${nextEvent.endAt}` : `${series.startAt} - ${series.endAt}`}</dd></div>
                     <div><dt className="text-zinc-500">Location</dt><dd>{nextEvent?.location || series.location}</dd></div>
+                    <div><dt className="text-zinc-500">Skill level</dt><dd>{series.skillLevel || "Not set"}</dd></div>
                     <div><dt className="text-zinc-500">Casual price</dt><dd>${nextEvent?.defaultPriceCasual ?? series.defaultPriceCasual}</dd></div>
                     <div><dt className="text-zinc-500">Member fee</dt><dd>{series.defaultPriceMember ? `$${series.defaultPriceMember}${series.memberFeePeriod ? ` / ${series.memberFeePeriod}` : ""}` : "Not set"}</dd></div>
                     <div><dt className="text-zinc-500">Online payment</dt><dd>{series.onlinePaymentEnabled ? "Enabled" : "Off"}</dd></div>

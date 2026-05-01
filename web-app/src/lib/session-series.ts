@@ -349,6 +349,7 @@ export type SessionSeries = {
   title: string;
   typeOfSport: TypeOfSport;
   location: string;
+  skillLevel?: string | null;
   dayOfWeek: DayOfWeek;
   nextGameOn?: string;
   startAt: string;

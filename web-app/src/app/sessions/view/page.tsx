@@ -383,6 +383,7 @@ function SessionViewPageInner() {
               {series ? (
                 <p className="mt-2 text-sm text-zinc-500">
                   Series defaults: {series.location} · {series.dayOfWeek} · {series.startAt}–{series.endAt}
+                  {series.skillLevel ? ` - Skill level: ${series.skillLevel}` : ""}
                   {series.organiserName ? ` · Organiser: ${series.organiserName}` : ""}
                 </p>
               ) : null}

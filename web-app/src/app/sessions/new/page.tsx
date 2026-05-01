@@ -38,6 +38,7 @@ export default function NewSessionPage() {
   const [title, setTitle] = useState("");
   const [typeOfSport, setTypeOfSport] = useState<(typeof SPORT_OPTIONS)[number]>("Badminton");
   const [location, setLocation] = useState("");
+  const [skillLevel, setSkillLevel] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState<(typeof DAY_OF_WEEK_OPTIONS)[number]>("Mon");
   const [startAt, setStartAt] = useState("19:00");
   const [endAt, setEndAt] = useState("21:00");
@@ -115,11 +116,13 @@ export default function NewSessionPage() {
       const dataPartition = getDataPartitionForEmail(organiser?.email || "");
 
       const normalizedWaitingListCapacity = normalizeWaitingListCapacity(waitingListCapacity);
+      const normalizedSkillLevel = skillLevel.trim() || null;
 
       const seriesRef = await addDoc(collection(db, "sessions"), {
         title: title.trim(),
         typeOfSport,
         location: location.trim(),
+        skillLevel: normalizedSkillLevel,
         dayOfWeek,
         nextGameOn: computedNextGameOn,
         startAt,
@@ -148,6 +151,7 @@ export default function NewSessionPage() {
         title: title.trim(),
         typeOfSport,
         location: location.trim(),
+        skillLevel: normalizedSkillLevel,
         dayOfWeek,
         nextGameOn: computedNextGameOn,
         startAt,
@@ -254,6 +258,11 @@ export default function NewSessionPage() {
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">End time</span>
             <input type="time" value={endAt} onChange={(event) => setEndAt(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block md:col-span-2">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Skill level</span>
+            <input value={skillLevel} onChange={(event) => setSkillLevel(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" placeholder="e.g. Beginner friendly, intermediate, social mixed levels" />
           </label>
 
           <label className="block">

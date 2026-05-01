@@ -50,6 +50,7 @@ type SessionSeries = {
   title: string;
   typeOfSport: (typeof SPORT_OPTIONS)[number];
   location: string;
+  skillLevel?: string | null;
   dayOfWeek: (typeof DAY_OF_WEEK_OPTIONS)[number];
   nextGameOn?: string;
   startAt: string;
@@ -136,6 +137,7 @@ function EditSessionPageInner() {
   const [title, setTitle] = useState("");
   const [typeOfSport, setTypeOfSport] = useState<(typeof SPORT_OPTIONS)[number]>("Badminton");
   const [location, setLocation] = useState("");
+  const [skillLevel, setSkillLevel] = useState("");
   const [dayOfWeek, setDayOfWeek] = useState<(typeof DAY_OF_WEEK_OPTIONS)[number]>("Mon");
   const [startAt, setStartAt] = useState("19:00");
   const [endAt, setEndAt] = useState("21:00");
@@ -227,6 +229,7 @@ function EditSessionPageInner() {
       setTitle(session.title);
       setTypeOfSport(session.typeOfSport);
       setLocation(session.location);
+      setSkillLevel(session.skillLevel ?? "");
       setDayOfWeek(session.dayOfWeek);
       setStartAt(session.startAt);
       setEndAt(session.endAt);
@@ -396,6 +399,7 @@ function EditSessionPageInner() {
       const organiser = await getUserById(db, organiserId);
       const organiserName = organiser?.displayName || organiser?.email || "Organiser";
       const dataPartition = getDataPartitionForEmail(organiser?.email || "");
+      const normalizedSkillLevel = skillLevel.trim() || null;
 
       const updatedSeries: SessionSeriesRecord = {
         id: sessionId,
@@ -405,6 +409,7 @@ function EditSessionPageInner() {
         dataPartition,
         typeOfSport,
         location: location.trim(),
+        skillLevel: normalizedSkillLevel,
         dayOfWeek,
         nextGameOn: computedNextGameOn,
         startAt,
@@ -509,6 +514,11 @@ function EditSessionPageInner() {
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">End time</span>
             <input type="time" value={endAt} onChange={(event) => setEndAt(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block md:col-span-2">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Skill level</span>
+            <input value={skillLevel} onChange={(event) => setSkillLevel(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" placeholder="e.g. Beginner friendly, intermediate, social mixed levels" />
           </label>
 
           <label className="block">
