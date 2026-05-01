@@ -686,7 +686,9 @@ service cloud.firestore {
           && request.resource.data.sessionSeriesId == resource.data.sessionSeriesId
           && request.resource.data.playerName == resource.data.playerName
           && request.resource.data.playerEmail == resource.data.playerEmail
-          && request.resource.data.organiserPaid == resource.data.organiserPaid);
+          && request.resource.data.organiserPaid == resource.data.organiserPaid
+          && request.resource.data.get('stripeCheckoutSessionId', null) == resource.data.get('stripeCheckoutSessionId', null)
+          && request.resource.data.get('stripePaymentIntentId', null) == resource.data.get('stripePaymentIntentId', null));
       allow delete: if ((isAdmin()
           && partitionMatchesRequest(registrationPartitionFromData(resource.data))
           && registrationDataMatchesPartition(resource.data))

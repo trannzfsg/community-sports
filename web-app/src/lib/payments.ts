@@ -28,11 +28,18 @@ export type PaymentRecord = {
   playerEmail: string;
   dataPartition?: DataPartition;
   amount: number;
+  amountCents?: number;
+  platformFeeCents?: number;
+  stripeFeeRecoveryCents?: number;
+  playerTotalCents?: number;
   playerPaid: boolean;
   organiserPaid: boolean;
   paymentReference?: string | null;
+  paymentMethod?: "manual" | "stripe" | null;
+  stripeCheckoutSessionId?: string | null;
+  stripePaymentIntentId?: string | null;
   effectivePaid: boolean;
-  status: "pending" | "paid";
+  status: "pending" | "checkout_pending" | "paid";
 };
 
 export function buildPaymentId(registrationId: string) {
@@ -72,6 +79,9 @@ export async function syncPaymentRecordForRegistration(
     playerPaid: !!paidRegistration.playerPaid,
     organiserPaid: !!paidRegistration.organiserPaid,
     paymentReference: paidRegistration.paymentReference ?? null,
+    paymentMethod: paidRegistration.stripeCheckoutSessionId ? "stripe" : "manual",
+    stripeCheckoutSessionId: paidRegistration.stripeCheckoutSessionId ?? null,
+    stripePaymentIntentId: paidRegistration.stripePaymentIntentId ?? null,
     effectivePaid,
     status: effectivePaid ? "paid" : "pending",
   });

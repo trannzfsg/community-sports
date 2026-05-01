@@ -297,6 +297,7 @@ test("event override normalization trims values and clamps numeric fields", () =
     startAt: "18:30",
     endAt: "20:00",
     defaultPriceCasual: 17.13,
+    onlinePaymentAmount: null,
     capacity: 0,
     waitingListCapacity: 3,
   });

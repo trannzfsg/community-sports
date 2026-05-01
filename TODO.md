@@ -1,5 +1,12 @@
 # To-Do List
 
+- [ ] Implement hosted player checkout with Stripe Connect platform cut.
+  - [x] Add series online-payment settings for casual and member fees.
+  - [x] Add event-level online payment amount override support.
+  - [x] Add Checkout Session creation and webhook completion.
+  - [x] Add player pay-online action and payment status updates.
+  - [ ] Verify full sandbox flow in browser.
+
 - [ ] Implement as per PREMIUM_FEATURES_PLAN.md
   - [x] Build subscription gating foundation first
   - [x] Add organiser Pro upgrade/manage surface using Stripe Billing

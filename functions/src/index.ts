@@ -22,6 +22,9 @@ const allowedOrigins = new Set([
   "https://sports.tranzha.com",
 ]);
 const STRIPE_API_VERSION = "2026-02-25.clover";
+const DEFAULT_PLATFORM_FEE_BPS = 200;
+const DEFAULT_STRIPE_PROCESSING_FEE_BPS = 170;
+const DEFAULT_STRIPE_PROCESSING_FEE_FIXED_CENTS = 30;
 
 /**
  * Applies CORS headers for the supported frontend origins.
@@ -196,7 +199,11 @@ function verifyStripeSignature(request: Request) {
 }
 
 type StripeCheckoutSession = {
+  id?: string;
   url?: string;
+  payment_status?: string;
+  payment_intent?: string;
+  metadata?: Record<string, string | undefined>;
 };
 
 type StripePortalSession = {
@@ -232,9 +239,69 @@ type StripeSubscription = {
 type StripeEvent = {
   type?: string;
   data?: {
-    object?: StripeSubscription;
+    object?: StripeSubscription | StripeCheckoutSession;
   };
 };
+
+/**
+ * Reads an integer environment value with a safe default.
+ * @param {string} name
+ * @param {number} fallback
+ * @return {number}
+ */
+function readIntegerEnv(name: string, fallback: number) {
+  const value = Number.parseInt(process.env[name] || "", 10);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Converts a dollar amount to currency minor units.
+ * @param {number} amount
+ * @return {number}
+ */
+function dollarsToCents(amount: number) {
+  return Math.round(amount * 100);
+}
+
+/**
+ * Calculates player-paid fee recovery for online checkout.
+ * @param {number} organiserAmountCents
+ * @return {{
+ *   organiserAmountCents: number,
+ *   platformFeeCents: number,
+ *   stripeFeeRecoveryCents: number,
+ *   playerTotalCents: number,
+ * }}
+ */
+function calculateOnlinePaymentFeeBreakdown(organiserAmountCents: number) {
+  const platformFeeBps = readIntegerEnv(
+    "STRIPE_PLATFORM_FEE_BPS",
+    DEFAULT_PLATFORM_FEE_BPS,
+  );
+  const stripeFeeBps = readIntegerEnv(
+    "STRIPE_PROCESSING_FEE_BPS",
+    DEFAULT_STRIPE_PROCESSING_FEE_BPS,
+  );
+  const stripeFixedFeeCents = readIntegerEnv(
+    "STRIPE_PROCESSING_FEE_FIXED_CENTS",
+    DEFAULT_STRIPE_PROCESSING_FEE_FIXED_CENTS,
+  );
+  const platformFeeCents = Math.ceil(
+    (organiserAmountCents * platformFeeBps) / 10000,
+  );
+  const subtotalCents = organiserAmountCents + platformFeeCents;
+  const playerTotalCents = Math.ceil(
+    (subtotalCents + stripeFixedFeeCents) / (1 - stripeFeeBps / 10000),
+  );
+  const stripeFeeRecoveryCents = Math.max(0, playerTotalCents - subtotalCents);
+
+  return {
+    organiserAmountCents,
+    platformFeeCents,
+    stripeFeeRecoveryCents,
+    playerTotalCents,
+  };
+}
 
 /**
  * Calls a Stripe GET endpoint.
@@ -1301,6 +1368,202 @@ export const refreshConnectAccountStatus = onRequest(async (
   }
 });
 
+export const createPlayerCheckoutSession = onRequest(async (
+  request,
+  response,
+) => {
+  applyCors(request, response);
+
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return;
+  }
+
+  if (request.method !== "POST") {
+    response.status(405).json({error: "Method not allowed."});
+    return;
+  }
+
+  try {
+    const decodedToken = await authenticateRequest(request);
+    const uid = decodedToken.uid;
+    const registrationId = typeof request.body?.registrationId === "string" ?
+      request.body.registrationId :
+      "";
+    const returnUrl = typeof request.body?.returnUrl === "string" ?
+      request.body.returnUrl :
+      "";
+    if (!registrationId || !returnUrl) {
+      response.status(400).json({
+        error: "Registration and return URL are required.",
+      });
+      return;
+    }
+    if (!returnUrlIsAllowed(returnUrl)) {
+      response.status(400).json({error: "Return URL is not allowed."});
+      return;
+    }
+
+    const registrationRef = firestore.doc(`registrations/${registrationId}`);
+    const registrationSnapshot = await registrationRef.get();
+    const registration = registrationSnapshot.data() || {};
+    if (!registrationSnapshot.exists || registration.userId !== uid) {
+      response.status(403).json({
+        error: "You can only pay for your own registration.",
+      });
+      return;
+    }
+    if (registration.status === "waiting") {
+      response.status(400).json({
+        error: "Waiting-list registrations cannot be paid online yet.",
+      });
+      return;
+    }
+    if (registration.playerPaid || registration.organiserPaid) {
+      response.status(400).json({error: "This registration is already paid."});
+      return;
+    }
+
+    const [eventSnapshot, seriesSnapshot] = await Promise.all([
+      firestore.doc(`sessionEvents/${registration.sessionEventId}`).get(),
+      firestore.doc(`sessions/${registration.sessionSeriesId}`).get(),
+    ]);
+    const eventData = eventSnapshot.data() || {};
+    const seriesData = seriesSnapshot.data() || {};
+    if (!eventSnapshot.exists || !seriesSnapshot.exists) {
+      response.status(404).json({error: "Event or series was not found."});
+      return;
+    }
+    if (seriesData.onlinePaymentEnabled !== true) {
+      response.status(400).json({
+        error: "Online payment is not enabled for this series.",
+      });
+      return;
+    }
+
+    const organiserSnapshot = await firestore
+      .doc(`users/${seriesData.organiserId}`)
+      .get();
+    const organiserData = organiserSnapshot.data() || {};
+    const connect = organiserData.stripeConnect || {};
+    const connectedAccountId = typeof connect.accountId === "string" ?
+      connect.accountId :
+      "";
+    if (
+      !connectedAccountId ||
+      connect.chargesEnabled !== true ||
+      connect.payoutsEnabled !== true
+    ) {
+      response.status(400).json({
+        error: "The organiser has not finished Stripe Connect setup.",
+      });
+      return;
+    }
+
+    const eventAmount = Number(
+      eventData.onlinePaymentAmount ??
+        eventData.defaultPriceCasual ??
+        seriesData.defaultPriceCasual,
+    );
+    if (!Number.isFinite(eventAmount) || eventAmount <= 0) {
+      response.status(400).json({
+        error: "This event does not have a payable online amount.",
+      });
+      return;
+    }
+
+    const feeBreakdown = calculateOnlinePaymentFeeBreakdown(
+      dollarsToCents(eventAmount),
+    );
+    const applicationFeeAmount =
+      feeBreakdown.platformFeeCents + feeBreakdown.stripeFeeRecoveryCents;
+    const successUrl = `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}` +
+      "checkout=success&session_id={CHECKOUT_SESSION_ID}";
+    const cancelUrl = `${returnUrl}${returnUrl.includes("?") ? "&" : "?"}` +
+      "checkout=cancelled";
+    const title = typeof seriesData.title === "string" ?
+      seriesData.title :
+      "Community Sports event";
+    const eventDate = typeof eventData.eventDate === "string" ?
+      eventData.eventDate :
+      "";
+
+    const session = await stripeRequest<StripeCheckoutSession>(
+      "checkout/sessions",
+      new URLSearchParams({
+        "mode": "payment",
+        "line_items[0][price_data][currency]": "aud",
+        "line_items[0][price_data][unit_amount]":
+          String(feeBreakdown.playerTotalCents),
+        "line_items[0][price_data][product_data][name]":
+          `${title}${eventDate ? ` - ${eventDate}` : ""}`,
+        "line_items[0][quantity]": "1",
+        "payment_intent_data[application_fee_amount]":
+          String(applicationFeeAmount),
+        "payment_intent_data[transfer_data][destination]": connectedAccountId,
+        "success_url": successUrl,
+        "cancel_url": cancelUrl,
+        "metadata[type]": "event_registration",
+        "metadata[registrationId]": registrationId,
+        "metadata[sessionEventId]": String(registration.sessionEventId),
+        "metadata[sessionSeriesId]": String(registration.sessionSeriesId),
+        "metadata[userId]": uid,
+        "metadata[organiserId]": String(seriesData.organiserId),
+        "metadata[organiserAmountCents]":
+          String(feeBreakdown.organiserAmountCents),
+        "metadata[platformFeeCents]": String(feeBreakdown.platformFeeCents),
+        "metadata[stripeFeeRecoveryCents]":
+          String(feeBreakdown.stripeFeeRecoveryCents),
+        "metadata[playerTotalCents]": String(feeBreakdown.playerTotalCents),
+      }),
+    );
+
+    if (!session.url || !session.id) {
+      response.status(502).json({error: "Stripe did not return checkout."});
+      return;
+    }
+
+    const paymentId = `payment__${registrationId}`;
+    await Promise.all([
+      registrationRef.set({
+        stripeCheckoutSessionId: session.id,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true}),
+      firestore.doc(`payments/${paymentId}`).set({
+        sessionSeriesId: registration.sessionSeriesId,
+        sessionEventId: registration.sessionEventId,
+        registrationId,
+        organiserId: seriesData.organiserId,
+        userId: uid,
+        playerName: registration.playerName,
+        playerEmail: registration.playerEmail,
+        dataPartition: registration.dataPartition || seriesData.dataPartition,
+        amount: eventAmount,
+        amountCents: feeBreakdown.organiserAmountCents,
+        platformFeeCents: feeBreakdown.platformFeeCents,
+        stripeFeeRecoveryCents: feeBreakdown.stripeFeeRecoveryCents,
+        playerTotalCents: feeBreakdown.playerTotalCents,
+        paymentMethod: "stripe",
+        stripeCheckoutSessionId: session.id,
+        playerPaid: false,
+        organiserPaid: false,
+        effectivePaid: false,
+        status: "checkout_pending",
+        updatedAt: FieldValue.serverTimestamp(),
+      }, {merge: true}),
+    ]);
+
+    response.status(200).json({url: session.url});
+  } catch (error) {
+    logger.error("Failed to create player checkout session", error);
+    response.status(500).json({
+      error: error instanceof Error ?
+        error.message :
+        "Failed to start online payment.",
+    });
+  }
+});
+
 export const createBillingCheckoutSession = onRequest(async (
   request,
   response,
@@ -1515,6 +1778,65 @@ async function updateSubscriptionFromStripe(subscription: StripeSubscription) {
   }, {merge: true});
 }
 
+/**
+ * Marks a registration/payment as paid from a completed Checkout Session.
+ * @param {StripeCheckoutSession} session
+ */
+async function updateRegistrationPaymentFromCheckout(
+  session: StripeCheckoutSession,
+) {
+  if (session.payment_status !== "paid") return;
+  const metadata = session.metadata || {};
+  const registrationId = metadata.registrationId || "";
+  if (!registrationId) return;
+
+  const paymentIntentId = typeof session.payment_intent === "string" ?
+    session.payment_intent :
+    "";
+  const paymentId = `payment__${registrationId}`;
+  const paymentReference = `Stripe ${session.id || paymentIntentId}`.trim();
+  const amountCents = Number.parseInt(metadata.organiserAmountCents || "0", 10);
+  const platformFeeCents = Number.parseInt(
+    metadata.platformFeeCents || "0",
+    10,
+  );
+  const stripeFeeRecoveryCents = Number.parseInt(
+    metadata.stripeFeeRecoveryCents || "0",
+    10,
+  );
+  const playerTotalCents = Number.parseInt(
+    metadata.playerTotalCents || "0",
+    10,
+  );
+
+  await Promise.all([
+    firestore.doc(`registrations/${registrationId}`).set({
+      playerPaid: true,
+      organiserPaid: true,
+      paymentReference,
+      stripeCheckoutSessionId: session.id || null,
+      stripePaymentIntentId: paymentIntentId || null,
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true}),
+    firestore.doc(`payments/${paymentId}`).set({
+      paymentMethod: "stripe",
+      stripeCheckoutSessionId: session.id || null,
+      stripePaymentIntentId: paymentIntentId || null,
+      paymentReference,
+      amountCents,
+      amount: amountCents / 100,
+      platformFeeCents,
+      stripeFeeRecoveryCents,
+      playerTotalCents,
+      playerPaid: true,
+      organiserPaid: true,
+      effectivePaid: true,
+      status: "paid",
+      updatedAt: FieldValue.serverTimestamp(),
+    }, {merge: true}),
+  ]);
+}
+
 export const stripeBillingWebhook = onRequest(async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).json({error: "Method not allowed."});
@@ -1528,9 +1850,14 @@ export const stripeBillingWebhook = onRequest(async (request, response) => {
       event.type === "customer.subscription.updated" ||
       event.type === "customer.subscription.deleted"
     ) {
-      const subscription = event.data?.object;
+      const subscription = event.data?.object as StripeSubscription | undefined;
       if (subscription?.id) {
         await updateSubscriptionFromStripe(subscription);
+      }
+    } else if (event.type === "checkout.session.completed") {
+      const session = event.data?.object as StripeCheckoutSession | undefined;
+      if (session?.id) {
+        await updateRegistrationPaymentFromCheckout(session);
       }
     }
     response.status(200).json({received: true});

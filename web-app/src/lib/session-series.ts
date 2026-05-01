@@ -355,6 +355,9 @@ export type SessionSeries = {
   endAt: string;
   firstSessionOn: string;
   defaultPriceCasual: number;
+  defaultPriceMember?: number | null;
+  memberFeePeriod?: string | null;
+  onlinePaymentEnabled?: boolean;
   capacity: number;
   waitingListCapacity?: number;
   cancellationPolicyHours?: number | null;
@@ -382,6 +385,7 @@ export type SessionEvent = {
   startAt: string;
   endAt: string;
   defaultPriceCasual: number;
+  onlinePaymentAmount?: number | null;
   capacity: number;
   waitingListCapacity?: number;
   bookedCount: number;
@@ -402,6 +406,8 @@ export type RegistrationItem = {
   playerPaid: boolean;
   organiserPaid: boolean;
   paymentReference?: string | null;
+  stripeCheckoutSessionId?: string | null;
+  stripePaymentIntentId?: string | null;
   status?: "registered" | "waiting";
   source?: "self" | "organiser" | "roster-copy" | "series-membership";
   seriesMembershipId?: string | null;
@@ -427,6 +433,7 @@ export type SessionEventOverridesInput = {
   startAt: string;
   endAt: string;
   defaultPriceCasual: number;
+  onlinePaymentAmount?: number | null;
   capacity: number;
   waitingListCapacity?: number | null;
 };
@@ -591,12 +598,18 @@ export function getRegistrationCapacityState(input: {
 
 export function normalizeSessionEventOverrides(input: SessionEventOverridesInput) {
   const price = Number(input.defaultPriceCasual);
+  const onlinePaymentAmount = input.onlinePaymentAmount == null
+    ? null
+    : Number(input.onlinePaymentAmount);
 
   return {
     location: input.location.trim(),
     startAt: input.startAt.trim(),
     endAt: input.endAt.trim(),
     defaultPriceCasual: Number.isFinite(price) ? Math.round(price * 100) / 100 : Number.NaN,
+    onlinePaymentAmount: onlinePaymentAmount == null || !Number.isFinite(onlinePaymentAmount)
+      ? null
+      : Math.round(onlinePaymentAmount * 100) / 100,
     capacity: Math.max(0, Math.floor(Number(input.capacity) || 0)),
     waitingListCapacity: normalizeWaitingListCapacity(input.waitingListCapacity),
   };
@@ -622,6 +635,10 @@ export function getSessionEventOverrideValidationError(input: {
 
   if (!Number.isFinite(values.defaultPriceCasual) || values.defaultPriceCasual < 0) {
     return "Casual price must be zero or more.";
+  }
+
+  if (values.onlinePaymentAmount != null && values.onlinePaymentAmount < 0) {
+    return "Online payment amount must be zero or more.";
   }
 
   const registrationCount = Math.max(0, input.registrationCount || 0);
@@ -799,6 +816,7 @@ export async function createSessionEventForSeries(
     startAt: series.startAt,
     endAt: series.endAt,
     defaultPriceCasual: series.defaultPriceCasual,
+    onlinePaymentAmount: null,
     capacity: series.capacity,
     waitingListCapacity: normalizeWaitingListCapacity(series.waitingListCapacity),
     dataPartition: series.dataPartition,
@@ -901,6 +919,7 @@ export async function createSessionEventForSeries(
       startAt: series.startAt,
       endAt: series.endAt,
       defaultPriceCasual: series.defaultPriceCasual,
+      onlinePaymentAmount: null,
       capacity: series.capacity,
       waitingListCapacity: normalizeWaitingListCapacity(series.waitingListCapacity),
       bookedCount: 0,

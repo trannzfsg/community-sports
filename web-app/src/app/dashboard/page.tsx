@@ -41,6 +41,12 @@ import {
 } from "@/lib/organiser-approvals";
 import { needsOnboarding, type OnboardingVersionState } from "@/lib/onboarding";
 import { getUsersByRole } from "@/lib/users";
+import { createPlayerCheckoutSession } from "@/lib/player-checkout";
+import {
+  calculateOnlinePaymentFeeBreakdown,
+  dollarsToCents,
+  formatAud,
+} from "@/lib/online-payment-fees";
 import type { AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
 import { getDashboardEventPresentation } from "@/lib/dashboard-event-state";
@@ -95,6 +101,7 @@ type EventEditDraft = {
   startAt: string;
   endAt: string;
   defaultPriceCasual: string;
+  onlinePaymentAmount: string;
   capacity: string;
   waitingListCapacity: string;
 };
@@ -709,6 +716,37 @@ export default function DashboardPage() {
     }
   }
 
+  function getOnlinePaymentDetails(eventItem: SessionEvent) {
+    const payableAmount = eventItem.onlinePaymentAmount ?? eventItem.defaultPriceCasual;
+    const organiserAmountCents = dollarsToCents(payableAmount);
+    if (organiserAmountCents <= 0) {
+      return null;
+    }
+
+    return calculateOnlinePaymentFeeBreakdown({ organiserAmountCents });
+  }
+
+  async function handleOnlinePayment(registration: RegistrationItem, eventItem: SessionEvent) {
+    if (!user) return;
+
+    setBusyKey(`checkout-${registration.id}`);
+    try {
+      const idToken = await user.getIdToken();
+      const { url } = await createPlayerCheckoutSession({
+        idToken,
+        registrationId: registration.id,
+        returnUrl: window.location.href.split("#")[0],
+      });
+      window.location.assign(url);
+    } catch (error) {
+      console.error("[dashboard] online checkout failed", error);
+      showActionAlert(error instanceof Error ? error.message : "Failed to start online payment.");
+      await refreshSeriesData(registration.sessionSeriesId, eventItem.organiserId);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   async function handleOrganiserPaidToggle(
     registration: RegistrationItem,
     nextValue: boolean,
@@ -866,6 +904,7 @@ export default function DashboardPage() {
       startAt: eventItem.startAt,
       endAt: eventItem.endAt,
       defaultPriceCasual: String(eventItem.defaultPriceCasual),
+      onlinePaymentAmount: eventItem.onlinePaymentAmount == null ? "" : String(eventItem.onlinePaymentAmount),
       capacity: String(eventItem.capacity),
       waitingListCapacity: getWaitingListCapacityInputValue(eventItem.waitingListCapacity),
     };
@@ -893,6 +932,7 @@ export default function DashboardPage() {
           startAt: "",
           endAt: "",
           defaultPriceCasual: "",
+          onlinePaymentAmount: "",
           capacity: "",
           waitingListCapacity: "",
         }),
@@ -908,6 +948,9 @@ export default function DashboardPage() {
       startAt: draft.startAt,
       endAt: draft.endAt,
       defaultPriceCasual: Number(draft.defaultPriceCasual),
+      onlinePaymentAmount: draft.onlinePaymentAmount.trim()
+        ? Number(draft.onlinePaymentAmount)
+        : null,
       capacity: Number(draft.capacity),
       waitingListCapacity: normalizeWaitingListCapacity(draft.waitingListCapacity),
     };
@@ -1171,6 +1214,9 @@ export default function DashboardPage() {
                     <div><dt className="text-zinc-500">Time</dt><dd>{nextEvent ? `${nextEvent.startAt} - ${nextEvent.endAt}` : `${series.startAt} - ${series.endAt}`}</dd></div>
                     <div><dt className="text-zinc-500">Location</dt><dd>{nextEvent?.location || series.location}</dd></div>
                     <div><dt className="text-zinc-500">Casual price</dt><dd>${nextEvent?.defaultPriceCasual ?? series.defaultPriceCasual}</dd></div>
+                    <div><dt className="text-zinc-500">Member fee</dt><dd>{series.defaultPriceMember ? `$${series.defaultPriceMember}${series.memberFeePeriod ? ` / ${series.memberFeePeriod}` : ""}` : "Not set"}</dd></div>
+                    <div><dt className="text-zinc-500">Online payment</dt><dd>{series.onlinePaymentEnabled ? "Enabled" : "Off"}</dd></div>
+                    {nextEvent?.onlinePaymentAmount != null ? <div><dt className="text-zinc-500">Online override</dt><dd>${nextEvent.onlinePaymentAmount}</dd></div> : null}
                     <div><dt className="text-zinc-500">Capacity</dt><dd>{nextEvent?.capacity ?? series.capacity}</dd></div>
                     <div><dt className="text-zinc-500">Waiting list</dt><dd>{formatWaitingListCapacity(nextEvent?.waitingListCapacity ?? series.waitingListCapacity)}</dd></div>
                     <div><dt className="text-zinc-500">Cancellation policy</dt><dd>{getCancellationPolicyLabel(series.cancellationPolicyHours)}</dd></div>
@@ -1435,6 +1481,11 @@ export default function DashboardPage() {
                           <input type="number" min="0" step="0.01" value={eventEditDraft.defaultPriceCasual} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "defaultPriceCasual", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
                         </label>
                         <label className="block text-sm text-zinc-700">
+                          <span className="mb-1 block font-medium">Online payment override</span>
+                          <input type="number" min="0" step="0.01" value={eventEditDraft.onlinePaymentAmount} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "onlinePaymentAmount", event.target.value)} placeholder="Use casual price" className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" />
+                          <span className="mt-1 block text-xs text-zinc-500">Blank uses this event&apos;s casual price.</span>
+                        </label>
+                        <label className="block text-sm text-zinc-700">
                           <span className="mb-1 block font-medium">Capacity</span>
                           <input type="number" min="1" step="1" value={eventEditDraft.capacity} onChange={(event) => handleEventEditDraftChange(nextEvent.id, "capacity", event.target.value)} className="w-full rounded-xl border border-zinc-300 px-3 py-2 outline-none transition focus:border-zinc-500" required />
                         </label>
@@ -1523,6 +1574,15 @@ export default function DashboardPage() {
                                 const isOwnRegistration = registration.userId === user?.uid;
                                 const playerRecord = visiblePlayersForSeries.find((player) => (player.userId || player.id) === registration.userId);
                                 const isWaiting = registration.status === "waiting";
+                                const onlinePaymentDetails = nextEvent ? getOnlinePaymentDetails(nextEvent) : null;
+                                const canPayOnline = isOwnRegistration
+                                  && !isWaiting
+                                  && !canManageSessions
+                                  && !eventIsFree
+                                  && !registration.playerPaid
+                                  && !registration.organiserPaid
+                                  && series.onlinePaymentEnabled
+                                  && !!onlinePaymentDetails;
                                 return (
                                   <EventRegistrationRow
                                     key={registration.id}
@@ -1530,6 +1590,21 @@ export default function DashboardPage() {
                                     isOwnRegistration={isOwnRegistration}
                                     skillLevel={canManageSessions ? playerRecord?.skillLevel || "Not set" : null}
                                   >
+                                    {canPayOnline && onlinePaymentDetails ? (
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => void handleOnlinePayment(registration, nextEvent)}
+                                          disabled={busyKey === `checkout-${registration.id}`}
+                                          className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-medium text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                        >
+                                          {busyKey === `checkout-${registration.id}` ? "Opening checkout..." : `Pay online ${formatAud(onlinePaymentDetails.playerTotalCents)}`}
+                                        </button>
+                                        <span className="text-xs text-zinc-500">
+                                          Includes {formatAud(onlinePaymentDetails.platformFeeCents)} platform fee and {formatAud(onlinePaymentDetails.stripeFeeRecoveryCents)} card fee recovery.
+                                        </span>
+                                      </div>
+                                    ) : null}
                                     {isOwnRegistration && !isWaiting && !canManageSessions && !eventIsFree ? (
                                       registration.paymentReference && editingReferenceId !== registration.id ? (
                                         <div className="flex flex-wrap items-center gap-2">

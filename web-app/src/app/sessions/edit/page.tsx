@@ -56,6 +56,9 @@ type SessionSeries = {
   endAt: string;
   firstSessionOn: string;
   defaultPriceCasual: number;
+  defaultPriceMember?: number | null;
+  memberFeePeriod?: string | null;
+  onlinePaymentEnabled?: boolean;
   capacity: number;
   waitingListCapacity?: number;
   cancellationPolicyHours?: number | null;
@@ -138,6 +141,9 @@ function EditSessionPageInner() {
   const [endAt, setEndAt] = useState("21:00");
   const [firstSessionOn, setFirstSessionOn] = useState("");
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
+  const [defaultPriceMember, setDefaultPriceMember] = useState("0");
+  const [memberFeePeriod, setMemberFeePeriod] = useState("");
+  const [onlinePaymentEnabled, setOnlinePaymentEnabled] = useState(false);
   const [capacity, setCapacity] = useState("12");
   const [waitingListCapacity, setWaitingListCapacity] = useState("0");
   const [cancellationPolicyHours, setCancellationPolicyHours] = useState("24");
@@ -227,6 +233,9 @@ function EditSessionPageInner() {
       setOwnerOrganiserId(session.organiserId || user.uid);
       setFirstSessionOn(session.firstSessionOn || getNextDateForDayOfWeekAfterToday(session.dayOfWeek));
       setDefaultPriceCasual(String(session.defaultPriceCasual));
+      setDefaultPriceMember(String(session.defaultPriceMember ?? 0));
+      setMemberFeePeriod(session.memberFeePeriod ?? "");
+      setOnlinePaymentEnabled(session.onlinePaymentEnabled ?? false);
       setCapacity(String(session.capacity));
       setWaitingListCapacity(getWaitingListCapacityInputValue(session.waitingListCapacity));
       setCancellationPolicyHours(String(session.cancellationPolicyHours ?? 24));
@@ -402,6 +411,9 @@ function EditSessionPageInner() {
         endAt,
         firstSessionOn: firstSessionOn || computedNextGameOn,
         defaultPriceCasual: Number(defaultPriceCasual),
+        defaultPriceMember: Number(defaultPriceMember || 0),
+        memberFeePeriod: memberFeePeriod.trim() || null,
+        onlinePaymentEnabled,
         capacity: Number(capacity),
         waitingListCapacity: normalizeWaitingListCapacity(waitingListCapacity),
         cancellationPolicyHours: Number(cancellationPolicyHours || 0),
@@ -502,6 +514,23 @@ function EditSessionPageInner() {
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Casual price</span>
             <input type="number" min="0" step="0.01" value={defaultPriceCasual} onChange={(event) => setDefaultPriceCasual(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Member fee</span>
+            <input type="number" min="0" step="0.01" value={defaultPriceMember} onChange={(event) => setDefaultPriceMember(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" />
+          </label>
+
+          <label className="block md:col-span-2">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Member fee period</span>
+            <input value={memberFeePeriod} onChange={(event) => setMemberFeePeriod(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" placeholder="e.g. 10 games, monthly, season pass" />
+          </label>
+
+          <label className="flex items-start gap-3 md:col-span-2">
+            <input type="checkbox" checked={onlinePaymentEnabled} onChange={(event) => setOnlinePaymentEnabled(event.target.checked)} className="mt-1 h-4 w-4" />
+            <span className="text-sm text-zinc-700">
+              Enable online casual payments for this series. Organiser Stripe Connect setup is required before players can pay online.
+            </span>
           </label>
 
           <label className="block">

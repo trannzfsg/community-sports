@@ -42,6 +42,9 @@ export default function NewSessionPage() {
   const [startAt, setStartAt] = useState("19:00");
   const [endAt, setEndAt] = useState("21:00");
   const [defaultPriceCasual, setDefaultPriceCasual] = useState("15");
+  const [defaultPriceMember, setDefaultPriceMember] = useState("0");
+  const [memberFeePeriod, setMemberFeePeriod] = useState("");
+  const [onlinePaymentEnabled, setOnlinePaymentEnabled] = useState(false);
   const [capacity, setCapacity] = useState("12");
   const [waitingListCapacity, setWaitingListCapacity] = useState("");
   const [cancellationPolicyHours, setCancellationPolicyHours] = useState("24");
@@ -123,6 +126,9 @@ export default function NewSessionPage() {
         endAt,
         firstSessionOn: computedNextGameOn,
         defaultPriceCasual: Number(defaultPriceCasual),
+        defaultPriceMember: Number(defaultPriceMember || 0),
+        memberFeePeriod: memberFeePeriod.trim() || null,
+        onlinePaymentEnabled,
         capacity: Number(capacity),
         waitingListCapacity: normalizedWaitingListCapacity,
         cancellationPolicyHours: Number(cancellationPolicyHours || 0),
@@ -148,6 +154,9 @@ export default function NewSessionPage() {
         endAt,
         firstSessionOn: computedNextGameOn,
         defaultPriceCasual: Number(defaultPriceCasual),
+        defaultPriceMember: Number(defaultPriceMember || 0),
+        memberFeePeriod: memberFeePeriod.trim() || null,
+        onlinePaymentEnabled,
         capacity: Number(capacity),
         waitingListCapacity: normalizedWaitingListCapacity,
         cancellationPolicyHours: Number(cancellationPolicyHours || 0),
@@ -250,6 +259,23 @@ export default function NewSessionPage() {
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Casual price</span>
             <input type="number" min="0" step="0.01" value={defaultPriceCasual} onChange={(event) => setDefaultPriceCasual(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" required />
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Member fee</span>
+            <input type="number" min="0" step="0.01" value={defaultPriceMember} onChange={(event) => setDefaultPriceMember(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" />
+          </label>
+
+          <label className="block md:col-span-2">
+            <span className="mb-2 block text-sm font-medium text-zinc-700">Member fee period</span>
+            <input value={memberFeePeriod} onChange={(event) => setMemberFeePeriod(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" placeholder="e.g. 10 games, monthly, season pass" />
+          </label>
+
+          <label className="flex items-start gap-3 md:col-span-2">
+            <input type="checkbox" checked={onlinePaymentEnabled} onChange={(event) => setOnlinePaymentEnabled(event.target.checked)} className="mt-1 h-4 w-4" />
+            <span className="text-sm text-zinc-700">
+              Enable online casual payments for this series. Organiser Stripe Connect setup is required before players can pay online.
+            </span>
           </label>
 
           <label className="block">
