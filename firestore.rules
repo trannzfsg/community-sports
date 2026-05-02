@@ -112,6 +112,10 @@ service cloud.firestore {
       return data.get('dataPartition', partitionForUserId(data.userId));
     }
 
+    function notificationEventPartitionFromData(data) {
+      return data.get('dataPartition', partitionForUserId(data.recipientUserId));
+    }
+
     function organiserBenefitProgramPartitionFromData(data) {
       return data.get('dataPartition', partitionForUserId(data.organiserId));
     }
@@ -545,6 +549,20 @@ service cloud.firestore {
             notificationPreferencePartitionFromData(resource.data)
           )
           && notificationPreferenceDataMatchesPartition(resource.data));
+    }
+
+    match /notificationEvents/{notificationEventId} {
+      allow read: if (isSignedIn()
+          && resource.data.recipientUserId == request.auth.uid)
+        || (isAdmin()
+          && partitionMatchesRequest(notificationEventPartitionFromData(resource.data)));
+
+      allow update: if isSignedIn()
+        && resource.data.recipientUserId == request.auth.uid
+        && request.resource.data.recipientUserId == resource.data.recipientUserId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']);
+
+      allow create, delete: if false;
     }
 
     match /managedUsers/{managedUserId} {

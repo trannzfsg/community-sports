@@ -341,10 +341,6 @@ async function queueNotificationEvent(input: {
   }
 
   const channels = getEligibleChannels(recipientContext);
-  if (!channels.email && !channels.telegram) {
-    return;
-  }
-
   const eventRef = firestore.doc(
     `notificationEvents/${sanitizeDocId(input.idempotencyKey)}`,
   );

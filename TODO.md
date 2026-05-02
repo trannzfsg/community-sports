@@ -12,7 +12,8 @@
   - [x] Add organiser Pro upgrade/manage surface using Stripe Billing
   - [x] Add admin Pro grant/revoke controls
   - [x] Add Firestore rules and verification coverage for subscription fields
-  - [ ] Confirm before continuing beyond gating into payment/accounting/push features
+  - [x] Confirm before continuing beyond gating into payment/accounting/push features
+  - [x] Add in-app notification inbox foundation for the robust-notifications premium slice
 
 - [ ] Move the "show comment" and "hide comment" button in feedback page to the 2nd line below upvote/downvote buttons.
 

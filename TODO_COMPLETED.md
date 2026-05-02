@@ -1,5 +1,12 @@
 # To-Do List - Completed tasks
 
+- [x] Continue premium features implementation, skipping payment end-to-end verification for now.
+  - [x] Mark premium continuation confirmation complete.
+  - [x] Implement the next non-payment premium slice from `PREMIUM_FEATURES_PLAN.md`.
+  - [x] Verify locally with automated checks and live browser testing.
+  - [x] Deploy hosting, Functions, and Firestore rules.
+  - [x] Attempt live smoke on `sports.tranzha.com`; login/profile setup did not complete within the smoke script timeout, so payment end-to-end checks stayed skipped as requested.
+
 - [x] Add free-text skill level to event series and organiser approval summaries.
   - [x] Added optional trimmed `skillLevel` storage for new and edited event series.
   - [x] Displayed skill level after date/time/location on dashboard series summaries.

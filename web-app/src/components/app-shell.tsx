@@ -4,10 +4,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import { getOrganiserApprovalRequests } from "@/lib/organiser-approvals";
+import { countUnreadNotifications, normalizeNotificationEvent } from "@/lib/notification-events";
 import type { AppRole } from "@/lib/roles";
 
 type AppShellProps = {
@@ -42,6 +43,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
       { href: "/admin/organisers", label: "Organisers", shortLabel: "Or" },
       { href: "/admin/players", label: "Players", shortLabel: "Pl" },
       { href: "/feedback", label: "Feedback / Roadmap", shortLabel: "FR" },
+      { href: "/notifications", label: "Notifications", shortLabel: "No" },
       { href: "/profile", label: "Profile", shortLabel: "Pr" },
     ];
   }
@@ -55,6 +57,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
       { href: "/organiser/payments", label: "Payments", shortLabel: "Pay" },
       { href: "/onboarding", label: "Onboarding", shortLabel: "On" },
       { href: "/feedback", label: "Feedback / Roadmap", shortLabel: "FR" },
+      { href: "/notifications", label: "Notifications", shortLabel: "No" },
       { href: "/profile", label: "Profile", shortLabel: "Pr" },
     ];
   }
@@ -63,6 +66,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
     { href: "/dashboard", label: "Dashboard", shortLabel: "Da", matchPrefixes: ["/dashboard", "/sessions/view"] },
     { href: "/onboarding", label: "Onboarding", shortLabel: "On" },
     { href: "/feedback", label: "Feedback / Roadmap", shortLabel: "FR" },
+    { href: "/notifications", label: "Notifications", shortLabel: "No" },
     { href: "/profile", label: "Profile", shortLabel: "Pr" },
   ];
 }
@@ -103,6 +107,7 @@ export default function AppShell({
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const navigationItems = getNavigationItems(role);
   const roleLabel = getRoleLabel(role);
 
@@ -155,12 +160,49 @@ export default function AppShell({
     };
   }, [role]);
 
+  useEffect(() => {
+    let unsubscribeNotifications: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+      unsubscribeNotifications?.();
+      unsubscribeNotifications = null;
+
+      if (!currentUser) {
+        setUnreadNotificationCount(0);
+        return;
+      }
+
+      const notificationsQuery = query(
+        collection(db, "notificationEvents"),
+        where("recipientUserId", "==", currentUser.uid),
+      );
+      unsubscribeNotifications = onSnapshot(
+        notificationsQuery,
+        (snapshot) => {
+          setUnreadNotificationCount(countUnreadNotifications(snapshot.docs.map((eventDoc) =>
+            normalizeNotificationEvent(eventDoc.id, eventDoc.data()),
+          )));
+        },
+        (error) => {
+          console.error("[app-shell] Failed to load notifications:", error);
+          setUnreadNotificationCount(0);
+        },
+      );
+    });
+
+    return () => {
+      unsubscribeNotifications?.();
+      unsubscribeAuth();
+    };
+  }, []);
+
   function renderNavigation(compact: boolean, area: "desktop" | "mobile") {
     return (
       <nav className="space-y-2" data-testid={`app-shell-nav-${area}`}>
         {navigationItems.map((item) => {
           const active = isItemActive(pathname, item);
           const showApprovalAlert = role === "organiser" && item.href === "/organiser/approvals" && pendingApprovalCount > 0;
+          const showNotificationAlert = item.href === "/notifications" && unreadNotificationCount > 0;
           return (
             <Link
               key={item.href}
@@ -188,6 +230,18 @@ export default function AppShell({
                   title={`${pendingApprovalCount} pending player approval${pendingApprovalCount === 1 ? "" : "s"}`}
                 >
                   !
+                </span>
+              ) : null}
+              {showNotificationAlert ? (
+                <span
+                  aria-label={`${unreadNotificationCount} unread notification${unreadNotificationCount === 1 ? "" : "s"}`}
+                  className={`flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1 text-[11px] font-bold ${
+                    compact ? "absolute right-2 top-2" : "ml-auto"
+                  } ${active ? "bg-sky-200 text-zinc-950" : "bg-sky-100 text-sky-800 ring-1 ring-sky-200"}`}
+                  data-testid={`app-shell-nav-${area}-notifications-alert`}
+                  title={`${unreadNotificationCount} unread notification${unreadNotificationCount === 1 ? "" : "s"}`}
+                >
+                  {unreadNotificationCount > 9 ? "9+" : unreadNotificationCount}
                 </span>
               ) : null}
             </Link>
