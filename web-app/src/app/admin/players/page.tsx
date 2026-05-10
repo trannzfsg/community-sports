@@ -160,7 +160,7 @@ export default function AdminPlayersPage() {
     for (const player of directoryPlayers) {
       const emailKey = normalizeEmail(player.email);
       const linkedUser = player.userId ? usersById.get(player.userId) : null;
-      if (linkedUser?.role && linkedUser.role !== "player") {
+      if (linkedUser?.role && linkedUser.role !== "player" && linkedUser.role !== "organiser") {
         continue;
       }
 

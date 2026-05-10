@@ -47,7 +47,7 @@ import {
   dollarsToCents,
   formatAud,
 } from "@/lib/online-payment-fees";
-import type { AppRole } from "@/lib/roles";
+import { canActAsPlayer, canManageOwnedSeries, type AppRole } from "@/lib/roles";
 import { getEffectiveNextGameOn } from "@/lib/session-options";
 import { getDashboardEventPresentation } from "@/lib/dashboard-event-state";
 import {
@@ -269,17 +269,98 @@ export default function DashboardPage() {
         let approvedOrganiserIds = new Set<string>();
 
         if (profileData.role === "organiser") {
-          const seriesSnapshots = await getDocs(
-            query(
-              collection(db, "sessions"),
-              where("organiserId", "==", currentUser.uid),
-              where("dataPartition", "==", dataPartition),
+          const [ownSeriesSnapshots, approvals, organisers, allSeriesSnapshot] = await Promise.all([
+            getDocs(
+              query(
+                collection(db, "sessions"),
+                where("organiserId", "==", currentUser.uid),
+                where("dataPartition", "==", dataPartition),
+              ),
             ),
-          );
-          seriesItems = seriesSnapshots.docs.map((sessionDoc) => ({
+            getPlayerOrganiserApprovals(db, currentUser.uid, dataPartition),
+            getUsersByRole(db, "organiser", dataPartition),
+            getDocs(query(collection(db, "sessions"), where("dataPartition", "==", dataPartition))),
+          ]);
+
+          const ownSeriesItems = ownSeriesSnapshots.docs.map((sessionDoc) => ({
             id: sessionDoc.id,
             ...(sessionDoc.data() as Omit<SessionSeries, "id">),
-          })).sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek));
+          }));
+
+          const summariesByOrganiser = new Map<string, OrganiserSeriesSummary[]>();
+          allSeriesSnapshot.docs
+            .map((sessionDoc) => ({
+              id: sessionDoc.id,
+              ...(sessionDoc.data() as Omit<SessionSeries, "id">),
+            }))
+            .filter((series) => series.status !== "inactive" && series.organiserId !== currentUser.uid)
+            .forEach((series) => {
+              const summary: OrganiserSeriesSummary = {
+                id: series.id,
+                typeOfSport: series.typeOfSport,
+                dayOfWeek: series.dayOfWeek,
+                startAt: series.startAt,
+                endAt: series.endAt,
+                location: series.location,
+                skillLevel: series.skillLevel ?? null,
+              };
+              summariesByOrganiser.set(series.organiserId, [
+                ...(summariesByOrganiser.get(series.organiserId) ?? []),
+                summary,
+              ]);
+            });
+
+          setPlayerOrganiserApprovals(approvals.sort((a, b) => a.organiserName.localeCompare(b.organiserName)));
+          setAvailableOrganisers(organisers
+            .filter((organiser) => organiser.id !== currentUser.uid)
+            .map((organiser) => ({
+              id: organiser.id,
+              displayName: organiser.displayName || organiser.email || "Organiser",
+              email: organiser.email || "",
+              summaries: (summariesByOrganiser.get(organiser.id) ?? [])
+                .sort((a, b) => a.dayOfWeek.localeCompare(b.dayOfWeek) || a.startAt.localeCompare(b.startAt)),
+            }))
+            .sort((a, b) => a.displayName.localeCompare(b.displayName)));
+          setApprovalDetailsInputs(Object.fromEntries(
+            approvals.map((approval) => [approval.organiserId, approval.requestDetails || ""]),
+          ));
+
+          approvedOrganiserIds = new Set(
+            approvals
+              .filter((approval) => approval.status === "approved")
+              .map((approval) => approval.organiserId),
+          );
+
+          const playerSeriesItems: SessionSeries[] = [];
+          if (approvedOrganiserIds.size) {
+            const organiserIdChunks = splitIntoChunks(Array.from(approvedOrganiserIds), 10);
+            const snapshotChunks = await Promise.all(
+              organiserIdChunks.map((chunk) => getDocs(
+                query(
+                  collection(db, "sessions"),
+                  where("organiserId", "in", chunk),
+                  where("dataPartition", "==", dataPartition),
+                ),
+              )),
+            );
+            playerSeriesItems.push(...snapshotChunks
+              .flatMap((snapshot) => snapshot.docs)
+              .map((sessionDoc) => ({
+                id: sessionDoc.id,
+                ...(sessionDoc.data() as Omit<SessionSeries, "id">),
+              })));
+          }
+
+          const seriesById = new Map<string, SessionSeries>();
+          for (const series of [...ownSeriesItems, ...playerSeriesItems]) {
+            seriesById.set(series.id, series);
+          }
+          seriesItems = Array.from(seriesById.values())
+            .sort((a, b) => {
+              if (a.organiserId === currentUser.uid && b.organiserId !== currentUser.uid) return -1;
+              if (a.organiserId !== currentUser.uid && b.organiserId === currentUser.uid) return 1;
+              return a.dayOfWeek.localeCompare(b.dayOfWeek);
+            });
         } else if (profileData.role === "player") {
           const [approvals, organisers, allSeriesSnapshot] = await Promise.all([
             getPlayerOrganiserApprovals(db, currentUser.uid, dataPartition),
@@ -434,7 +515,7 @@ export default function DashboardPage() {
           setOrganiserApprovalRequests([]);
         }
 
-        if (profileData.role !== "player") {
+        if (!canActAsPlayer(profileData.role)) {
           setPlayerOrganiserApprovals([]);
           setAvailableOrganisers([]);
         }
@@ -453,9 +534,9 @@ export default function DashboardPage() {
     return () => unsubscribe();
   }, [router]);
 
-  const canManageSessions = useMemo(() => {
-    return profile?.role === "admin" || profile?.role === "organiser";
-  }, [profile?.role]);
+  function canManageSeries(series: SessionSeries) {
+    return canManageOwnedSeries(profile?.role, user?.uid, series.organiserId);
+  }
 
   const approvedOrganiserIdsForPlayer = useMemo(() => {
     return new Set(
@@ -574,7 +655,7 @@ export default function DashboardPage() {
 
     try {
       const registrationId = buildRegistrationId(eventItem.id, user.uid);
-      if (!approvedOrganiserIdsForPlayer.has(series.organiserId)) {
+      if (series.organiserId !== user.uid && !approvedOrganiserIdsForPlayer.has(series.organiserId)) {
         return;
       }
 
@@ -632,7 +713,7 @@ export default function DashboardPage() {
         });
         throw error;
       }
-      if (canManageSessions) {
+      if (canManageSeries(series)) {
         await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
         await updateDoc(doc(db, "sessions", series.id), {
           nextGameOn: getEffectiveNextGameOn(series.dayOfWeek, series.startAt, series.nextGameOn),
@@ -655,12 +736,14 @@ export default function DashboardPage() {
       cancellationPolicyHours: series.cancellationPolicyHours,
     });
 
-    if (!canManageSessions && registration.userId === user?.uid && cancellationPolicyActive) {
+    const canManageThisSeries = canManageSeries(series);
+
+    if (!canManageThisSeries && registration.userId === user?.uid && cancellationPolicyActive) {
       alert(getPlayerCancellationPolicyMessage(series.cancellationPolicyHours));
       return;
     }
 
-    if (canManageSessions && cancellationPolicyActive) {
+    if (canManageThisSeries && registration.userId !== user?.uid && cancellationPolicyActive) {
       const confirmed = confirm(
         getOrganiserCancellationPolicyWarning(
           registration.playerName,
@@ -676,7 +759,7 @@ export default function DashboardPage() {
     try {
       await deletePaymentRecord(db, registration.id);
       await deleteDoc(doc(db, "registrations", registration.id));
-      if (canManageSessions) {
+      if (canManageThisSeries) {
         await rebalanceEventRegistrations(db, eventItem.id, eventItem.capacity, profile?.dataPartition);
         await markFreeEventRegistrationsPaid(db, series, eventItem);
       }
@@ -782,6 +865,7 @@ export default function DashboardPage() {
     if (
       profile?.role === "organiser"
       && player.userId
+      && player.userId !== user?.uid
       && !approvedPlayerIdsForOrganiser.has(player.userId)
     ) {
       throw new Error("Player must be approved before being added to events.");
@@ -1020,13 +1104,15 @@ export default function DashboardPage() {
         <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200">
           <p className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-zinc-500">Dashboard</p>
           <h1 className="text-3xl font-semibold tracking-tight">Welcome {profile?.displayName || user?.email}</h1>
-          <p className="mt-3 text-zinc-600">Role: <strong>{profile?.role ?? "player"}</strong></p>
+          <p className="mt-3 text-zinc-600">
+            Role: <strong>{profile?.role === "organiser" ? "organiser and player" : profile?.role ?? "player"}</strong>
+          </p>
         </div>
 
-        {profile?.role === "player" ? (
+        {canActAsPlayer(profile?.role) ? (
           <div className="rounded-3xl bg-white p-8 shadow-sm ring-1 ring-zinc-200" data-testid="player-organiser-approvals">
-            <h2 className="text-xl font-semibold">Organiser approvals</h2>
-            <p className="mt-2 text-sm text-zinc-600">Request organiser approval before you can view or register for their events.</p>
+            <h2 className="text-xl font-semibold">Player approvals</h2>
+            <p className="mt-2 text-sm text-zinc-600">Request organiser approval before you can view or register for another organiser&apos;s events.</p>
             <div className="mt-4 space-y-3">
               {availableOrganisers.length ? availableOrganisers.map((organiser) => {
                 const approval = playerOrganiserApprovals.find((item) => item.organiserId === organiser.id);
@@ -1091,6 +1177,23 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
+        {profile?.role === "organiser" ? (
+          <div className="grid gap-4 md:grid-cols-2" data-testid="organiser-player-dashboard-summary">
+            <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200">
+              <h2 className="text-base font-semibold text-zinc-900">Events you organise</h2>
+              <p className="mt-2 text-sm text-zinc-600">
+                {seriesList.filter((series) => series.organiserId === user?.uid && series.status !== "inactive").length} active event series below.
+              </p>
+            </section>
+            <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-zinc-200">
+              <h2 className="text-base font-semibold text-zinc-900">Events as player</h2>
+              <p className="mt-2 text-sm text-zinc-600">
+                {seriesList.filter((series) => series.organiserId !== user?.uid && series.status !== "inactive").length} approved event series below.
+              </p>
+            </section>
+          </div>
+        ) : null}
+
         <section className="grid gap-4">
           {profile?.role === "player" && !approvedApprovalsForPlayer.length ? (
             <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-zinc-200">
@@ -1101,6 +1204,8 @@ export default function DashboardPage() {
               const events = eventsBySeries[series.id] ?? [];
               const dashboardEvents = events.filter((event) => (event.status || "active") === "active");
               const nextEvent = dashboardEvents.find((event) => event.eventDate === series.nextGameOn) ?? dashboardEvents.at(-1);
+              const canManageThisSeries = canManageSeries(series);
+              const canUsePlayerControls = canActAsPlayer(profile?.role);
               const eventIsFree = !!nextEvent && isFreeEvent(nextEvent);
               const registrations = nextEvent
                 ? (registrationsByEvent[nextEvent.id] ?? []).map((registration) => applyFreeEventPaymentState(registration, nextEvent))
@@ -1108,7 +1213,7 @@ export default function DashboardPage() {
               const currentRegistration = nextEvent ? registrations.find((registration) => registration.userId === user?.uid) : undefined;
               const selfRemovalBlocked = !!nextEvent
                 && !!currentRegistration
-                && !canManageSessions
+                && !canManageThisSeries
                 && isCancellationPolicyActive({
                   eventDate: nextEvent.eventDate,
                   startAt: nextEvent.startAt,
@@ -1121,7 +1226,7 @@ export default function DashboardPage() {
 
                 return true;
               });
-              const visiblePlayersForSeries = profile?.role === "organiser"
+              const visiblePlayersForSeries = canManageThisSeries
                 ? filterPlayersSelectableByOrganiserApproval(playersForSeriesOwner, approvedPlayerIdsForOrganiser)
                 : playersForSeriesOwner;
               const capacityState = getRegistrationCapacityState({
@@ -1144,7 +1249,7 @@ export default function DashboardPage() {
                 : null;
 
               const eventPresentation = getDashboardEventPresentation({
-                role: profile?.role,
+                role: canManageThisSeries ? "organiser" : canUsePlayerControls ? "player" : profile?.role,
                 playerIsGoing,
                 playerIsWaiting,
                 playerCanJoin,
@@ -1161,6 +1266,11 @@ export default function DashboardPage() {
                     <div>
                       <div className="mb-2 flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">{series.typeOfSport}</span>
+                        {profile?.role === "organiser" ? (
+                          <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">
+                            {canManageThisSeries ? "you organise" : "as player"}
+                          </span>
+                        ) : null}
                         {nextEvent ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">{eventStateText}</span> : null}
                         {nextEvent?.locked ? <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700">locked</span> : null}
                       </div>
@@ -1181,7 +1291,7 @@ export default function DashboardPage() {
                       </button>
                       {openActionsSeriesId === series.id ? (
                         <div className="absolute right-0 z-10 mt-2 grid w-56 gap-2 rounded-2xl border border-zinc-200 bg-white p-2 text-sm shadow-lg">
-                          {canManageSessions && nextEvent ? (
+                          {canManageThisSeries && nextEvent ? (
                             <div className="grid gap-1">
                               <div className="px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Event actions</div>
                               <button type="button" data-testid="series-edit-event-button" onClick={() => handleEventEditStart(nextEvent)} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100">
@@ -1197,12 +1307,12 @@ export default function DashboardPage() {
                           ) : null}
                           <div className="grid gap-1 border-t border-zinc-100 pt-2">
                             <div className="px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-zinc-500">Series actions</div>
-                            {canManageSessions ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
+                            {canManageThisSeries ? <button type="button" data-testid="series-create-next-event-button" onClick={() => { setOpenActionsSeriesId(null); void handleCreateNextEvent(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">Create next event</button> : null}
                             <Link href={`/sessions/view?id=${series.id}`} data-testid="series-view-events-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">View all events</Link>
-                            {canManageSessions ? (
+                            {canManageThisSeries ? (
                               <Link href={`/sessions/edit?id=${series.id}`} data-testid="series-edit-link" onClick={() => setOpenActionsSeriesId(null)} className="rounded-xl px-3 py-2 hover:bg-zinc-100">Edit event series</Link>
                             ) : null}
-                            {canManageSessions ? (
+                            {canManageThisSeries ? (
                               <button type="button" onClick={() => { setOpenActionsSeriesId(null); void handleDeleteSeries(series); }} disabled={busyKey === series.id} className="rounded-xl px-3 py-2 text-left font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">Delete event series</button>
                             ) : null}
                           </div>
@@ -1542,7 +1652,7 @@ export default function DashboardPage() {
                       <>
                         <div className="flex items-center justify-between gap-3">
                           <h4 className="text-sm font-semibold uppercase tracking-[0.15em] text-zinc-500">Registrations for {nextEvent.eventDate}</h4>
-                          {!canManageSessions ? (
+                          {canUsePlayerControls ? (
                             currentRegistration ? (
                               <div className="flex flex-col items-start gap-2">
                                 {selfRemovalBlocked ? (
@@ -1557,7 +1667,7 @@ export default function DashboardPage() {
                           ) : null}
                         </div>
 
-                        {canManageSessions ? (
+                        {canManageThisSeries ? (
                           <div className="mt-2 space-y-1">
                             <SearchablePlayerSelect
                               players={visiblePlayersForSeries}
@@ -1581,7 +1691,7 @@ export default function DashboardPage() {
                                 const onlinePaymentDetails = nextEvent ? getOnlinePaymentDetails(nextEvent) : null;
                                 const canPayOnline = isOwnRegistration
                                   && !isWaiting
-                                  && !canManageSessions
+                                  && !canManageThisSeries
                                   && !eventIsFree
                                   && !registration.playerPaid
                                   && !registration.organiserPaid
@@ -1592,7 +1702,7 @@ export default function DashboardPage() {
                                     key={registration.id}
                                     registration={registration}
                                     isOwnRegistration={isOwnRegistration}
-                                    skillLevel={canManageSessions ? playerRecord?.skillLevel || "Not set" : null}
+                                    skillLevel={canManageThisSeries ? playerRecord?.skillLevel || "Not set" : null}
                                   >
                                     {canPayOnline && onlinePaymentDetails ? (
                                       <div className="flex flex-wrap items-center gap-2">
@@ -1609,7 +1719,7 @@ export default function DashboardPage() {
                                         </span>
                                       </div>
                                     ) : null}
-                                    {isOwnRegistration && !isWaiting && !canManageSessions && !eventIsFree ? (
+                                    {isOwnRegistration && !isWaiting && !canManageThisSeries && !eventIsFree ? (
                                       registration.paymentReference && editingReferenceId !== registration.id ? (
                                         <div className="flex flex-wrap items-center gap-2">
                                           <span>Ref: <span className="font-medium text-zinc-700">{registration.paymentReference}</span></span>
@@ -1630,10 +1740,10 @@ export default function DashboardPage() {
                                         </div>
                                       )
                                     ) : null}
-                                    {canManageSessions || (isOwnRegistration && !selfRemovalBlocked) ? (
+                                    {canManageThisSeries || (isOwnRegistration && !selfRemovalBlocked) ? (
                                       <div className="flex flex-wrap items-center gap-2">
-                                        {canManageSessions && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id || eventIsFree} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{eventIsFree ? "Received" : registration.organiserPaid ? "Undo received" : "Received"}</button> : null}
-                                        <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageSessions ? "Leave event" : "Remove"}</button>
+                                        {canManageThisSeries && !isWaiting ? <button type="button" onClick={() => handleOrganiserPaidToggle(registration, !registration.organiserPaid, series, nextEvent)} disabled={busyKey === nextEvent.id || eventIsFree} className="rounded-full border border-zinc-300 px-3 py-1 text-xs font-medium hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60">{eventIsFree ? "Received" : registration.organiserPaid ? "Undo received" : "Received"}</button> : null}
+                                        <button type="button" onClick={() => handleRemoveRegistration(registration, series, nextEvent)} disabled={busyKey === registration.id} className="rounded-full border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">{isOwnRegistration && !canManageThisSeries ? "Leave event" : "Remove"}</button>
                                       </div>
                                     ) : null}
                                   </EventRegistrationRow>

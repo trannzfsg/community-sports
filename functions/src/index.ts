@@ -17,6 +17,10 @@ const allowedOrigins = new Set([
   "http://localhost:3001",
   "http://localhost:3100",
   "http://localhost:3102",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+  "http://127.0.0.1:3100",
+  "http://127.0.0.1:3102",
   "https://community-sports-6584e.firebaseapp.com",
   "https://community-sports-6584e.web.app",
   "https://sports.tranzha.com",
@@ -72,6 +76,15 @@ function roleRank(role: unknown) {
   if (role === "organiser") return 2;
   if (role === "player") return 1;
   return 0;
+}
+
+/**
+ * Organisers can also participate in events as players.
+ * @param {unknown} role
+ * @return {boolean}
+ */
+function canActAsPlayer(role: unknown) {
+  return role === "player" || role === "organiser";
 }
 
 /**
@@ -389,7 +402,7 @@ export const rolesInfo = onRequest((request, response) => {
   response.status(200).json({
     roles: ["player", "organiser", "admin"],
     organiserVisibility:
-      "organisers can only manage and view their own sessions/payments",
+      "organisers manage their own sessions/payments and can join approved events as players",
     adminVisibility: "admins can view everything",
   });
 });
@@ -502,7 +515,7 @@ export const syncUserEmailChange = onRequest(async (request, response) => {
       updatedAt: FieldValue.serverTimestamp(),
     }, {merge: true});
 
-    if (role === "player") {
+    if (canActAsPlayer(role)) {
       batch.set(firestore.doc(`players/${uid}`), {
         email: nextEmail,
         dataPartition: nextPartition,
@@ -626,7 +639,7 @@ export const changeExampleUserEmail = onRequest(async (request, response) => {
       updatedAt: FieldValue.serverTimestamp(),
     }, {merge: true});
 
-    if (role === "player") {
+    if (canActAsPlayer(role)) {
       batch.set(firestore.doc(`players/${uid}`), {
         email: nextEmail,
         dataPartition: "test",
@@ -899,7 +912,7 @@ export const linkRegisteredUserData = onRequest(async (request, response) => {
 
       if (playerDoc.id === uid) {
         canonicalPlayerHandled = true;
-        if (preferredRole === "player") {
+        if (canActAsPlayer(preferredRole)) {
           await playerDoc.ref.set({
             ownerOrganiserId: null,
             userId: uid,
@@ -952,7 +965,7 @@ export const linkRegisteredUserData = onRequest(async (request, response) => {
     }
 
     const canonicalPlayerRef = firestore.doc(`players/${uid}`);
-    if (preferredRole === "player") {
+    if (canActAsPlayer(preferredRole)) {
       await canonicalPlayerRef.set({
         ownerOrganiserId: null,
         userId: uid,

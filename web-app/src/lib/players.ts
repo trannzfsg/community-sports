@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import { getUsersByRole } from "./users";
 import type { SkillLevel } from "./skill-levels";
+import { canActAsPlayer } from "./roles";
 import { buildPaymentId } from "./payments";
 import { buildRegistrationId, type RegistrationItem, type SessionEvent, type SessionSeries } from "./session-series";
 
@@ -61,7 +62,7 @@ export async function ensureSelfRegisteredPlayers(db: Firestore, dataPartition?:
         role?: string;
       };
 
-      if (!data.email || data.role !== "player") {
+      if (!data.email || !canActAsPlayer(data.role as Parameters<typeof canActAsPlayer>[0])) {
         return;
       }
 
@@ -88,18 +89,16 @@ export async function getVisiblePlayersForOrganiser(
   dataPartition?: DataPartition,
 ) {
   const partition = resolveDataPartition(undefined, dataPartition);
-  const [[ownedPlayersSnapshot, sharedPlayersSnapshot], adminUsers, organiserUsers] = await Promise.all([
+  const [[ownedPlayersSnapshot, sharedPlayersSnapshot], adminUsers] = await Promise.all([
     Promise.all([
       getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", organiserId))),
       getDocs(query(collection(db, "players"), where("dataPartition", "==", partition), where("ownerOrganiserId", "==", null))),
     ]),
     getUsersByRole(db, "admin", partition),
-    getUsersByRole(db, "organiser", partition),
   ]);
 
   const excludedUserIds = new Set([
     ...adminUsers.map((user) => user.id),
-    ...organiserUsers.map((user) => user.id),
   ]);
 
   const merged = new Map<string, PlayerDirectoryEntry>();

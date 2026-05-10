@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import type { UserSubscription } from "@/lib/subscription";
 import type { StripeConnectStatus } from "@/lib/stripe-connect";
+import { canActAsPlayer } from "@/lib/roles";
 
 type DataPartition = "test" | "live";
 
@@ -72,7 +73,8 @@ export async function getAllUsers(db: Firestore, dataPartition?: DataPartition) 
 }
 
 export async function backfillSharedPlayerDirectoryFromUsers(db: Firestore) {
-  const players = await getUsersByRole(db, "player");
+  const users = await getAllUsers(db);
+  const players = users.filter((user) => canActAsPlayer(user.role));
   for (const player of players) {
     await setDoc(
       doc(db, "players", player.id),

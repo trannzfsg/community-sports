@@ -1,9 +1,10 @@
 import type { AppRole } from "@/lib/roles";
 import type { RegistrationItem } from "@/lib/session-series";
 import { hasFeature, type PremiumFeatureKey, type SubscriptionUser } from "./subscription.ts";
+import { canActAsOrganiser } from "./roles.ts";
 
 export function canManageSessions(role?: AppRole | null) {
-  return role === "admin" || role === "organiser";
+  return canActAsOrganiser(role);
 }
 
 export function canAccessAdminArea(role?: AppRole | null) {

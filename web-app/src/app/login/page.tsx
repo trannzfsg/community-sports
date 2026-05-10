@@ -82,9 +82,11 @@ function clearRegisterNotice() {
 async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: string) {
   console.log("[auth] ensureUserProfileForAuthUser start", { uid: user.uid, email: user.email });
 
+  let linkedRegisteredData = false;
   try {
     const idToken = await user.getIdToken(true);
     const linked = await linkRegisteredUserData(idToken);
+    linkedRegisteredData = true;
     console.log("[auth] linkRegisteredUserData result", {
       uid: linked.uid,
       email: linked.email,
@@ -160,8 +162,10 @@ async function ensureUserProfileForAuthUser(user: User, fallbackDisplayName?: st
   console.log("[auth] users/{uid} written with role:", resolved.role);
 
   if (shouldSyncSelfRegisteredPlayerDirectoryEntry(resolved.role)) {
-    await migrateManualPlayersToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
-    await promoteManualPlayerToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
+    if (!linkedRegisteredData) {
+      await migrateManualPlayersToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
+      await promoteManualPlayerToSelfRegistered(db, user.uid, resolved.email, resolved.displayName);
+    }
     await upsertSelfRegisteredPlayerDirectoryEntry(db, user.uid, resolved.email, resolved.displayName);
     console.log("[auth] player directory updated");
   } else if (resolved.role === "admin") {
