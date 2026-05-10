@@ -2,6 +2,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
@@ -805,6 +806,13 @@ export async function createSessionEventForSeries(
     await clearEventRegistrationsAndPayments(db, eventId, series.dataPartition);
   }
 
+  const organiserSnapshot = await getDoc(doc(db, "users", series.organiserId));
+  const organiserData = organiserSnapshot.exists()
+    ? organiserSnapshot.data() as { displayName?: string; email?: string }
+    : null;
+  const organiserEmail = organiserData?.email || "";
+  const organiserName = organiserData?.displayName || series.organiserName || organiserEmail || "Organiser";
+
   await setDoc(eventRef, {
     sessionSeriesId: series.id,
     organiserId: series.organiserId,
@@ -866,7 +874,7 @@ export async function createSessionEventForSeries(
 
   const { plannedRegistrations, skippedMembershipIds } = planEventRegistrations({
     eventDate: resolvedEventDate,
-    capacity: series.capacity,
+    capacity: Math.max(0, series.capacity - 1),
     waitingListCapacity: normalizeWaitingListCapacity(series.waitingListCapacity),
     defaultPriceCasual: series.defaultPriceCasual,
     activeMemberships: Array.from(membershipsById.entries())
@@ -884,10 +892,29 @@ export async function createSessionEventForSeries(
         paymentReference: membership.paymentReference ?? null,
         skipNextEvent: !!membership.skipNextEvent,
         joinedOrder: getTimestampMillis(membership.createdAt),
-      })),
+      }))
+      .filter((membership) => membership.playerId !== series.organiserId),
   });
 
-  for (const registration of plannedRegistrations) {
+  const organiserRegistration = organiserEmail
+    ? [{
+        userId: series.organiserId,
+        playerName: organiserName,
+        playerEmail: organiserEmail,
+        source: "self" as const,
+        seriesMembershipId: null,
+        playerPaid: isFreeCasualPrice(series.defaultPriceCasual),
+        organiserPaid: isFreeCasualPrice(series.defaultPriceCasual),
+        paymentReference: null,
+        status: "registered" as const,
+      }]
+    : [];
+  const allPlannedRegistrations = [
+    ...organiserRegistration,
+    ...plannedRegistrations,
+  ];
+
+  for (const registration of allPlannedRegistrations) {
     await setDoc(
       doc(db, "registrations", buildRegistrationId(eventId, registration.userId)),
       {
@@ -960,7 +987,7 @@ export async function createSessionEventForSeries(
     }, { merge: true });
   }
 
-  for (const registration of plannedRegistrations.filter((item) => item.source === "series-membership" && item.seriesMembershipId)) {
+  for (const registration of allPlannedRegistrations.filter((item) => item.source === "series-membership" && item.seriesMembershipId)) {
     await setDoc(doc(db, "seriesMemberships", String(registration.seriesMembershipId)), {
       lastAutoRegisteredEventId: eventId,
       updatedAt: serverTimestamp(),
@@ -968,8 +995,8 @@ export async function createSessionEventForSeries(
   }
 
   await setDoc(eventRef, {
-    bookedCount: plannedRegistrations.filter((registration) => registration.status === "registered").length,
-    waitingCount: plannedRegistrations.filter((registration) => registration.status === "waiting").length,
+    bookedCount: allPlannedRegistrations.filter((registration) => registration.status === "registered").length,
+    waitingCount: allPlannedRegistrations.filter((registration) => registration.status === "waiting").length,
   }, { merge: true });
 
   return {

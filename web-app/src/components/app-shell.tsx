@@ -73,7 +73,7 @@ function getNavigationItems(role: AppRole): NavigationItem[] {
 
 function getRoleLabel(role: AppRole) {
   if (role === "admin") return "Admin";
-  if (role === "organiser") return "Organiser";
+  if (role === "organiser") return "Organiser + Player";
   return "Player";
 }
 

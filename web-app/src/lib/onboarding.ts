@@ -114,7 +114,34 @@ export const ONBOARDING_CONTENT: Record<OnboardingRole, OnboardingContent> = {
 };
 
 export function getOnboardingContent(role: AppRole) {
-  if (role === "player" || role === "organiser") {
+  if (role === "organiser") {
+    const organiserContent = ONBOARDING_CONTENT.organiser;
+    const playerContent = ONBOARDING_CONTENT.player;
+    return {
+      ...organiserContent,
+      version: `${organiserContent.version}+${playerContent.version}`,
+      badge: "Organiser and player onboarding",
+      title: "How organiser and player workflows fit together",
+      intro: "This walkthrough covers both sides of your organiser account: running your own events and joining events as a player.",
+      sections: [
+        {
+          title: "Organiser settings and workflows",
+          points: organiserContent.sections.flatMap((section) => section.points),
+        },
+        {
+          title: "Player settings and workflows",
+          points: [
+            "Your organiser account also has a player profile, including skill level and games-played history.",
+            "You are automatically added as the first player in events you create for your own series.",
+            "Request approval from another organiser before you can view or join that organiser's events.",
+            ...playerContent.sections.flatMap((section) => section.points),
+          ],
+        },
+      ],
+    };
+  }
+
+  if (role === "player") {
     return ONBOARDING_CONTENT[role];
   }
 

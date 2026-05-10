@@ -11,6 +11,7 @@ import {
   getPlayerEventState,
   getPlayerRegisterButtonLabel,
 } from "../src/lib/flow-access.ts";
+import { canActAsPlayer, canManageOwnedSeries } from "../src/lib/roles.ts";
 import type { RegistrationItem } from "../src/lib/session-series.ts";
 
 test("admin + organiser can manage sessions, player cannot", () => {
@@ -31,6 +32,14 @@ test("premium feature gates are currently open to signed-in roles", () => {
   assert.equal(canUsePushNotifications({ role: "player", subscription: { tier: "free", status: null } }), true);
   assert.equal(canUseInAppPayments({ role: "organiser", subscription: { tier: "pro", status: "active" } }), true);
   assert.equal(canUseAccounting(null), false);
+});
+
+test("organisers can act as players while management stays owner-scoped", () => {
+  assert.equal(canActAsPlayer("player"), true);
+  assert.equal(canActAsPlayer("organiser"), true);
+  assert.equal(canActAsPlayer("admin"), false);
+  assert.equal(canManageOwnedSeries("organiser", "org-1", "org-1"), true);
+  assert.equal(canManageOwnedSeries("organiser", "org-1", "org-2"), false);
 });
 
 test("series edit permission: admin any series, organiser only own series", () => {

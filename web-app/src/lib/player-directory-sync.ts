@@ -1,3 +1,5 @@
-export function shouldSyncSelfRegisteredPlayerDirectoryEntry(role: "player" | "organiser" | "admin") {
-  return role === "player";
+import { canActAsPlayer, type AppRole } from "./roles.ts";
+
+export function shouldSyncSelfRegisteredPlayerDirectoryEntry(role: AppRole) {
+  return canActAsPlayer(role);
 }

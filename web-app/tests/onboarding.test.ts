@@ -15,7 +15,11 @@ test("player and organiser onboarding content expose versioned guides", () => {
   assert.equal((player?.sections.length || 0) > 0, true);
   assert.equal((organiser?.sections.length || 0) > 0, true);
   assert.equal(
-    organiser?.sections.some((section) => section.title === "Stripe Connect setup"),
+    organiser?.sections.some((section) => section.title === "Organiser settings and workflows"),
+    true,
+  );
+  assert.equal(
+    organiser?.sections.some((section) => section.title === "Player settings and workflows"),
     true,
   );
 });

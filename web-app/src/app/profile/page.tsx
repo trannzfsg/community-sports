@@ -41,6 +41,7 @@ import { rememberLoginNotice } from "@/lib/login-notices";
 import { sendNotificationTest } from "@/lib/notification-test";
 import { getDataPartitionForEmail, resolveDataPartition, type DataPartition } from "@/lib/data-partition";
 import { shouldSyncSelfRegisteredPlayerDirectoryEntry } from "@/lib/player-directory-sync";
+import { canActAsPlayer } from "@/lib/roles";
 import { SKILL_LEVEL_OPTIONS, type SkillLevel } from "@/lib/skill-levels";
 import { getGamesPlayedByOrganiserForPlayer, type OrganiserGameCount } from "@/lib/player-stats";
 import {
@@ -265,10 +266,10 @@ export default function ProfilePage() {
           userData.email || refreshedUser.email || "",
           userData.dataPartition || "live",
         );
-        const playerSnapshot = userData.role === "player"
+        const playerSnapshot = canActAsPlayer(userData.role)
           ? await getDoc(doc(db, "players", refreshedUser.uid))
           : null;
-        const nextSkillLevel = userData.role === "player"
+        const nextSkillLevel = canActAsPlayer(userData.role)
           ? (playerSnapshot?.data()?.skillLevel as SkillLevel | undefined) || ""
           : "";
         const nextNotificationPreferences = normalizeNotificationPreferences(
@@ -283,14 +284,14 @@ export default function ProfilePage() {
         const visibleNotificationPreferences = applyNotificationFeatureFlags(
           nextNotificationPreferences,
         );
-        const nextGamesPlayedByOrganiser = userData.role === "player"
+        const nextGamesPlayedByOrganiser = canActAsPlayer(userData.role)
           ? await getGamesPlayedByOrganiserForPlayer(
             db,
             user.uid,
             resolvedPartition,
           )
           : [];
-        const benefitProgramEntries = userData.role === "player"
+        const benefitProgramEntries = canActAsPlayer(userData.role)
           ? await Promise.all(
             nextGamesPlayedByOrganiser.map(async (entry) => {
               const program = await getOrganiserBenefitProgram(db, entry.organiserId);
@@ -663,7 +664,7 @@ export default function ProfilePage() {
   const showOrganiserNotificationSettings =
     role === "organiser" || role === "admin";
   const showPlayerNotificationSettings =
-    role === "player" || role === "admin";
+    canActAsPlayer(role) || role === "admin";
 
   return (
     <AppShell role={role} contentClassName="max-w-2xl">
@@ -676,6 +677,7 @@ export default function ProfilePage() {
         </div>
 
         <div className="mt-8 grid gap-4">
+          <h2 className="text-base font-semibold text-zinc-900">Account settings</h2>
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-zinc-700">Display name</span>
             <input value={name} onChange={(event) => setName(event.target.value)} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500" />
@@ -984,7 +986,7 @@ export default function ProfilePage() {
 
           {role === "organiser" ? (
             <div className="rounded-2xl border border-zinc-200 p-4">
-              <h2 className="text-base font-semibold text-zinc-900">Member benefits</h2>
+              <h2 className="text-base font-semibold text-zinc-900">Organiser settings</h2>
               <p className="mt-1 text-sm text-zinc-500">
                 Configure when your organiser loyalty benefit becomes available and what players should do once they qualify.
               </p>
@@ -1013,8 +1015,9 @@ export default function ProfilePage() {
             </div>
           ) : null}
 
-          {role === "player" ? (
+          {canActAsPlayer(role) ? (
             <>
+              <h2 className="text-base font-semibold text-zinc-900">Player settings</h2>
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-zinc-700">Skill level</span>
                 <select value={skillLevel} onChange={(event) => setSkillLevel(event.target.value as SkillLevel | "")} className="w-full rounded-xl border border-zinc-300 px-4 py-3 outline-none transition focus:border-zinc-500">

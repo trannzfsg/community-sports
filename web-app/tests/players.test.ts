@@ -16,9 +16,9 @@ type TestPlayerDirectoryEntry = {
   status?: "active" | "inactive" | null;
 };
 
-test("admin and organiser accounts should not be mirrored into the shared player directory", () => {
+test("player-capable accounts are mirrored into the shared player directory", () => {
   assert.equal(shouldSyncSelfRegisteredPlayerDirectoryEntry("player"), true);
-  assert.equal(shouldSyncSelfRegisteredPlayerDirectoryEntry("organiser"), false);
+  assert.equal(shouldSyncSelfRegisteredPlayerDirectoryEntry("organiser"), true);
   assert.equal(shouldSyncSelfRegisteredPlayerDirectoryEntry("admin"), false);
 });
 

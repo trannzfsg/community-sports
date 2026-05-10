@@ -139,11 +139,6 @@ function SessionViewPageInner() {
       profileData?.dataPartition || "live",
     );
 
-    if (profileData?.role === "organiser" && seriesData.organiserId !== currentUser.uid) {
-      router.push("/dashboard");
-      return;
-    }
-
     const eventsSnap = await getDocs(
       query(
         collection(db, "sessionEvents"),
@@ -348,8 +343,6 @@ function SessionViewPageInner() {
     }
   }
 
-  const canManage = profile?.role === "admin" || profile?.role === "organiser";
-
   if (loading) {
     return (
       <main className="min-h-screen bg-zinc-50 px-6 py-16 text-zinc-900">
@@ -400,8 +393,8 @@ function SessionViewPageInner() {
           eventList.map(({ event, registrations }) => {
             const isPast = event.eventDate < today;
             const unconfirmedRegistered = registrations.filter((registration) => registration.status !== "waiting" && !registration.organiserPaid);
-            const hasUnconfirmedWarning = canManage && isPast && unconfirmedRegistered.length > 0 && !event.locked;
             const isOrganiserOwned = profile?.role === "admin" || (profile?.role === "organiser" && event.organiserId === user?.uid);
+            const hasUnconfirmedWarning = isOrganiserOwned && isPast && unconfirmedRegistered.length > 0 && !event.locked;
             const isEditing = editingEventId === event.id;
             const draft = eventDraftsById[event.id] ?? buildEventOverrideDraft(event);
             const canEditOverrides = isOrganiserOwned

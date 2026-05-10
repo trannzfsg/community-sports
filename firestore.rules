@@ -25,7 +25,7 @@ service cloud.firestore {
     }
 
     function isPlayer() {
-      return isSignedIn() && currentUserRole() == 'player';
+      return isSignedIn() && currentUserRole() in ['player', 'organiser'];
     }
 
     function isOwner(userId) {
@@ -460,7 +460,7 @@ service cloud.firestore {
 
     function registrationUserNeedsApproval(userId) {
       return exists(/databases/$(database)/documents/users/$(userId))
-        && get(/databases/$(database)/documents/users/$(userId)).data.role == "player";
+        && get(/databases/$(database)/documents/users/$(userId)).data.role in ["player", "organiser"];
     }
 
     function newSeriesMembershipOwnedByCurrentPlayer() {
@@ -678,7 +678,8 @@ service cloud.firestore {
       allow read: if isSignedIn() && resource.data.dataPartition == requestPartition();
       allow create: if (isAdmin()
           || ((newRegistrationForOrganiserEvent() || newRegistrationForOrganiserSeries())
-            && (!registrationUserNeedsApproval(request.resource.data.userId)
+            && (request.resource.data.userId == request.auth.uid
+              || !registrationUserNeedsApproval(request.resource.data.userId)
               || organiserHasApprovedPlayer(request.auth.uid, request.resource.data.userId)))
           || ((isSignedIn() && request.resource.data.userId == request.auth.uid)
             && signedInPlayerApprovedForOrganiser(

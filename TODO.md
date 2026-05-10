@@ -1,5 +1,16 @@
 # To-Do List
 
+- [ ] Allow organiser accounts to also act as players.
+  - [x] Review current role, player profile, dashboard, approvals, registration, rules, and tests.
+  - [x] Plan product and architecture decisions, then confirm assumptions before implementation.
+  - [x] Keep single `organiser` role while adding implicit player capability.
+  - [x] Auto-register organisers as the first player in their own new events.
+  - [x] Let organisers request normal player approval from other organisers.
+  - [x] Split organiser profile/onboarding into organiser and player sections.
+  - [x] Implement approved dual organiser/player behaviour.
+  - [x] Verify with automated checks and live browser testing.
+  - [ ] Commit, merge to main, deploy, and complete smoke validation.
+
 - [ ] Implement hosted player checkout with Stripe Connect platform cut.
   - [x] Add series online-payment settings for casual and member fees.
   - [x] Add event-level online payment amount override support.
