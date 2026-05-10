@@ -1,5 +1,16 @@
 # To-Do List - Completed tasks
 
+- [x] Allow organiser accounts to also act as players.
+  - [x] Reviewed current role, player profile, dashboard, approvals, registration, rules, Functions, and tests.
+  - [x] Confirmed product decisions: keep single `organiser` role, let organisers play in their own and other organisers' events, require approval for other organisers, and show organiser plus player onboarding.
+  - [x] Added implicit player capability for organiser accounts while keeping admin separate.
+  - [x] Auto-register organisers as the first player when creating events for their own series.
+  - [x] Let organisers request normal player approval from other organisers and view approved events as a player.
+  - [x] Scoped dashboard management actions by series ownership so organisers cannot manage other organisers' events.
+  - [x] Split profile and onboarding surfaces into account, organiser, and player sections for organiser accounts.
+  - [x] Updated Firestore rules and Functions account-link/email-sync paths for organiser player profiles.
+  - [x] Verified with lint, tests, builds, local browser checks, Firebase deploy, and hosted smoke checks.
+
 - [x] Continue premium features implementation, skipping payment end-to-end verification for now.
   - [x] Mark premium continuation confirmation complete.
   - [x] Implement the next non-payment premium slice from `PREMIUM_FEATURES_PLAN.md`.
